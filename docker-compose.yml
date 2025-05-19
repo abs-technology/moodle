@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  moodle:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: abs:https
+    container_name: moodle-absi
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - moodle_data:/var/www/moodledata
+      - ssl_certs:/etc/apache2/ssl
+    environment:
+      # Database settings
+      - MOODLE_DATABASE_TYPE=mariadb
+      - MOODLE_DATABASE_HOST=db
+      - MOODLE_DATABASE_PORT=3306
+      - MOODLE_DATABASE_NAME=moodle
+      - MOODLE_DATABASE_USER=moodle
+      - MOODLE_DATABASE_PASSWORD=moodle
+      - MOODLE_DATABASE_PREFIX=mdl_
+      
+      # Admin settings
+      - MOODLE_ADMIN_USER=admin
+      - MOODLE_ADMIN_PASSWORD=Admin@123
+      - MOODLE_ADMIN_EMAIL=admin@example.com
+      
+      # Site settings
+      - MOODLE_SITE_NAME=Moodle ABSI
+      - MOODLE_SITE_FULLNAME=Moodle Learning Management System by ABSI
+      - MOODLE_SITE_SHORTNAME=Moodle ABSI
+      - MOODLE_WWWROOT=https://localhost
+      - MOODLE_DATAROOT=/var/www/moodledata
+      
+      # SSL settings
+      - MOODLE_ENABLE_SSL=true
+      - MOODLE_SSLPROXY=true
+      - MOODLE_REVERSEPROXY=false
+      
+      # Language settings
+      - MOODLE_LANG=vi
+      
+      # PHP settings
+      - PHP_MEMORY_LIMIT=512M
+      - PHP_UPLOAD_MAX_FILESIZE=100M
+      - PHP_POST_MAX_SIZE=100M
+      
+      # Installation flags
+      - MOODLE_SKIP_INSTALL=false
+      - MOODLE_RECONFIGURE=false
+      - MOODLE_AUTO_INSTALL=true
+    depends_on:
+      - db
+    networks:
+      - moodle-network
+
+  db:
+    image: mariadb:11.7.2
+    container_name: moodle-db
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=moodle
+      - MYSQL_USER=moodle
+      - MYSQL_PASSWORD=moodle
+    volumes:
+      - db_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - moodle-network
+
+volumes:
+  moodle_data:
+  db_data:
+  ssl_certs:
+
+networks:
+  moodle-network:
+    driver: bridge 
