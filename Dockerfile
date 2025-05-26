@@ -1,7 +1,7 @@
 # ABS Technology Joint Stock Company. All Rights Reserved.
 # SPDX-License-Identifier: APACHE-2.0
 
-FROM php:8.2-apache
+FROM php:8.4-apache
 
 # Metadata
 LABEL maintainer="ABS Technology <info@abs.vn>"
