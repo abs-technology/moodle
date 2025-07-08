@@ -1,7 +1,10 @@
 # Moodle Data Directories
-# These directories contain runtime data and should not be committed
-data/moodle/
-data/moodledata/
+# Ignore contents but keep directory structure
+data/moodle/*
+data/moodledata/*
+# Keep directory structure with .gitkeep files
+!data/moodle/.gitkeep
+!data/moodledata/.gitkeep
 
 # Environment file with sensitive information
 .env
