@@ -9,6 +9,27 @@ set -o pipefail
 . /scripts/lib/service.sh
 . /scripts/lib/validations.sh
 
+# Display Absi Technology Logo
+
+echo -e "\033[1;32mWelcome to Absi Technology Moodle LMS\033[0m" 
+echo -e "     ___    __         \033[31m_\033[0m "
+echo -e "    /   |  / /_  _____\033[31m(_)\033[0m"
+echo -e "   / /| | / __ \/ ___\033[31m/ /\033[0m "
+echo -e "  / ___ |/ /_/ (__  )\033[31m /\033[0m  "
+echo -e " /_/  |_/_.___/____\033[31m/_/\033[0m   "
+                        
+echo ""
+echo " ══════════════════════════════════════════════"
+echo "  🎓 ABSI TECHNOLOGY MOODLE LMS 🎓              "
+echo "     Learning Management System                "
+echo "     Version 5.0.1                             "
+echo " ══════════════════════════════════════════════"
+echo ""
+echo " 🚀 Starting Moodle Docker Container..."
+echo " 📅 $(date '+%Y-%m-%d %H:%M:%S')"
+echo " 🌐 Container ID: $(hostname)"
+echo ""
+
 # Định nghĩa các biến môi trường chung hoặc các đường dẫn
 MOODLE_DATA_DIR="${MOODLE_DATA_DIR:-/var/www/moodledata}"
 
