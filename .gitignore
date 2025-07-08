@@ -1,8 +1,23 @@
-# Environment variables with sensitive data
+# Moodle Data Directories
+# These directories contain runtime data and should not be committed
+data/moodle/
+data/moodledata/
+
+# Environment file with sensitive information
 .env
 
 # Docker volumes data
-data/
+volumes/
+
+# Backup files
+*.sql
+*.tar.gz
+*.zip
+backup/
+
+# Log files
+*.log
+logs/
 
 # OS generated files
 .DS_Store
@@ -18,12 +33,9 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
-
-# Logs
-*.log
-logs/
+*~
 
 # Temporary files
-*.tmp
-*.temp
-.cache/ 
+tmp/
+temp/
+*.tmp 

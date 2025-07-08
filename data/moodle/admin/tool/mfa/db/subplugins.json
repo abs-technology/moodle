@@ -1,8 +1,0 @@
-{
-  "subplugintypes": {
-    "factor": "factor"
-  },
-  "plugintypes": {
-    "factor": "admin/tool/mfa/factor"
-  }
-}

@@ -1,1 +1,0 @@
-noworkshops,mod_workshop
