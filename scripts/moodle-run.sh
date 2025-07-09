@@ -19,7 +19,7 @@ _forwardTerm() {
 trap _forwardTerm TERM
 
 info "** Starting cron **"
-cron -f & # Chạy cron ở background
+cron & # Chạy cron ở background (không dùng -f)
 
 info "** Starting PHP-FPM **"
 php-fpm${PHP_VERSION} -F & # Chạy PHP-FPM ở background

@@ -98,8 +98,18 @@ fi
 
 # Cấu hình cron job
 info "Configuring Moodle cron job..."
-echo "*/${MOODLE_CRON_MINUTES} * * * * su -s /bin/bash $APP_USER -c 'php /var/www/html/admin/cli/cron.php > /dev/null 2>&1'" > /etc/cron.d/moodle
+cat > /etc/cron.d/moodle <<EOF
+# Moodle cron job - runs every ${MOODLE_CRON_MINUTES} minute(s)
+*/${MOODLE_CRON_MINUTES} * * * * ${APP_USER} php /var/www/html/admin/cli/cron.php > /dev/null 2>&1
+
+EOF
 chmod 0644 /etc/cron.d/moodle
+
+# Restart cron để nhận file mới (nếu cron đang chạy)
+if pgrep cron > /dev/null; then
+    info "Restarting cron daemon to pick up new configuration..."
+    pkill -HUP cron || true
+fi
 
 # Luôn cập nhật wwwroot mỗi khi container start
 info "Configuring Moodle wwwroot..."
