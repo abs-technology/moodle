@@ -4,10 +4,11 @@ set -o nounset
 set -o pipefail
 
 . /scripts/lib/logging.sh
+. /scripts/lib/config.sh
 . /scripts/lib/service.sh
 
-# Định nghĩa các biến môi trường và đường dẫn cần thiết cho runtime
-PHP_VERSION="${PHP_VERSION:-8.2}"
+# Load centralized configuration
+load_config
 
 # Hàm xử lý tín hiệu TERM để dừng các tiến trình con
 _forwardTerm() {

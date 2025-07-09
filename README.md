@@ -6,7 +6,7 @@ A production-ready Docker setup for Moodle 5.0.1 with MariaDB, optimized for per
 
 - **Moodle 5.0.1** - Latest stable version
 - **MariaDB 11.7.2** - High-performance database
-- **PHP 8.2** with FPM and OPcache optimization
+- **PHP 8.4** with FPM and OPcache optimization
 - **Apache 2.4** with SSL support
 - **Security hardened** - Production-ready security configurations
 - **Docker optimized** - Easy deployment and scaling

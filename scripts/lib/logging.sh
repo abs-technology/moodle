@@ -9,6 +9,74 @@ YELLOW='\033[38;5;3m'
 MAGENTA='\033[38;5;5m'
 CYAN='\033[38;5;6m'
 
+#!/bin/bash
+
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+GRAY='\033[0;37m'
+NC='\033[0m'
+
+# Icons
+SUCCESS="[✓]"
+FAIL="[✗]"
+WARNING="[!]"
+CLOCK="[t]"
+
+# Test data (bạn thay bằng giá trị thực tế)
+SUCCESS_COUNT=100
+RATE_LIMITED_COUNT=5
+BLOCKED_COUNT=2
+ERROR_COUNT=1
+TEST_DURATION=67
+ACTUAL_RATE="90"
+
+# In dòng có màu
+print_line() {
+    printf "%b%s%b\n" "$1" "$2" "$NC"
+}
+
+# Header dòng đầu: tiêu đề
+print_title_line() {
+    local title="$1"
+    local prefix="─ "
+    local suffix=" ─"
+    local left="╭"
+    local right="╮"
+    
+    local content="${prefix}${title}${suffix}"
+    local filler_length=$((50 - 2 - ${#content}))
+    local filler=$(printf '─%.0s' $(seq 1 "$filler_length"))
+    
+    printf "%b%s%s%s%b\n" "$WHITE" "$left" "$content$filler" "$right" "$NC"
+}
+
+# Footer
+print_footer_line() {
+    local middle=$(printf '─%.0s' $(seq 1 48))
+    print_line "$WHITE" "╰${middle}╯"
+}
+
+# Nội dung dòng trong bảng
+print_fixed_box_line() {
+    local icon="$1"
+    local label="$2"
+    local value="$3"
+    local color="$4"
+    
+    local text="${icon} ${label}: ${value}"
+    local padding=$((46 - ${#text}))
+    local pad=$(printf '%*s' "$padding")
+    
+    printf "%b│ %b%s%s%b │%b\n" "$WHITE" "$color" "$text" "$pad" "$NC" "$NC"
+}
+
+
 stderr_print() {
     printf "%b\\n" "${*}" >&2
 }

@@ -4,34 +4,16 @@ set -o nounset
 set -o pipefail
 
 . /scripts/lib/logging.sh
+. /scripts/lib/config.sh
 . /scripts/lib/filesystem.sh
 . /scripts/lib/validations.sh
 . /scripts/lib/mariadb.sh
 . /scripts/lib/php.sh
 
-MOODLE_DIR="/var/www/html"
-MOODLE_DATA_DIR="${MOODLE_DATA_DIR:-/var/www/moodledata}"
+# Load centralized configuration
+load_config
+
 MOODLE_CONF_FILE="${MOODLE_DIR}/config.php"
-
-# Biến môi trường Moodle
-MOODLE_DATABASE_TYPE="${MOODLE_DATABASE_TYPE:-mariadb}"
-MOODLE_DATABASE_HOST="${MOODLE_DATABASE_HOST:-mariadb}"
-MOODLE_DATABASE_PORT_NUMBER="${MOODLE_DATABASE_PORT_NUMBER:-3306}"
-MOODLE_DATABASE_NAME="${MOODLE_DATABASE_NAME:-absi_moodle_db}"
-MOODLE_DATABASE_USER="${MOODLE_DATABASE_USER:-absi_moodle_user}"
-MOODLE_DATABASE_PASSWORD="${MOODLE_DATABASE_PASSWORD:-password}"
-MOODLE_USERNAME="${MOODLE_USERNAME:-absi_admin}"
-MOODLE_PASSWORD="${MOODLE_PASSWORD:-password}"
-MOODLE_EMAIL="${MOODLE_EMAIL:-henry@absi.edu.vn}"
-MOODLE_SITE_NAME="${MOODLE_SITE_NAME:-Absi Technology Moodle LMS}"
-MOODLE_CRON_MINUTES="${MOODLE_CRON_MINUTES:-1}"
-MOODLE_HOST="${MOODLE_HOST:-localhost}"
-MOODLE_REVERSEPROXY="${MOODLE_REVERSEPROXY:-no}"
-MOODLE_SSLPROXY="${MOODLE_SSLPROXY:-no}"
-
-# Người dùng hệ thống của ứng dụng
-APP_USER="absiuser"
-APP_GROUP="absiuser"
 
 # Hàm kiểm tra và chờ DB
 wait_for_db_connection() {
@@ -57,8 +39,8 @@ wait_for_db_connection() {
 # Logic chính của Moodle Setup  
 if [[ -f "$MOODLE_CONF_FILE" ]]; then
     info "Moodle already initialized. Skipping fresh installation."
-    chown -R "${APP_USER}:${APP_GROUP}" /var/www/html /var/www/moodledata
-    chmod -R 775 /var/www/moodledata
+    chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR" "$MOODLE_DATA_DIR"
+    chmod -R 775 "$MOODLE_DATA_DIR"
     info "Running Moodle database upgrade..."
     run_as_user "$APP_USER" php "${MOODLE_DIR}/admin/cli/upgrade.php" --non-interactive --allow-unstable >/dev/null || true
     find "${MOODLE_DATA_DIR}/sessions/" -name "sess_*" -delete || true
@@ -66,7 +48,7 @@ else
     info "Initializing Moodle for the first time."
     
     ensure_dir_exists "$MOODLE_DATA_DIR" "$APP_USER" "$APP_GROUP" "775"
-    ensure_dir_exists "/var/www/html" "$APP_USER" "$APP_GROUP" "755"
+    ensure_dir_exists "$MOODLE_DIR" "$APP_USER" "$APP_GROUP" "755"
 
     # Chờ database sẵn sàng với database name cụ thể
     wait_for_db_connection "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"
@@ -100,7 +82,7 @@ fi
 info "Configuring Moodle cron job..."
 cat > /etc/cron.d/moodle <<EOF
 # Moodle cron job - runs every ${MOODLE_CRON_MINUTES} minute(s)
-*/${MOODLE_CRON_MINUTES} * * * * ${APP_USER} php /var/www/html/admin/cli/cron.php > /dev/null 2>&1
+*/${MOODLE_CRON_MINUTES} * * * * ${APP_USER} php ${MOODLE_DIR}/admin/cli/cron.php > /dev/null 2>&1
 
 EOF
 chmod 0644 /etc/cron.d/moodle
@@ -114,68 +96,41 @@ fi
 # Luôn cập nhật wwwroot mỗi khi container start
 info "Configuring Moodle wwwroot..."
 
-# Tạo file PHP để xử lý cấu hình
-cat > /tmp/configure_moodle.php << 'PHP_SCRIPT_END'
+# Sử dụng PHP để cập nhật wwwroot động
+if [[ -f "$MOODLE_CONF_FILE" ]]; then
+    # Tạo file PHP tạm để tránh bash expansion conflicts
+    cat > /tmp/update_wwwroot.php << 'EOF'
 <?php
 define('CLI_SCRIPT', true);
-require_once('/var/www/html/config.php');
 
-// Hàm cập nhật cấu hình
-function update_config($config_file) {
-    global $CFG;
-    
-    // Cập nhật các cài đặt khác
-    $CFG->reverseproxy = (getenv('MOODLE_REVERSEPROXY') === 'yes');
-    $CFG->sslproxy = (getenv('MOODLE_SSLPROXY') === 'yes');
-    
-    // Đọc file cấu hình
-    $config_content = file_get_contents($config_file);
-    
-    // Thay thế wwwroot cố định bằng dynamic detection
-    $dynamic_wwwroot = "
+$config_file = $argv[1];
+require_once($config_file);
+
+$config_content = file_get_contents($config_file);
+
+// Thay thế wwwroot bằng dynamic detection
+$dynamic_wwwroot = '
 // Dynamic wwwroot detection
-if (!empty(\$_SERVER['HTTP_HOST'])) {
-    \$protocol = (!empty(\$_SERVER['HTTPS']) && \$_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    \$CFG->wwwroot = \$protocol . '://' . \$_SERVER['HTTP_HOST'];
+if (!empty($_SERVER["HTTP_HOST"])) {
+    $protocol = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
+    $CFG->wwwroot = $protocol . "://" . $_SERVER["HTTP_HOST"];
 } else {
-    \$CFG->wwwroot = 'http://localhost';
-}";
-    
-    // Thay thế dòng wwwroot cũ
-    $config_content = preg_replace(
-        '/^\$CFG->wwwroot\s*=\s*[^;]+;/m',
-        $dynamic_wwwroot,
-        $config_content
-    );
-    
-    // Cập nhật reverseproxy
-    $config_content = preg_replace(
-        '/^\$CFG->reverseproxy\s*=\s*[^;]+;/m',
-        '$CFG->reverseproxy = ' . (($CFG->reverseproxy) ? 'true' : 'false') . ';',
-        $config_content
-    );
-    
-    // Cập nhật sslproxy
-    $config_content = preg_replace(
-        '/^\$CFG->sslproxy\s*=\s*[^;]+;/m',
-        '$CFG->sslproxy = ' . (($CFG->sslproxy) ? 'true' : 'false') . ';',
-        $config_content
-    );
-    
-    // Ghi lại file cấu hình
-    file_put_contents($config_file, $config_content);
-    
-    echo "Moodle configuration updated with dynamic wwwroot detection:\n";
-    echo "- reverseproxy: " . ($CFG->reverseproxy ? 'true' : 'false') . "\n";
-    echo "- sslproxy: " . ($CFG->sslproxy ? 'true' : 'false') . "\n";
-}
+    $CFG->wwwroot = "http://localhost";
+}';
 
-// Thực thi cập nhật
-update_config('/var/www/html/config.php');
-PHP_SCRIPT_END
+$config_content = preg_replace(
+    '/^\$CFG->wwwroot\s*=\s*[^;]+;/m',
+    $dynamic_wwwroot,
+    $config_content
+);
 
-# Thực thi file PHP
-run_as_user "$APP_USER" php /tmp/configure_moodle.php
-rm -f /tmp/configure_moodle.php
+file_put_contents($config_file, $config_content);
+echo "Moodle wwwroot updated to dynamic detection.\n";
+EOF
+
+    # Chạy PHP script với quyền user
+    run_as_user "$APP_USER" php /tmp/update_wwwroot.php "$MOODLE_DIR/config.php"
+    rm -f /tmp/update_wwwroot.php
+fi
 
 info "Moodle application setup finished."

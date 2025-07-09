@@ -2,15 +2,31 @@
 FROM debian:12-slim AS base
 
 ARG MOODLE_VERSION=5.0.1
-ARG PHP_VERSION=8.2
+ARG PHP_VERSION=8.4
 ARG APACHE_VERSION=2.4
+ARG APP_USER=absiuser
+ARG APP_GROUP=absiuser
+ARG APP_UID=1000
+ARG APP_GID=1000
 
 # Set environment variables
 ENV APACHE_RUN_DIR=/var/run/apache2
+ENV PHP_VERSION=$PHP_VERSION
+ENV APP_USER=$APP_USER
+ENV APP_GROUP=$APP_GROUP
+
+# Add Sury repository for latest PHP versions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    lsb-release \
+    wget \
+    && wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg \
+    && echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list \
+    && apt-get update
 
 # Gói cài đặt: Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, các module PHP cần thiết
 # Đảm bảo cài đặt đủ các dependency
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get install -y --no-install-recommends \
     apache2 \
     apache2-utils \
     php${PHP_VERSION} \
@@ -36,7 +52,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mariadb-client \
     curl \
     acl \
-    ca-certificates \
     ssl-cert \
     openssl \
     && rm -rf /var/lib/apt/lists/* \
@@ -55,8 +70,8 @@ ENV LC_ALL=en_US.UTF-8
 RUN phpenmod mysqli pdo pdo_mysql opcache
 
 # Cấu hình user và group với UID/GID phổ biến cho bind volumes
-RUN groupadd -g 1000 absiuser && \
-    useradd -u 1000 -g absiuser -m -s /bin/bash absiuser
+RUN groupadd -g $APP_GID $APP_GROUP && \
+    useradd -u $APP_UID -g $APP_GROUP -m -s /bin/bash $APP_USER
 
 # Tạo các thư mục cần thiết
 RUN mkdir -p /var/www/html \
@@ -71,18 +86,18 @@ RUN mkdir -p /var/www/html \
            /docker-entrypoint-init.d/
 
 # Set quyền cho các thư mục Apache
-RUN chown -R absiuser:absiuser /var/log/apache2 \
-    && chown -R absiuser:absiuser /var/run/apache2 \
-    && chown -R absiuser:absiuser /var/lock/apache2 \
+RUN chown -R $APP_USER:$APP_GROUP /var/log/apache2 \
+    && chown -R $APP_USER:$APP_GROUP /var/run/apache2 \
+    && chown -R $APP_USER:$APP_GROUP /var/lock/apache2 \
     && chmod -R 755 /var/log/apache2 \
     && chmod -R 755 /var/run/apache2 \
     && chmod -R 755 /var/lock/apache2 \
     && touch /var/log/apache2/access.log \
     && touch /var/log/apache2/error.log \
     && touch /var/log/apache2/other_vhosts_access.log \
-    && chown absiuser:absiuser /var/log/apache2/access.log \
-    && chown absiuser:absiuser /var/log/apache2/error.log \
-    && chown absiuser:absiuser /var/log/apache2/other_vhosts_access.log \
+    && chown $APP_USER:$APP_GROUP /var/log/apache2/access.log \
+    && chown $APP_USER:$APP_GROUP /var/log/apache2/error.log \
+    && chown $APP_USER:$APP_GROUP /var/log/apache2/other_vhosts_access.log \
     && chmod 644 /var/log/apache2/access.log \
     && chmod 644 /var/log/apache2/error.log \
     && chmod 644 /var/log/apache2/other_vhosts_access.log
@@ -113,7 +128,7 @@ RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-latest-500.tgz -o /
 FROM base AS final
 
 # Copy Moodle source from downloader stage
-COPY --from=moodle-downloader --chown=absiuser:absiuser /opt/moodle-source /opt/moodle-source
+COPY --from=moodle-downloader --chown=$APP_USER:$APP_GROUP /opt/moodle-source /opt/moodle-source
 
 # Ghi đè cấu hình Apache mặc định cho Docker
 COPY config/apache/apache2.conf /etc/apache2/apache2.conf
@@ -142,11 +157,11 @@ RUN ln -sf /dev/stdout /var/log/apache2/access.log \
     && ln -sf /dev/stdout /var/log/php${PHP_VERSION}-fpm.log
 
 # Đảm bảo quyền cho các thư mục dữ liệu và log
-RUN chown -R absiuser:absiuser /var/www/moodledata \
+RUN chown -R $APP_USER:$APP_GROUP /var/www/moodledata \
     && chmod -R 775 /var/www/moodledata \
-    && chown -R absiuser:absiuser /var/run/php \
+    && chown -R $APP_USER:$APP_GROUP /var/run/php \
     && chmod -R 775 /var/run/php \
-    && chown -R absiuser:absiuser /scripts \
+    && chown -R $APP_USER:$APP_GROUP /scripts \
     && find /scripts -type f -exec chmod +x {} + \
     && find /docker-entrypoint-init.d/ -type f -exec chmod +x {} +
 

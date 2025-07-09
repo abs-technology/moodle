@@ -4,16 +4,11 @@ set -o nounset
 set -o pipefail
 
 . /scripts/lib/logging.sh
+. /scripts/lib/config.sh
 . /scripts/lib/mariadb.sh
 
-MARIADB_HOST="${MARIADB_HOST:-mariadb}"
-MARIADB_PORT_NUMBER="${MARIADB_PORT_NUMBER:-3306}"
-MARIADB_ROOT_PASSWORD="${MARIADB_ROOT_PASSWORD:-}"
-MARIADB_USER="${MARIADB_USER:-absi_moodle_user}"
-MARIADB_PASSWORD="${MARIADB_PASSWORD:-password}"
-MARIADB_DATABASE="${MARIADB_DATABASE:-absi_moodle_db}"
-MARIADB_CHARACTER_SET="${MARIADB_CHARACTER_SET:-utf8mb4}"
-MARIADB_COLLATE="${MARIADB_COLLATE:-utf8mb4_unicode_ci}"
+# Load centralized configuration
+load_config
 
 info "Starting MariaDB Client setup for Absi Technology..."
 

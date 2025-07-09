@@ -5,11 +5,13 @@ set -o pipefail
 
 # Tải các thư viện Absi
 . /scripts/lib/logging.sh
+. /scripts/lib/config.sh
 . /scripts/lib/filesystem.sh
 . /scripts/lib/service.sh
 . /scripts/lib/validations.sh
 
-# Display Absi Technology Logo
+# Load centralized configuration
+load_config
 
 echo -e "\033[1;32mWelcome to Absi Technology Moodle LMS\033[0m" 
 echo -e "     ___    __         \033[31m_\033[0m "
@@ -22,16 +24,18 @@ echo ""
 echo " ══════════════════════════════════════════════"
 echo "  🎓 ABSI TECHNOLOGY MOODLE LMS 🎓              "
 echo "     Learning Management System                "
-echo "     Version 5.0.1                             "
+echo "     Version: 5.0.1+                           "
+echo "     PHP Version: 8.4                          "
+echo "     Apache Version: 2.4                       "
 echo " ══════════════════════════════════════════════"
+
 echo ""
 echo " 🚀 Starting Moodle Docker Container..."
 echo " 📅 $(date '+%Y-%m-%d %H:%M:%S')"
 echo " 🌐 Container ID: $(hostname)"
 echo ""
 
-# Định nghĩa các biến môi trường chung hoặc các đường dẫn
-MOODLE_DATA_DIR="${MOODLE_DATA_DIR:-/var/www/moodledata}"
+# Configuration is loaded from config.sh library
 
 debug "Starting entrypoint.sh"
 debug "Current directory: $(pwd)"
@@ -41,29 +45,29 @@ debug "Environment variables:"
 # Fix permissions cho bind volumes (an toàn với ACL)
 info "Checking and fixing permissions for bind volumes..."
 
-# Initialize và fix permissions cho /var/www/html (mã nguồn Moodle)
-if [ -d "/var/www/html" ]; then
+# Initialize và fix permissions cho Moodle directory
+if [ -d "$MOODLE_DIR" ]; then
     # Nếu thư mục trống (bind mount lần đầu), copy mã nguồn từ image
-    if [ -z "$(ls -A /var/www/html)" ]; then
+    if [ -z "$(ls -A $MOODLE_DIR)" ]; then
         info "Initializing Moodle source code to bind volume..."
         # Copy từ backup location (được tạo trong Dockerfile)
-        if [ -d "/opt/moodle-source" ]; then
-            cp -r /opt/moodle-source/* /var/www/html/
+        if [ -d "$MOODLE_SOURCE_DIR" ]; then
+            cp -r $MOODLE_SOURCE_DIR/* $MOODLE_DIR/
             debug "Moodle source code copied to bind volume"
         fi
     fi
     
     # Sử dụng ACL để set permissions an toàn hơn thay vì chown trực tiếp
     if command -v setfacl >/dev/null 2>&1; then
-        # Sử dụng ACL để cho phép absiuser access mà không thay đổi ownership gốc
-        setfacl -R -m u:absiuser:rwx /var/www/html 2>/dev/null || true
-        setfacl -R -m d:u:absiuser:rwx /var/www/html 2>/dev/null || true
-        debug "ACL permissions set for /var/www/html"
+        # Sử dụng ACL để cho phép user access mà không thay đổi ownership gốc
+        setfacl -R -m u:$APP_USER:rwx $MOODLE_DIR 2>/dev/null || true
+        setfacl -R -m d:u:$APP_USER:rwx $MOODLE_DIR 2>/dev/null || true
+        debug "ACL permissions set for $MOODLE_DIR"
     else
         # Fallback: chỉ thêm group write permission
-        chgrp -R absiuser /var/www/html 2>/dev/null || true
-        chmod -R g+w /var/www/html 2>/dev/null || true
-        debug "Group permissions set for /var/www/html"
+        chgrp -R $APP_USER $MOODLE_DIR 2>/dev/null || true
+        chmod -R g+w $MOODLE_DIR 2>/dev/null || true
+        debug "Group permissions set for $MOODLE_DIR"
     fi
 fi
 
@@ -74,12 +78,12 @@ if [ -d "$MOODLE_DATA_DIR" ]; then
     
     # Sử dụng ACL cho moodledata
     if command -v setfacl >/dev/null 2>&1; then
-        setfacl -R -m u:absiuser:rwx "$MOODLE_DATA_DIR" 2>/dev/null || true
-        setfacl -R -m d:u:absiuser:rwx "$MOODLE_DATA_DIR" 2>/dev/null || true
+        setfacl -R -m u:$APP_USER:rwx "$MOODLE_DATA_DIR" 2>/dev/null || true
+        setfacl -R -m d:u:$APP_USER:rwx "$MOODLE_DATA_DIR" 2>/dev/null || true
         debug "ACL permissions set for $MOODLE_DATA_DIR"
     else
         # Fallback: group permissions
-        chgrp -R absiuser "$MOODLE_DATA_DIR" 2>/dev/null || true  
+        chgrp -R $APP_USER "$MOODLE_DATA_DIR" 2>/dev/null || true  
         chmod -R g+w "$MOODLE_DATA_DIR" 2>/dev/null || true
         debug "Group permissions set for $MOODLE_DATA_DIR"
     fi

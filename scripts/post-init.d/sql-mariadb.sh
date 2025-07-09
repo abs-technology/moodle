@@ -7,14 +7,10 @@ set -o nounset
 set -o pipefail
 
 . /scripts/lib/logging.sh
+. /scripts/lib/config.sh
 
-# Assume environment variables for database connection are set or can be sourced
-# For simplicity, using hardcoded env vars as passed by docker-compose for this script.
-MARIADB_HOST="${MOODLE_DATABASE_HOST:-mariadb}"
-MARIADB_PORT_NUMBER="${MOODLE_DATABASE_PORT_NUMBER:-3306}"
-MARIADB_USER="${MOODLE_DATABASE_USER:-absi_moodle_user}"
-MARIADB_PASSWORD="${MOODLE_DATABASE_PASSWORD:-password}"
-MARIADB_DATABASE="${MOODLE_DATABASE_NAME:-absi_moodle_db}" # Use Moodle's DB name
+# Load centralized configuration
+load_config
 
 mysql_execute() {
     local -r sql_file="${1:?missing file}"

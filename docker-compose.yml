@@ -22,7 +22,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle:5.0.1
+    image: abstechnology/moodle-php84:5.0.1
     container_name: absi_moodle
     ports:
       - "80:80"
