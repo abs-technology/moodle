@@ -2,6 +2,7 @@ services:
   mariadb:
     image: mariadb:11.7.2
     container_name: absi_mariadb
+    restart: unless-stopped
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_USER=${MARIADB_USER}
@@ -24,6 +25,7 @@ services:
   moodle:
     image: abstechnology/moodle-php84:5.0.1
     container_name: absi_moodle
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
