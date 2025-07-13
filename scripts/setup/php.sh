@@ -17,7 +17,7 @@ ensure_user_exists "$WEB_SERVER_DAEMON_USER" "$WEB_SERVER_DAEMON_GROUP"
 
 ensure_dir_exists "/var/run/php" "$WEB_SERVER_DAEMON_USER" "$WEB_SERVER_DAEMON_GROUP" "775"
 
-# Update PHP-FPM pool config to use correct PHP version socket
+# Update PHP-FPM pool config to use correct PHP version socket (using centralized config)
 info "Configuring PHP-FPM pool for version ${PHP_VERSION}..."
 php_conf_set "listen" "$PHP_FPM_SOCKET" "$PHP_FPM_WWW_CONF"
 php_conf_set "listen.owner" "$WEB_SERVER_DAEMON_USER" "$PHP_FPM_WWW_CONF"

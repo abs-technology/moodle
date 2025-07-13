@@ -23,10 +23,14 @@ echo -e " /_/  |_/_.___/____\033[31m/_/\033[0m   "
 echo ""
 echo " ══════════════════════════════════════════════"
 echo "  🎓 ABSI TECHNOLOGY MOODLE LMS 🎓              "
-echo "     Learning Management System                "
 echo "     Version: 5.0.1+                           "
 echo "     PHP Version: 8.4                          "
 echo "     Apache Version: 2.4                       "
+echo " ══════════════════════════════════════════════"
+echo "  📞 Support & Resources                        "
+echo "     Website: https://abs.education/            "
+echo "     Support: support@absi.edu.vn              "
+echo "     Docs: https://docs.abs.education/         "
 echo " ══════════════════════════════════════════════"
 
 echo ""
@@ -70,6 +74,14 @@ if [ -d "$MOODLE_DIR" ]; then
         debug "Group permissions set for $MOODLE_DIR"
     fi
 fi
+
+# Setup Moodle cron using keep-alive approach (tốt nhất cho container)
+info "Setting up Moodle cron job..."
+# Start Moodle cron với keep-alive mode - chạy liên tục và poll tasks mỗi 60 giây
+nohup /usr/bin/php /var/www/html/admin/cli/cron.php --keep-alive=60 > /tmp/moodle-cron.log 2>&1 &
+CRON_PID=$!
+echo $CRON_PID > /tmp/moodle-cron.pid
+debug "Moodle cron keep-alive process started (PID: $CRON_PID)"
 
 # Fix permissions cho moodledata
 if [ -d "$MOODLE_DATA_DIR" ]; then

@@ -147,6 +147,13 @@ RUN a2ensite 000-default.conf \
 # Cấu hình PHP
 COPY config/php/php.ini /etc/php/${PHP_VERSION}/fpm/php.ini
 COPY config/php/pool.d/www.conf /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf
+
+# Set permissions cho config directories và files để non-root user có thể modify runtime
+RUN chown -R $APP_USER:$APP_GROUP /etc/apache2 \
+    && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/fpm \
+    && chown -R $APP_USER:$APP_GROUP /etc/ssl/certs \
+    && chown -R $APP_USER:$APP_GROUP /etc/ssl/private \
+    && chown $APP_USER:$APP_GROUP /var/run
 RUN rm -f /etc/php/${PHP_VERSION}/cli/php.ini \
     && ln -s /etc/php/${PHP_VERSION}/fpm/php.ini /etc/php/${PHP_VERSION}/cli/php.ini
 
@@ -167,8 +174,16 @@ RUN chown -R $APP_USER:$APP_GROUP /var/www/moodledata \
 
 WORKDIR /var/www/html
 
-# Expose cổng mặc định
-EXPOSE 80 443
+# Create user and add to crontab group for cron job permissions
+RUN groupadd -g $APP_GID $APP_GROUP || true \
+    && useradd -u $APP_UID -g $APP_GID -m -s /bin/bash $APP_USER || true \
+    && usermod -a -G crontab $APP_USER
+
+# Switch to non-root user for security
+USER $APP_USER
+
+# Expose non-privileged ports for non-root user
+EXPOSE 8080 8443
 
 # Entrypoint cho container
 ENTRYPOINT ["/scripts/entrypoint.sh"]

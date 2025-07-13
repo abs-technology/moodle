@@ -22,11 +22,11 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-php84:5.0.1
+    image: abstechnology/moodle-nonroot:5.0.1
     container_name: absi_moodle
     ports:
-      - "80:80"
-      - "443:443"
+      - "80:8080"
+      - "443:8443"
     environment:
       # Moodle Admin Configuration
       - MOODLE_USERNAME=${MOODLE_USERNAME}
@@ -72,7 +72,7 @@ services:
       mariadb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/login/index.php"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/login/index.php"]
       interval: 30s
       timeout: 10s
       retries: 5

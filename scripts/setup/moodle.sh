@@ -42,7 +42,7 @@ if [[ -f "$MOODLE_CONF_FILE" ]]; then
     chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR" "$MOODLE_DATA_DIR"
     chmod -R 775 "$MOODLE_DATA_DIR"
     info "Running Moodle database upgrade..."
-    run_as_user "$APP_USER" php "${MOODLE_DIR}/admin/cli/upgrade.php" --non-interactive --allow-unstable >/dev/null || true
+    php "${MOODLE_DIR}/admin/cli/upgrade.php" --non-interactive --allow-unstable >/dev/null || true
     find "${MOODLE_DATA_DIR}/sessions/" -name "sess_*" -delete || true
 else
     info "Initializing Moodle for the first time."
@@ -54,7 +54,7 @@ else
     wait_for_db_connection "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"
 
     info "Running Moodle CLI installation..."
-    run_as_user "$APP_USER" php "${MOODLE_DIR}/admin/cli/install.php" \
+    php "${MOODLE_DIR}/admin/cli/install.php" \
         --lang=en \
         --chmod=2775 \
         --wwwroot="http://${MOODLE_HOST}" \
@@ -78,18 +78,12 @@ else
     info "Moodle initial installation completed."
 fi
 
-# Cấu hình cron job
-info "Configuring Moodle cron job..."
-cat > /etc/cron.d/moodle <<EOF
-# Moodle cron job - runs every ${MOODLE_CRON_MINUTES} minute(s)
-*/${MOODLE_CRON_MINUTES} * * * * ${APP_USER} php ${MOODLE_DIR}/admin/cli/cron.php > /dev/null 2>&1
+# Cron job configured in entrypoint.sh for non-root user compatibility
+info "Cron job configured during container startup..."
 
-EOF
-chmod 0644 /etc/cron.d/moodle
-
-# Restart cron để nhận file mới (nếu cron đang chạy)
+# Restart cron để nhận user crontab mới
 if pgrep cron > /dev/null; then
-    info "Restarting cron daemon to pick up new configuration..."
+    info "Restarting cron daemon to pick up user crontab..."
     pkill -HUP cron || true
 fi
 
@@ -129,7 +123,7 @@ echo "Moodle wwwroot updated to dynamic detection.\n";
 EOF
 
     # Chạy PHP script với quyền user
-    run_as_user "$APP_USER" php /tmp/update_wwwroot.php "$MOODLE_DIR/config.php"
+    php /tmp/update_wwwroot.php "$MOODLE_DIR/config.php"
     rm -f /tmp/update_wwwroot.php
 fi
 

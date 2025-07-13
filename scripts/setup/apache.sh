@@ -42,7 +42,7 @@ ls -la /etc/apache2/mods-enabled/ >/dev/null 2>&1 || debug "No enabled modules f
 PHP_VERSION="${PHP_VERSION:-8.4}"
 info "Configuring Apache for PHP ${PHP_VERSION}..."
 
-# Update Apache main config with dynamic PHP-FPM socket
+# Update Apache main config with dynamic PHP-FPM socket (using centralized config)
 if [[ -f "$APACHE_CONFIG_DIR/apache2.conf" ]]; then
     debug "Updating Apache main configuration..."
     sed -i "s|php[0-9]\+\.[0-9]\+-fpm\.sock|php${PHP_VERSION}-fpm.sock|g" "$APACHE_CONFIG_DIR/apache2.conf"

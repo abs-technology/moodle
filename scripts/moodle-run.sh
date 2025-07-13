@@ -19,8 +19,25 @@ _forwardTerm() {
 }
 trap _forwardTerm TERM
 
-info "** Starting cron **"
-cron & # Chạy cron ở background (không dùng -f)
+# Cron is now handled by keep-alive process started in entrypoint.sh
+info "** Monitoring Moodle cron keep-alive process **"
+# Check if cron process is running
+if [ -f /tmp/moodle-cron.pid ]; then
+    CRON_PID=$(cat /tmp/moodle-cron.pid)
+    if kill -0 $CRON_PID 2>/dev/null; then
+        info "Moodle cron process is running (PID: $CRON_PID)"
+    else
+        warn "Moodle cron process not found, restarting..."
+        nohup /usr/bin/php /var/www/html/admin/cli/cron.php --keep-alive=60 > /tmp/moodle-cron.log 2>&1 &
+        echo $! > /tmp/moodle-cron.pid
+        info "Moodle cron process restarted (PID: $!)"
+    fi
+else
+    warn "Moodle cron PID file not found, starting cron process..."
+    nohup /usr/bin/php /var/www/html/admin/cli/cron.php --keep-alive=60 > /tmp/moodle-cron.log 2>&1 &
+    echo $! > /tmp/moodle-cron.pid
+    info "Moodle cron process started (PID: $!)"
+fi
 
 info "** Starting PHP-FPM **"
 php-fpm${PHP_VERSION} -F & # Chạy PHP-FPM ở background
