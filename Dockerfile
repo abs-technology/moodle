@@ -69,9 +69,10 @@ ENV LC_ALL=en_US.UTF-8
 # Enable PHP extensions
 RUN phpenmod mysqli pdo pdo_mysql opcache
 
-# Cấu hình user và group với UID/GID phổ biến cho bind volumes
-RUN groupadd -g $APP_GID $APP_GROUP && \
-    useradd -u $APP_UID -g $APP_GROUP -m -s /bin/bash $APP_USER
+# Cấu hình user và group với UID/GID phổ biến cho bind volumes - Consolidated user creation
+RUN groupadd -g $APP_GID $APP_GROUP 2>/dev/null || true \
+    && id -u $APP_USER >/dev/null 2>&1 || useradd -u $APP_UID -g $APP_GID -m -s /bin/bash $APP_USER \
+    && usermod -a -G crontab $APP_USER 2>/dev/null || true
 
 # Tạo các thư mục cần thiết
 RUN mkdir -p /var/www/html \
@@ -174,13 +175,8 @@ RUN chown -R $APP_USER:$APP_GROUP /var/www/moodledata \
 
 WORKDIR /var/www/html
 
-# Create user and add to crontab group for cron job permissions
-RUN groupadd -g $APP_GID $APP_GROUP || true \
-    && useradd -u $APP_UID -g $APP_GID -m -s /bin/bash $APP_USER || true \
-    && usermod -a -G crontab $APP_USER
-
-# Switch to non-root user for security
-USER $APP_USER
+# Explicit USER directive for Docker Scout detection - Remove duplicate user creation
+USER $APP_USER:$APP_GROUP
 
 # Expose non-privileged ports for non-root user
 EXPOSE 8080 8443

@@ -29,7 +29,7 @@ echo "     Apache Version: 2.4                       "
 echo " ══════════════════════════════════════════════"
 echo "  📞 Support & Resources                        "
 echo "     Website: https://abs.education/            "
-echo "     Support: support@absi.edu.vn              "
+echo "     Support:  billnguyen@tiki.edu.vn           "
 echo "     Docs: https://docs.abs.education/         "
 echo " ══════════════════════════════════════════════"
 

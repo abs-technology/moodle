@@ -14,7 +14,7 @@ Production-ready Docker image for **Moodle 5.0.1** LMS with MariaDB. Simple depl
 services:
   mariadb:
     image: mariadb:11.7.2
-    container_name: absi_mariadb
+    container_name: abs-mariadb
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_USER=${MARIADB_USER}
@@ -36,7 +36,7 @@ services:
 
   moodle:
     image: abstechnology/moodle-standard:5.0.1
-    container_name: absi_moodle
+    container_name: abs-moodle
     ports:
       - "80:8080"
       - "443:8443"
@@ -158,7 +158,7 @@ docker-compose up -d
 docker-compose ps
 
 # View logs
-docker-compose logs -f moodle
+docker-compose logs -f "name of container"
 ```
 
 ### 4. Access Moodle
