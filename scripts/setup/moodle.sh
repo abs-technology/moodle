@@ -15,7 +15,7 @@ load_config
 
 MOODLE_CONF_FILE="${MOODLE_DIR}/config.php"
 
-# Hàm kiểm tra và chờ DB
+# Function to check and wait for DB
 wait_for_db_connection() {
     local db_host="$1"
     local db_port="$2"
@@ -24,7 +24,7 @@ wait_for_db_connection() {
     local db_name="$5"
     info "Waiting for database connection at ${db_host}:${db_port}..."
     
-    # Kiểm tra kết nối với database cụ thể
+    # Check connection to specific database
     check_mariadb_connection() {
         echo "SELECT 1" | mariadb_remote_execute "$db_host" "$db_port" "$db_name" "$db_user" "$db_pass"
     }
@@ -36,7 +36,7 @@ wait_for_db_connection() {
     info "Database connection successful!"
 }
 
-# Logic chính của Moodle Setup  
+# Main logic of Moodle Setup  
 if [[ -f "$MOODLE_CONF_FILE" ]]; then
     info "Moodle already initialized. Skipping fresh installation."
     chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR" "$MOODLE_DATA_DIR"
@@ -50,7 +50,7 @@ else
     ensure_dir_exists "$MOODLE_DATA_DIR" "$APP_USER" "$APP_GROUP" "775"
     ensure_dir_exists "$MOODLE_DIR" "$APP_USER" "$APP_GROUP" "755"
 
-    # Chờ database sẵn sàng với database name cụ thể
+    # Wait for database to be ready with specific database name
     wait_for_db_connection "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"
 
     info "Running Moodle CLI installation..."
@@ -81,18 +81,18 @@ fi
 # Cron job configured in entrypoint.sh for non-root user compatibility
 info "Cron job configured during container startup..."
 
-# Restart cron để nhận user crontab mới
+# Restart cron to pick up new user crontab
 if pgrep cron > /dev/null; then
     info "Restarting cron daemon to pick up user crontab..."
     pkill -HUP cron || true
 fi
 
-# Luôn cập nhật wwwroot mỗi khi container start
+# Always update wwwroot each time container starts
 info "Configuring Moodle wwwroot..."
 
-# Sử dụng PHP để cập nhật wwwroot động
+# Use PHP to update wwwroot dynamically
 if [[ -f "$MOODLE_CONF_FILE" ]]; then
-    # Tạo file PHP tạm để tránh bash expansion conflicts
+    # Create temporary PHP file to avoid bash expansion conflicts
     cat > /tmp/update_wwwroot.php << 'EOF'
 <?php
 define('CLI_SCRIPT', true);
@@ -102,7 +102,7 @@ require_once($config_file);
 
 $config_content = file_get_contents($config_file);
 
-// Thay thế wwwroot bằng dynamic detection
+// Replace wwwroot with dynamic detection
 $dynamic_wwwroot = '
 // Dynamic wwwroot detection
 if (!empty($_SERVER["HTTP_HOST"])) {
@@ -122,7 +122,7 @@ file_put_contents($config_file, $config_content);
 echo "Moodle wwwroot updated to dynamic detection.\n";
 EOF
 
-    # Chạy PHP script với quyền user
+    # Run PHP script with user privileges
     php /tmp/update_wwwroot.php "$MOODLE_DIR/config.php"
     rm -f /tmp/update_wwwroot.php
 fi

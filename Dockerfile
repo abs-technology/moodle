@@ -24,8 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list \
     && apt-get update
 
-# Gói cài đặt: Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, các module PHP cần thiết
-# Đảm bảo cài đặt đủ các dependency
+# Installation packages: Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, required PHP modules
+# Ensure all necessary dependencies are installed
 RUN apt-get install -y --no-install-recommends \
     apache2 \
     apache2-utils \
@@ -69,12 +69,12 @@ ENV LC_ALL=en_US.UTF-8
 # Enable PHP extensions
 RUN phpenmod mysqli pdo pdo_mysql opcache
 
-# Cấu hình user và group với UID/GID phổ biến cho bind volumes - Consolidated user creation
+# Configure user and group with common UID/GID for bind volumes - Consolidated user creation
 RUN groupadd -g $APP_GID $APP_GROUP 2>/dev/null || true \
     && id -u $APP_USER >/dev/null 2>&1 || useradd -u $APP_UID -g $APP_GID -m -s /bin/bash $APP_USER \
     && usermod -a -G crontab $APP_USER 2>/dev/null || true
 
-# Tạo các thư mục cần thiết
+# Create necessary directories
 RUN mkdir -p /var/www/html \
            /var/www/moodledata \
            /var/log/apache2 \
@@ -86,7 +86,7 @@ RUN mkdir -p /var/www/html \
            /scripts/setup/ \
            /docker-entrypoint-init.d/
 
-# Set quyền cho các thư mục Apache
+# Set permissions for Apache directories
 RUN chown -R $APP_USER:$APP_GROUP /var/log/apache2 \
     && chown -R $APP_USER:$APP_GROUP /var/run/apache2 \
     && chown -R $APP_USER:$APP_GROUP /var/lock/apache2 \
@@ -103,7 +103,7 @@ RUN chown -R $APP_USER:$APP_GROUP /var/log/apache2 \
     && chmod 644 /var/log/apache2/error.log \
     && chmod 644 /var/log/apache2/other_vhosts_access.log
 
-# Copy các script đã tinh gọn
+# Copy streamlined scripts
 COPY scripts/entrypoint.sh /scripts/entrypoint.sh
 COPY scripts/moodle-run.sh /scripts/moodle-run.sh
 COPY scripts/setup/ /scripts/setup/
@@ -115,7 +115,7 @@ COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 # ================================
 FROM base AS moodle-downloader
 
-# Download và extract Moodle
+# Download and extract Moodle
 RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-latest-500.tgz -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
@@ -131,7 +131,7 @@ FROM base AS final
 # Copy Moodle source from downloader stage
 COPY --from=moodle-downloader --chown=$APP_USER:$APP_GROUP /opt/moodle-source /opt/moodle-source
 
-# Ghi đè cấu hình Apache mặc định cho Docker
+# Override default Apache configuration for Docker
 COPY config/apache/apache2.conf /etc/apache2/apache2.conf
 COPY config/apache/sites/000-default.conf /etc/apache2/sites-available/000-default.conf
 COPY config/apache/sites/000-default-ssl.conf /etc/apache2/sites-available/000-default-ssl.conf
@@ -145,11 +145,11 @@ RUN a2ensite 000-default.conf \
     && a2enmod headers \
     && a2enmod remoteip
 
-# Cấu hình PHP
+# Configure PHP
 COPY config/php/php.ini /etc/php/${PHP_VERSION}/fpm/php.ini
 COPY config/php/pool.d/www.conf /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf
 
-# Set permissions cho config directories và files để non-root user có thể modify runtime
+# Set permissions for config directories and files so non-root user can modify at runtime
 RUN chown -R $APP_USER:$APP_GROUP /etc/apache2 \
     && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/fpm \
     && chown -R $APP_USER:$APP_GROUP /etc/ssl/certs \
@@ -158,13 +158,13 @@ RUN chown -R $APP_USER:$APP_GROUP /etc/apache2 \
 RUN rm -f /etc/php/${PHP_VERSION}/cli/php.ini \
     && ln -s /etc/php/${PHP_VERSION}/fpm/php.ini /etc/php/${PHP_VERSION}/cli/php.ini
 
-# Cấu hình log của Apache và PHP-FPM ra stdout/stderr
+# Configure Apache and PHP-FPM logs to stdout/stderr
 RUN ln -sf /dev/stdout /var/log/apache2/access.log \
     && ln -sf /dev/stderr /var/log/apache2/error.log \
     && ln -sf /dev/stdout /var/log/apache2/other_vhosts_access.log \
     && ln -sf /dev/stdout /var/log/php${PHP_VERSION}-fpm.log
 
-# Đảm bảo quyền cho các thư mục dữ liệu và log
+# Ensure permissions for data and log directories
 RUN chown -R $APP_USER:$APP_GROUP /var/www/moodledata \
     && chmod -R 775 /var/www/moodledata \
     && chown -R $APP_USER:$APP_GROUP /var/run/php \
@@ -181,6 +181,6 @@ USER $APP_USER:$APP_GROUP
 # Expose non-privileged ports for non-root user
 EXPOSE 8080 8443
 
-# Entrypoint cho container
+# Entrypoint for container
 ENTRYPOINT ["/scripts/entrypoint.sh"]
 CMD ["/scripts/moodle-run.sh"]

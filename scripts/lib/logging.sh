@@ -28,7 +28,7 @@ FAIL="[✗]"
 WARNING="[!]"
 CLOCK="[t]"
 
-# Test data (bạn thay bằng giá trị thực tế)
+# Test data (replace with actual values)
 SUCCESS_COUNT=100
 RATE_LIMITED_COUNT=5
 BLOCKED_COUNT=2
@@ -36,12 +36,12 @@ ERROR_COUNT=1
 TEST_DURATION=67
 ACTUAL_RATE="90"
 
-# In dòng có màu
+# Print colored line
 print_line() {
     printf "%b%s%b\n" "$1" "$2" "$NC"
 }
 
-# Header dòng đầu: tiêu đề
+# Header first line: title
 print_title_line() {
     local title="$1"
     local prefix="─ "
@@ -62,7 +62,7 @@ print_footer_line() {
     print_line "$WHITE" "╰${middle}╯"
 }
 
-# Nội dung dòng trong bảng
+# Content line in table
 print_fixed_box_line() {
     local icon="$1"
     local label="$2"

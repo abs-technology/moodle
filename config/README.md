@@ -1,6 +1,6 @@
 # Configuration Files
 
-## 📁 Cấu trúc thư mục
+## 📁 Directory Structure
 
 ```
 config/
@@ -19,8 +19,8 @@ config/
 └── docker/           # Docker environment configs
 ```
 
-## 🔧 Sử dụng
+## 🔧 Usage
 
-- **Development**: Copy `docker/.env.example` thành `.env` và chỉnh sửa
-- **Production**: Cấu hình environment variables trong docker-compose
-- **Backup**: Backup toàn bộ thư mục `config/` để lưu trữ cấu hình 
+- **Development**: Copy `docker/.env.example` to `.env` and edit
+- **Production**: Configure environment variables in docker-compose
+- **Backup**: Backup entire `config/` directory to store configuration 

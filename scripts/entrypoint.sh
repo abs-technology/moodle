@@ -3,7 +3,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# Tải các thư viện Absi
+# Load Absi libraries
 . /scripts/lib/logging.sh
 . /scripts/lib/config.sh
 . /scripts/lib/filesystem.sh
@@ -46,49 +46,45 @@ debug "Current directory: $(pwd)"
 debug "Current user: $(whoami)"
 debug "Environment variables:"
 
-# Fix permissions cho bind volumes (an toàn với ACL)
+# Fix permissions for bind volumes (safe with ACL)
 info "Checking and fixing permissions for bind volumes..."
 
-# Initialize và fix permissions cho Moodle directory
+# Initialize and fix permissions for Moodle directory
 if [ -d "$MOODLE_DIR" ]; then
-    # Nếu thư mục trống (bind mount lần đầu), copy mã nguồn từ image
+    # If directory is empty (first bind mount), copy source code from image
     if [ -z "$(ls -A $MOODLE_DIR)" ]; then
         info "Initializing Moodle source code to bind volume..."
-        # Copy từ backup location (được tạo trong Dockerfile)
+        # Copy from backup location (created in Dockerfile)
         if [ -d "$MOODLE_SOURCE_DIR" ]; then
             cp -r $MOODLE_SOURCE_DIR/* $MOODLE_DIR/
             debug "Moodle source code copied to bind volume"
         fi
     fi
     
-    # Sử dụng ACL để set permissions an toàn hơn thay vì chown trực tiếp
+    # Use ACL to set permissions safely instead of direct chown
     if command -v setfacl >/dev/null 2>&1; then
-        # Sử dụng ACL để cho phép user access mà không thay đổi ownership gốc
+        # Use ACL to allow user access without changing original ownership
         setfacl -R -m u:$APP_USER:rwx $MOODLE_DIR 2>/dev/null || true
         setfacl -R -m d:u:$APP_USER:rwx $MOODLE_DIR 2>/dev/null || true
         debug "ACL permissions set for $MOODLE_DIR"
     else
-        # Fallback: chỉ thêm group write permission
+        # Fallback: only add group write permission
         chgrp -R $APP_USER $MOODLE_DIR 2>/dev/null || true
         chmod -R g+w $MOODLE_DIR 2>/dev/null || true
         debug "Group permissions set for $MOODLE_DIR"
     fi
 fi
 
-# Setup Moodle cron using keep-alive approach (tốt nhất cho container)
-info "Setting up Moodle cron job..."
-# Start Moodle cron với keep-alive mode - chạy liên tục và poll tasks mỗi 60 giây
-nohup /usr/bin/php /var/www/html/admin/cli/cron.php --keep-alive=60 > /tmp/moodle-cron.log 2>&1 &
-CRON_PID=$!
-echo $CRON_PID > /tmp/moodle-cron.pid
-debug "Moodle cron keep-alive process started (PID: $CRON_PID)"
+# Note: Moodle cron will be started in moodle-run.sh after all services are ready
+info "Moodle cron will be started after all services are initialized..."
+debug "Cron configuration: MOODLE_CRON_MINUTES=${MOODLE_CRON_MINUTES}"
 
-# Fix permissions cho moodledata
+# Fix permissions for moodledata
 if [ -d "$MOODLE_DATA_DIR" ]; then
-    # Tạo thư mục con cần thiết
+    # Create necessary subdirectories
     mkdir -p "$MOODLE_DATA_DIR/sessions" "$MOODLE_DATA_DIR/temp" "$MOODLE_DATA_DIR/cache"
     
-    # Sử dụng ACL cho moodledata
+    # Use ACL for moodledata
     if command -v setfacl >/dev/null 2>&1; then
         setfacl -R -m u:$APP_USER:rwx "$MOODLE_DATA_DIR" 2>/dev/null || true
         setfacl -R -m d:u:$APP_USER:rwx "$MOODLE_DATA_DIR" 2>/dev/null || true
@@ -146,7 +142,7 @@ if [[ ! -f "$MOODLE_DATA_DIR/.absi_scripts_initialized" && -d "/docker-entrypoin
     read -r -a init_scripts <<< "$(find "/docker-entrypoint-init.d" -type f -print0 | sort -z | xargs -0)"
     if [[ "${#init_scripts[@]}" -gt 0 ]]; then
         debug "Found ${#init_scripts[@]} init scripts"
-        mkdir -p "$MOODLE_DATA_DIR" # Đảm bảo thư mục tồn tại để tạo .absi_scripts_initialized
+        mkdir -p "$MOODLE_DATA_DIR" # Ensure directory exists to create .absi_scripts_initialized
         for init_script in "${init_scripts[@]}"; do
             debug "Executing init script: $init_script"
             script_extension="${init_script##*.}"
@@ -175,7 +171,7 @@ fi
 info "** Absi Moodle setup finished! **"
 
 echo ""
-# Chạy các dịch vụ chính (Apache và PHP-FPM)
+# Run main services (Apache and PHP-FPM)
 info "** Starting Absi Moodle services **"
 debug "Starting moodle-run.sh..."
 exec /scripts/moodle-run.sh
