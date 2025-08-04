@@ -1,0 +1,109 @@
+<?php return array (
+  0 => 
+  array (
+    'GET' => 
+    array (
+      '/r.php/api/rest/v2/openapi.json' => 'route4',
+      '/r.php/core/error' => 'route5',
+      '/r.php/error' => 'route8',
+      '/r.php/error/index.php' => 'route8',
+      '/r.php/course/admin.php' => 'route9',
+      '/r.php/course/tags.php' => 'route10',
+    ),
+    'POST' => 
+    array (
+      '/r.php/core/error' => 'route5',
+    ),
+  ),
+  1 => 
+  array (
+    'GET' => 
+    array (
+      0 => 
+      array (
+        'regex' => '~^(?|/r\\.php/api/rest/v2/core/templates/([^/]+)/([^/]+)/(.*)|/r\\.php/api/rest/v2/user/([^/]+)/preferences()()()|/r\\.php/api/rest/v2/user/([^/]+)/preferences/([^/]+)()()()|/r\\.php/course/([^/]+)/manage()()()()()|/r\\.php/course/([^/]+)/tags()()()()()())$~',
+        'routeMap' => 
+        array (
+          4 => 
+          array (
+            0 => 'route0',
+            1 => 
+            array (
+              'themename' => 'themename',
+              'component' => 'component',
+              'identifier' => 'identifier',
+            ),
+          ),
+          5 => 
+          array (
+            0 => 'route1',
+            1 => 
+            array (
+              'user' => 'user',
+            ),
+          ),
+          6 => 
+          array (
+            0 => 'route1',
+            1 => 
+            array (
+              'user' => 'user',
+              'preference' => 'preference',
+            ),
+          ),
+          7 => 
+          array (
+            0 => 'route6',
+            1 => 
+            array (
+              'course' => 'course',
+            ),
+          ),
+          8 => 
+          array (
+            0 => 'route7',
+            1 => 
+            array (
+              'course' => 'course',
+            ),
+          ),
+        ),
+      ),
+    ),
+    'POST' => 
+    array (
+      0 => 
+      array (
+        'regex' => '~^(?|/r\\.php/api/rest/v2/user/([^/]+)/preferences|/r\\.php/api/rest/v2/user/([^/]+)/preferences/([^/]+)|/r\\.php/course/([^/]+)/tags()())$~',
+        'routeMap' => 
+        array (
+          2 => 
+          array (
+            0 => 'route2',
+            1 => 
+            array (
+              'user' => 'user',
+            ),
+          ),
+          3 => 
+          array (
+            0 => 'route3',
+            1 => 
+            array (
+              'user' => 'user',
+              'preference' => 'preference',
+            ),
+          ),
+          4 => 
+          array (
+            0 => 'route7',
+            1 => 
+            array (
+              'course' => 'course',
+            ),
+          ),
+        ),
+      ),
+    ),
+  ),
+);

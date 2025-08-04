@@ -23,10 +23,14 @@ echo -e " /_/  |_/_.___/____\033[31m/_/\033[0m   "
 echo ""
 echo " ══════════════════════════════════════════════"
 echo "  🎓 ABSI TECHNOLOGY MOODLE LMS 🎓              "
-echo "     Learning Management System                "
 echo "     Version: 5.0.1+                           "
 echo "     PHP Version: 8.4                          "
 echo "     Apache Version: 2.4                       "
+echo " ══════════════════════════════════════════════"
+echo "  📞 Support & Resources                        "
+echo "     Website: https://abs.education/            "
+echo "     Support: billnguyen@tiki.edu.vn            "
+echo "     Docs: https://docs.abs.education/         "
 echo " ══════════════════════════════════════════════"
 
 echo ""
@@ -70,6 +74,9 @@ if [ -d "$MOODLE_DIR" ]; then
         debug "Group permissions set for $MOODLE_DIR"
     fi
 fi
+
+# Cron will be handled by moodle-run.sh with continuous monitoring
+info "Moodle cron will be started and monitored by moodle-run.sh"
 
 # Fix permissions cho moodledata
 if [ -d "$MOODLE_DATA_DIR" ]; then

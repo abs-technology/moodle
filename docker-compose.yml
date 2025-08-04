@@ -2,7 +2,6 @@ services:
   mariadb:
     image: mariadb:11.7.2
     container_name: absi_mariadb
-    restart: unless-stopped
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_USER=${MARIADB_USER}
@@ -23,12 +22,11 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle:5.0.1
+    image: abstechnology/moodle-standard-local:5.0.1
     container_name: absi_moodle
-    restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "80:8080"
+      - "443:8443"
     environment:
       # Moodle Admin Configuration
       - MOODLE_USERNAME=${MOODLE_USERNAME}
@@ -74,7 +72,7 @@ services:
       mariadb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/login/index.php"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/login/index.php"]
       interval: 30s
       timeout: 10s
       retries: 5

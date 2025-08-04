@@ -1,0 +1,16 @@
+s:926:"<p>If enabled, students can only attempt the quiz using the Safe Exam Browser.
+The available options are:</p>
+
+<ul>
+<li>No
+<br />Safe Exam Browser is not required to attempt the quiz.</li>
+<li>Yes – Use an existing template
+<br />A template for the configuration of Safe Exam Browser can be used. Templates are managed in the site administration. Your manual settings overwrite the settings in the template.</li>
+<li>Yes – Configure manually
+<br />No template for the configuration of Safe Exam Browser will be used. You can configure Safe Exam Browser manually.</li>
+<li>Yes – Upload my own config
+<br />You can upload your own Safe Exam Browser configuration file. All manual settings and the use of templates will be disabled.</li>
+<li>Yes – Use SEB client config
+<br />No configurations of Safe Exam Browser are on the Moodle side. The quiz can be attempted with any configuration of Safe Exam Browser.</li>
+</ul>
+";

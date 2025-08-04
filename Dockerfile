@@ -15,6 +15,51 @@ ENV PHP_VERSION=$PHP_VERSION
 ENV APP_USER=$APP_USER
 ENV APP_GROUP=$APP_GROUP
 
+# Enterprise labels - positioned early for metadata availability
+LABEL org.opencontainers.image.title="ABS Premium LMS powered by Moodle™ LMS" \
+      org.opencontainers.image.description="Enterprise-grade Moodle LMS with security hardening, performance optimization, and premium support by ABSI Technology" \
+      org.opencontainers.image.version="5.0.1" \
+      org.opencontainers.image.vendor="ABS Technology Joint Stock Company" \
+      org.opencontainers.image.authors="ABS Technology <support@absi.edu.vn>" \
+      org.opencontainers.image.url="https://abs.education" \
+      org.opencontainers.image.documentation="https://docs.abs.education/" \
+      org.opencontainers.image.source="https://github.com/absi-tech/moodle-premium" \
+      org.opencontainers.image.created="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+      org.opencontainers.image.base.name="docker.io/library/debian:12-slim" \
+      maintainer="ABSI Technology <support@absi.edu.vn>" \
+      \
+      # Security & Compliance labels
+      security.scan.compliant="true" \
+      security.hardened="true" \
+      compliance.level="enterprise" \
+      compliance.standards="ISO27001,SOC2,GDPR" \
+      \
+      # Technical specifications
+      platform.php.version="8.4" \
+      platform.apache.version="2.4" \
+      platform.moodle.version="5.0.1" \
+      platform.database.supported="MariaDB,MySQL,PostgreSQL" \
+      \
+      # Enterprise features
+      enterprise.support="24/7" \
+      enterprise.sla="99.9%" \
+      enterprise.backup="automated" \
+      enterprise.monitoring="included" \
+      enterprise.updates="managed" \
+      \
+      # Company branding
+      company.name="ABS Technology Joint Stock Company" \
+      company.website="https://abs.education" \
+      company.email="support@absi.edu.vn" \
+      company.phone="+84 0933 688 088" \
+      company.address="Ho Chi Minh City, Vietnam" \
+      \
+      # Build information
+      build.tool="Docker Buildx" \
+      build.multi-arch="true" \
+      build.attestations="true" \
+      build.sbom="included"
+
 # Add Sury repository for latest PHP versions
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -22,7 +67,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     && wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg \
     && echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list \
-    && apt-get update
+    && apt-get update \
+    && apt-get upgrade -y
 
 # Gói cài đặt: Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, các module PHP cần thiết
 # Đảm bảo cài đặt đủ các dependency
@@ -110,16 +156,13 @@ COPY scripts/lib/ /scripts/lib/
 COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 
 # ================================
-# Moodle download stage (separate)
+# Moodle source stage (from local source)
 # ================================
-FROM base AS moodle-downloader
+FROM base AS moodle-source
 
-# Download và extract Moodle
-RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-latest-500.tgz -o /tmp/moodle.tgz \
-    && mkdir -p /opt/moodle-source \
-    && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
-    && rm -f /tmp/moodle.tgz \
-    && find /opt/moodle-source -type d -exec chmod 755 {} + \
+# Copy local Moodle source instead of downloading
+COPY source/moodle /opt/moodle-source
+RUN find /opt/moodle-source -type d -exec chmod 755 {} + \
     && find /opt/moodle-source -type f -exec chmod 644 {} +
 
 # ================================
@@ -127,8 +170,14 @@ RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-latest-500.tgz -o /
 # ================================
 FROM base AS final
 
-# Copy Moodle source from downloader stage
-COPY --from=moodle-downloader --chown=$APP_USER:$APP_GROUP /opt/moodle-source /opt/moodle-source
+# Copy Moodle source from moodle-source stage to init location
+COPY --from=moodle-source --chown=$APP_USER:$APP_GROUP /opt/moodle-source /opt/moodle-source
+
+# Copy database dump and moodledata for initialization
+RUN mkdir -p /opt/moodle-init
+COPY source/moodle_db.sql /opt/moodle-init/moodle_db.sql
+COPY source/moodledata /opt/moodle-init/moodledata
+RUN chown -R $APP_USER:$APP_GROUP /opt/moodle-init
 
 # Ghi đè cấu hình Apache mặc định cho Docker
 COPY config/apache/apache2.conf /etc/apache2/apache2.conf
@@ -147,6 +196,13 @@ RUN a2ensite 000-default.conf \
 # Cấu hình PHP
 COPY config/php/php.ini /etc/php/${PHP_VERSION}/fpm/php.ini
 COPY config/php/pool.d/www.conf /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf
+
+# Set permissions cho config directories và files để non-root user có thể modify runtime
+RUN chown -R $APP_USER:$APP_GROUP /etc/apache2 \
+    && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/fpm \
+    && chown -R $APP_USER:$APP_GROUP /etc/ssl/certs \
+    && chown -R $APP_USER:$APP_GROUP /etc/ssl/private \
+    && chown $APP_USER:$APP_GROUP /var/run
 RUN rm -f /etc/php/${PHP_VERSION}/cli/php.ini \
     && ln -s /etc/php/${PHP_VERSION}/fpm/php.ini /etc/php/${PHP_VERSION}/cli/php.ini
 
@@ -166,10 +222,18 @@ RUN chown -R $APP_USER:$APP_GROUP /var/www/moodledata \
     && find /docker-entrypoint-init.d/ -type f -exec chmod +x {} +
 
 WORKDIR /var/www/html
+# Create user and add to crontab group for cron job permissions
+RUN groupadd -g $APP_GID $APP_GROUP || true \
+    && useradd -u $APP_UID -g $APP_GID -m -s /bin/bash $APP_USER || true \
+    && usermod -a -G crontab $APP_USER
 
-# Expose cổng mặc định
-EXPOSE 80 443
+# Switch to non-root user for security
+USER $APP_USER
+
+# Expose non-privileged ports for non-root user
+EXPOSE 8080 8443
 
 # Entrypoint cho container
 ENTRYPOINT ["/scripts/entrypoint.sh"]
 CMD ["/scripts/moodle-run.sh"]
+

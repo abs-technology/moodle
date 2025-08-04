@@ -1,0 +1,2 @@
+s:403:"<p>A text field which contains the filtering expressions for the blocked URLs. Use of the wildcard char '*' is possible. Examples for expressions: 'example.com' or 'example.com/stuff/*'. 'example.com' matches 'example.com', 'www.example.com' and 'www.mail.example.com'. 'example.com/stuff/*' matches all requests to any subdomain of 'example.com' that have 'stuff' as the first segment of the path.</p>
+";
