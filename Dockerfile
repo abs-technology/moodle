@@ -70,8 +70,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update \
     && apt-get upgrade -y
 
-# Gói cài đặt: Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, các module PHP cần thiết
-# Đảm bảo cài đặt đủ các dependency
+# Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, module PHP needed
 RUN apt-get install -y --no-install-recommends \
     apache2 \
     apache2-utils \
@@ -115,38 +114,30 @@ ENV LC_ALL=en_US.UTF-8
 # Enable PHP extensions
 RUN phpenmod mysqli pdo pdo_mysql opcache
 
-# Cấu hình user và group với UID/GID phổ biến cho bind volumes
-RUN groupadd -g $APP_GID $APP_GROUP && \
-    useradd -u $APP_UID -g $APP_GROUP -m -s /bin/bash $APP_USER
-
-# Tạo các thư mục cần thiết
-RUN mkdir -p /var/www/html \
-           /var/www/moodledata \
-           /var/log/apache2 \
-           /var/run/apache2 \
-           /var/run/php \
-           /var/lock/apache2 \
-           /scripts/ \
-           /scripts/lib/ \
-           /scripts/setup/ \
-           /docker-entrypoint-init.d/
-
-# Set quyền cho các thư mục Apache
-RUN chown -R $APP_USER:$APP_GROUP /var/log/apache2 \
-    && chown -R $APP_USER:$APP_GROUP /var/run/apache2 \
-    && chown -R $APP_USER:$APP_GROUP /var/lock/apache2 \
+# Create user/group and directories in one optimized step
+RUN groupadd -g $APP_GID $APP_GROUP \
+    && useradd -u $APP_UID -g $APP_GROUP -m -s /bin/bash $APP_USER \
+    && usermod -a -G crontab $APP_USER \
+    && mkdir -p /var/www/html \
+               /var/www/moodledata \
+               /var/log/apache2 \
+               /var/run/apache2 \
+               /var/run/php \
+               /var/lock/apache2 \
+               /scripts/ \
+               /scripts/lib/ \
+               /scripts/setup/ \
+               /docker-entrypoint-init.d/ \
+    && chown -R $APP_USER:$APP_GROUP /var/log/apache2 \
+                                     /var/run/apache2 \
+                                     /var/lock/apache2 \
+                                     /var/www/moodledata \
+                                     /var/run/php \
     && chmod -R 755 /var/log/apache2 \
-    && chmod -R 755 /var/run/apache2 \
-    && chmod -R 755 /var/lock/apache2 \
-    && touch /var/log/apache2/access.log \
-    && touch /var/log/apache2/error.log \
-    && touch /var/log/apache2/other_vhosts_access.log \
-    && chown $APP_USER:$APP_GROUP /var/log/apache2/access.log \
-    && chown $APP_USER:$APP_GROUP /var/log/apache2/error.log \
-    && chown $APP_USER:$APP_GROUP /var/log/apache2/other_vhosts_access.log \
-    && chmod 644 /var/log/apache2/access.log \
-    && chmod 644 /var/log/apache2/error.log \
-    && chmod 644 /var/log/apache2/other_vhosts_access.log
+                    /var/run/apache2 \
+                    /var/lock/apache2 \
+                    /var/www/moodledata \
+                    /var/run/php
 
 # Copy các script đã tinh gọn
 COPY scripts/entrypoint.sh /scripts/entrypoint.sh
@@ -197,35 +188,23 @@ RUN a2ensite 000-default.conf \
 COPY config/php/php.ini /etc/php/${PHP_VERSION}/fpm/php.ini
 COPY config/php/pool.d/www.conf /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf
 
-# Set permissions cho config directories và files để non-root user có thể modify runtime
+# Final configuration and permissions in one optimized step
 RUN chown -R $APP_USER:$APP_GROUP /etc/apache2 \
-    && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/fpm \
-    && chown -R $APP_USER:$APP_GROUP /etc/ssl/certs \
-    && chown -R $APP_USER:$APP_GROUP /etc/ssl/private \
-    && chown $APP_USER:$APP_GROUP /var/run
-RUN rm -f /etc/php/${PHP_VERSION}/cli/php.ini \
-    && ln -s /etc/php/${PHP_VERSION}/fpm/php.ini /etc/php/${PHP_VERSION}/cli/php.ini
-
-# Cấu hình log của Apache và PHP-FPM ra stdout/stderr
-RUN ln -sf /dev/stdout /var/log/apache2/access.log \
+                                  /etc/php/${PHP_VERSION}/fpm \
+                                  /etc/ssl/certs \
+                                  /etc/ssl/private \
+                                  /var/run \
+                                  /scripts \
+    && rm -f /etc/php/${PHP_VERSION}/cli/php.ini \
+    && ln -s /etc/php/${PHP_VERSION}/fpm/php.ini /etc/php/${PHP_VERSION}/cli/php.ini \
+    && ln -sf /dev/stdout /var/log/apache2/access.log \
     && ln -sf /dev/stderr /var/log/apache2/error.log \
     && ln -sf /dev/stdout /var/log/apache2/other_vhosts_access.log \
-    && ln -sf /dev/stdout /var/log/php${PHP_VERSION}-fpm.log
-
-# Đảm bảo quyền cho các thư mục dữ liệu và log
-RUN chown -R $APP_USER:$APP_GROUP /var/www/moodledata \
-    && chmod -R 775 /var/www/moodledata \
-    && chown -R $APP_USER:$APP_GROUP /var/run/php \
-    && chmod -R 775 /var/run/php \
-    && chown -R $APP_USER:$APP_GROUP /scripts \
+    && ln -sf /dev/stdout /var/log/php${PHP_VERSION}-fpm.log \
     && find /scripts -type f -exec chmod +x {} + \
     && find /docker-entrypoint-init.d/ -type f -exec chmod +x {} +
 
 WORKDIR /var/www/html
-# Create user and add to crontab group for cron job permissions
-RUN groupadd -g $APP_GID $APP_GROUP || true \
-    && useradd -u $APP_UID -g $APP_GID -m -s /bin/bash $APP_USER || true \
-    && usermod -a -G crontab $APP_USER
 
 # Switch to non-root user for security
 USER $APP_USER

@@ -36,29 +36,9 @@ docker-compose up -d
 
 <div align="center">
 
-### [🌐 **Live Demo**](https://demo.abstechnology.com) • [📚 **Documentation**](https://docs.abstechnology.com) • [💬 **Support**](https://support.abstechnology.com)
+### [🌐 **Live Demo**](https://abs.education) • [📚 **Documentation**](https://abs.education/mod/page/view.php?id=410) • [💬 **Support**](https://abs.education/mod/page/view.php?id=410)
 
 </div>
-
----
-
-## 📖 Table of Contents
-
-<details>
-<summary>🗂️ <strong>Click to expand navigation</strong></summary>
-
-- [📚 About Moodle](#-about-moodle)
-- [🌟 Why ABS Technology](#-why-choose-abs-technology-moodle-images)
-- [🚀 Quick Start](#-quick-start)
-- [⚙️ Configuration](#️-configuration)
-- [🔧 Advanced Setup](#-advanced-setup)
-- [🛡️ Security](#️-security)
-- [📊 Performance](#-performance-optimization)
-- [🔍 Monitoring](#-monitoring--logging)
-- [🆘 Support](#-support--community)
-- [📄 License](#-license)
-
-</details>
 
 ---
 
@@ -531,24 +511,6 @@ This Docker setup is licensed under the MIT License. Moodle itself is licensed u
 
 ---
 
-<div align="center">
-
-### 🏢 **About ABS Technology**
-
-**Global LMS Solutions Provider & Education Technology Leader**
-
-🌟 **Official Google Cloud Partner** | 🎓 **Education Technology Specialist** | 🏆 **Award-Winning Support**
-
-[![Website](https://img.shields.io/badge/Website-abstechnology.net-blue?style=flat-square&logo=web)](https://abs.education)
-[![Email](https://img.shields.io/badge/Email-billnguyen@absi.edu.vn-red?style=flat-square&logo=gmail)](mailto:billnguyen@absi.edu.vn)
-[![GitHub](https://img.shields.io/badge/GitHub-abs--technology-black?style=flat-square&logo=github)](https://github.com/abs-technology)
-
-*Celebrating 8 years as one of the top-selling LMS powered by Moodle™ - empowering global education with innovative, reliable solutions*
-
-</div>
-
----
-
 ## 🚀 Ready to Get Started?
 
 <div align="center">
@@ -588,13 +550,42 @@ Join our community
 </tr>
 </table>
 
+</div>
+
+## 🏢 **About ABS Technology**
+
+<div align="center">
+
+**Global LMS Solutions Provider & Education Technology Leader**
+
+🌟 **Official Google Cloud Partner** | 🎓 **Education Technology Specialist** | 🏆 **Award-Winning Support**
+
+[![Website](https://img.shields.io/badge/Website-https://abs.education-blue?style=flat-square&logo=web)](https://abs.education)
+[![Email](https://img.shields.io/badge/Email-billnguyen@absi.edu.vn-red?style=flat-square&logo=gmail)](mailto:billnguyen@absi.edu.vn)
+[![GitHub](https://img.shields.io/badge/GitHub-abs--technology-black?style=flat-square&logo=github)](https://github.com/abs-technology)
+[![Phone](https://img.shields.io/badge/Phone-+84_933_688_088-green?style=flat-square&logo=phone)](tel:+84933688088)
+[![Location](https://img.shields.io/badge/Location-Ho_Chi_Minh_City-orange?style=flat-square&logo=googlemaps)](https://maps.app.goo.gl/APfMEmnyD1iZG15TA)
+
+*Celebrating 8 years as one of the top-selling LMS powered by Moodle™ - empowering global education with innovative, reliable solutions*
+
+</div>
+
 ---
+
+<div align="center">
 
 ### 🌟 **Star us on GitHub if this helped you!**
 
 <a href="https://github.com/abs-technology/moodle">
-  <img src="https://img.shields.io/github/stars/abs-technology/moodle?style=social" alt="GitHub Stars"/>
+ <img src="https://img.shields.io/github/stars/abs-technology/moodle?style=for-the-badge&logo=github&logoColor=white&color=FFD700" alt="GitHub Stars"/>
 </a>
+<a href="https://github.com/abs-technology/moodle/fork">
+ <img src="https://img.shields.io/github/forks/abs-technology/moodle?style=for-the-badge&logo=github&logoColor=white&color=32CD32" alt="GitHub Forks"/>
+</a>
+<a href="https://github.com/abs-technology/moodle/issues">
+ <img src="https://img.shields.io/github/issues/abs-technology/moodle?style=for-the-badge&logo=github&logoColor=white&color=FF6B6B" alt="GitHub Issues"/>
+</a>
+
 
 </div>
 
