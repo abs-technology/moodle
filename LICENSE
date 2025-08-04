@@ -1,0 +1,55 @@
+ABSI Technology Moodle Docker Container
+
+Copyright (c) 2024 ABSI Technology
+
+IMPORTANT NOTICE ABOUT LICENSING:
+
+This repository contains:
+1. Moodle LMS source code (GPL v3.0)
+2. Docker containerization scripts and configurations (Created by ABSI Technology)
+
+LICENSE COMPLIANCE:
+
+1. MOODLE SOURCE CODE (source/moodle/*)
+   - Original copyright: Moodle Pty Ltd and contributors
+   - Licensed under: GNU General Public License v3.0
+   - Full license text: source/moodle/COPYING.txt
+   - Source code availability: This repository provides complete source code
+   
+2. DOCKER CONTAINERIZATION LAYER (Dockerfile, scripts, configs)
+   - Copyright (c) 2024 ABSI Technology
+   - Licensed under: GNU General Public License v3.0 (to maintain compatibility)
+   - These scripts are provided as additional tools for Moodle deployment
+
+GPL v3.0 RIGHTS AND OBLIGATIONS:
+- ✅ You can use, modify, and distribute this software (including commercially)
+- ✅ You can run private modifications without sharing them
+- ⚠️  If you distribute this software, you MUST provide source code
+- ⚠️  If you modify and distribute, you MUST share your modifications under GPL v3.0
+- ⚠️  You cannot impose additional restrictions on recipients' rights
+
+SOURCE CODE ACCESS:
+Complete source code is provided in this repository. If you received this as a 
+binary distribution (Docker image), the corresponding source code is available at:
+https://github.com/abs-technology/moodle
+
+MODIFICATIONS BY ABSI TECHNOLOGY:
+- Custom Docker build scripts
+- Environment configuration templates  
+- Apache and PHP optimization configs
+- Database initialization scripts
+- No modifications to core Moodle functionality
+
+For technical support: support@absi-technology.com
+
+DISCLAIMER:
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Full GPL v3.0 text: https://www.gnu.org/licenses/gpl-3.0.html
+Full AGPL v3.0 text: https://www.gnu.org/licenses/agpl-3.0.html

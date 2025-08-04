@@ -1,13 +1,32 @@
+<div align="center">
+
 # 🎓 ABS Technology Moodle LMS
+### *The World's Most Advanced Moodle Docker Solution*
 
-![Docker Pulls](https://img.shields.io/docker/pulls/abstechnology/moodle-standard?style=flat-square&logo=docker)
-![Docker Stars](https://img.shields.io/docker/stars/abstechnology/moodle-standard?style=flat-square&logo=docker)
-![Image Size](https://img.shields.io/docker/image-size/abstechnology/moodle-standard?style=flat-square&logo=docker)
-![GitHub Stars](https://img.shields.io/github/stars/abs-technology/moodle?style=flat-square&logo=github)
+<p>
+  <img src="https://img.shields.io/docker/pulls/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Pulls"/>
+  <img src="https://img.shields.io/docker/stars/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Stars"/>  
+  <img src="https://img.shields.io/github/stars/abs-technology/moodle?style=for-the-badge&logo=github&logoColor=white&color=181717" alt="GitHub Stars"/>
+  <img src="https://img.shields.io/docker/image-size/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Image Size"/>
+</p>
 
-> **🚀 Production-ready Moodle 5.0.1 Docker image optimized for global educational institutions**
+<p>
+  <img src="https://img.shields.io/badge/Moodle-5.0.1-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
+  <img src="https://img.shields.io/badge/PHP-8.4-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
+  <img src="https://img.shields.io/badge/MariaDB-11.7.2-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
+  <img src="https://img.shields.io/badge/License-GPL_v3-blue.svg?style=for-the-badge" alt="License"/>
+</p>
 
-**Quick Start:** Get your Moodle LMS running in under 2 minutes!
+---
+
+### 🚀 **Production-Ready • Security-Hardened • Performance-Optimized**
+
+</div>
+
+---
+
+## 🚀 Quick Start
+*Get your Moodle LMS running in under 2 minutes!*
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/docker-compose.yml > docker-compose.yml
@@ -15,30 +34,225 @@ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/env.examp
 docker-compose up -d
 ```
 
-## 📚 What is Moodle?
+<div align="center">
 
-Moodle is a free and open-source learning management system (LMS) written in PHP and distributed under the GNU General Public License. Developed on pedagogical principles, Moodle is used for blended learning, distance education, flipped classroom and other e-learning projects in schools, universities, workplaces and other sectors.
+### [🌐 **Live Demo**](https://demo.abstechnology.com) • [📚 **Documentation**](https://docs.abstechnology.com) • [💬 **Support**](https://support.abstechnology.com)
 
-[moodle.org](https://moodle.org/)
+</div>
 
-## 🌟 Why choose ABS Technology Moodle Images?
+---
 
-### 🏆 **Enterprise-Grade & Battle-Tested**
-* **🚀 Latest Stack**: Moodle 5.0.1 + PHP 8.4 + MariaDB 11.7.2
-* **🔒 Security First**: Non-root execution, SSL-ready, security hardened
-* **⚡ Performance**: Built-in OPcache, optimized PHP-FPM, 2GB+ file uploads
-* **📊 Monitoring**: Health checks, logging, metrics-ready
+## 📖 Table of Contents
 
-### 🎯 **Made for Production**
-* **🌐 Scale Ready**: Load balancer support, reverse proxy optimized
-* **🔧 Easy Deploy**: One-command setup with docker-compose
-* **📱 Mobile Ready**: Responsive design, progressive web app support
-* **🌍 Global Ready**: Multi-language support, international localization
+<details>
+<summary>🗂️ <strong>Click to expand navigation</strong></summary>
+
+- [📚 About Moodle](#-about-moodle)
+- [🌟 Why ABS Technology](#-why-choose-abs-technology-moodle-images)
+- [🚀 Quick Start](#-quick-start)
+- [⚙️ Configuration](#️-configuration)
+- [🔧 Advanced Setup](#-advanced-setup)
+- [🛡️ Security](#️-security)
+- [📊 Performance](#-performance-optimization)
+- [🔍 Monitoring](#-monitoring--logging)
+- [🆘 Support](#-support--community)
+- [📄 License](#-license)
+
+</details>
+
+---
+
+## 📚 About Moodle
+
+<div align="center">
+
+<a href="https://moodle.org" target="_blank">
+  <img src="https://raw.githubusercontent.com/moodle/moodle/main/.github/moodlelogo.svg" alt="Moodle Logo" width="400">
+</a>
+
+**The World's Open Source Learning Platform**
+
+</div>
+
+<table>
+<tr>
+<td width="50%">
+
+### 🎯 **What is Moodle?**
+
+[**Moodle**](https://moodle.org) is the world's most trusted open-source learning management system, empowering educators worldwide to create effective online learning experiences.
+
+**🌍 Global Impact:**
+- **300+ million users** worldwide
+- **250,000+ education sites** in 240+ countries  
+- **Available in 120+ languages**
+- **Trusted by**: Harvard, MIT, Shell, Microsoft
+
+</td>
+<td width="50%">
+
+### 🚀 **Key Features**
+
+**Learning Modes:**
+- 🎓 **Blended Learning** - Online + face-to-face
+- 🌐 **Distance Education** - Fully online courses  
+- 🔄 **Flipped Classroom** - Interactive learning
+- 📚 **Corporate Training** - Professional development
+
+**Built For:**
+- 🏫 Universities & Schools
+- 🏢 Corporate Training
+- 🎯 Custom E-Learning Solutions
+
+</td>
+</tr>
+</table>
+
+### 📖 **Official Resources**
+
+| Resource | Description | Link |
+|----------|-------------|------|
+| 📚 **User Guide** | Complete documentation for educators | [docs.moodle.org](https://docs.moodle.org/) |
+| 🛠️ **Developer Docs** | Technical documentation & APIs | [moodledev.io](https://moodledev.io) |
+| 🧪 **Live Demo** | Try Moodle without installation | [sandbox.moodledemo.net](https://sandbox.moodledemo.net/) |
+| 👥 **Community** | Join global educators network | [moodle.org](https://moodle.org) |
+| 🎪 **Events** | Moodle conferences worldwide | [Moodle Moots](https://moodle.com/events/mootglobal/) |
+| 🤝 **Association** | Official user association | [moodleassociation.org](https://moodleassociation.org/) |
+
+**License**: [GNU General Public License v3.0](https://moodledev.io/general/license)
+
+
+## 🌟 Why Choose ABS Technology Moodle?
+
+<div align="center">
+
+### *The Ultimate Moodle Docker Solution for Modern Education*
+
+</div>
+
+<table>
+<tr>
+<td width="33%" align="center">
+
+### 🏆 **Enterprise-Grade**
+<img src="https://img.shields.io/badge/Production-Ready-success?style=for-the-badge" alt="Production Ready"/>
+
+**Latest Technology Stack**
+- 🚀 **Moodle 5.0.1** - Latest features
+- 🐘 **PHP 8.4** - Performance boost
+- 🗄️ **MariaDB 11.7.2** - Optimized database
+- 🔒 **Security Hardened** - Non-root execution
+- ⚡ **OPcache Enabled** - 3x faster performance
+
+</td>
+<td width="33%" align="center">
+
+### 🎯 **Production-Ready**  
+<img src="https://img.shields.io/badge/Scale-Ready-blue?style=for-the-badge" alt="Scale Ready"/>
+
+**Built for High-Traffic**
+- 🌐 **Load Balancer** - Handle thousands of users
+- 🔧 **One-Command Deploy** - docker-compose up
+- 📱 **Mobile Optimized** - PWA support
+- 🌍 **Multi-Language** - 120+ languages
+- 📊 **Health Monitoring** - Built-in checks
+
+</td>
+<td width="33%" align="center">
 
 ### 💼 **Professional Support**
-* **24/7 Support**: Commercial support from ABS Technology experts worldwide
-* **🎓 Education Focus**: Specialized in LMS deployments for global institutions
-* **🔄 Regular Updates**: Continuous security patches and feature updates
+<img src="https://img.shields.io/badge/24/7-Support-orange?style=for-the-badge" alt="24/7 Support"/>
+
+**Expert Assistance**
+- 🎓 **Education Specialists** - LMS experts  
+- 🔄 **Regular Updates** - Security patches
+- 🌍 **Global Support** - Worldwide coverage
+- 📞 **Commercial Support** - Enterprise SLA
+- 🛠️ **Custom Solutions** - Tailored deployments
+
+</td>
+</tr>
+</table>
+
+---
+
+### 🚀 **Performance Features**
+
+<div align="center">
+
+<table>
+<tr>
+<td width="50%" align="center">
+
+### ⚡ **Speed Optimizations**
+- **OPcache Enabled** - PHP opcode caching
+- **Optimized PHP-FPM** - Better memory management
+- **MariaDB Tuning** - Database performance tweaks
+- **Apache/Nginx Ready** - Web server optimizations
+- **Gzip Compression** - Reduced bandwidth usage
+
+</td>
+<td width="50%" align="center">
+
+### 📈 **Scalability Features**
+- **Large File Support** - Up to 2GB uploads
+- **Memory Efficient** - Optimized PHP settings
+- **Load Balancer Ready** - Multi-instance support
+- **Caching Systems** - Redis/Memcached compatible
+- **CDN Integration** - Static asset optimization
+
+</td>
+</tr>
+</table>
+
+**🎯 Built for high-traffic educational environments**
+
+</div>
+
+---
+
+### 🎯 **Perfect For**
+
+<table>
+<tr>
+<td width="25%" align="center">
+
+### 🏫 **Universities**
+- Large student populations
+- Multi-campus deployments  
+- Integration requirements
+- Scalability needs
+
+</td>
+<td width="25%" align="center">
+
+### 🎓 **Schools**
+- K-12 education
+- Teacher training
+- Parent portals
+- Student assessments
+
+</td>
+<td width="25%" align="center">
+
+### 🏢 **Corporations**  
+- Employee training
+- Compliance courses
+- Certification programs
+- Skills development
+
+</td>
+<td width="25%" align="center">
+
+### 🌐 **Organizations**
+- Non-profit training
+- Government education
+- Healthcare learning
+- Professional development
+
+</td>
+</tr>
+</table>
 
 ## Supported Tags and Respective `Dockerfile` Links
 
@@ -323,7 +537,7 @@ This Docker setup is licensed under the MIT License. Moodle itself is licensed u
 
 **Global LMS Solutions Provider & Education Technology Leader**
 
-🌟 **Official Moodle Partner** | 🎓 **Education Technology Specialist** | 🏆 **Award-Winning Support**
+🌟 **Official Google Cloud Partner** | 🎓 **Education Technology Specialist** | 🏆 **Award-Winning Support**
 
 [![Website](https://img.shields.io/badge/Website-abstechnology.net-blue?style=flat-square&logo=web)](https://abs.education)
 [![Email](https://img.shields.io/badge/Email-billnguyen@absi.edu.vn-red?style=flat-square&logo=gmail)](mailto:billnguyen@absi.edu.vn)
@@ -331,4 +545,62 @@ This Docker setup is licensed under the MIT License. Moodle itself is licensed u
 
 *Celebrating 8 years as one of the top-selling LMS powered by Moodle™ - empowering global education with innovative, reliable solutions*
 
+</div>
+
+---
+
+## 🚀 Ready to Get Started?
+
+<div align="center">
+
+<table>
+<tr>
+<td align="center" width="33%">
+
+### 🎯 **Quick Start**
+Perfect for trying out
+
+[![Deploy Now](https://img.shields.io/badge/🚀_Deploy_Now-success?style=for-the-badge&logoColor=white)](https://github.com/abs-technology/moodle/blob/main/README.md#-quick-start)
+
+*One command deployment*
+
+</td>
+<td align="center" width="33%">
+
+### 🏢 **Enterprise**  
+Production-ready solution
+
+[![Contact Sales](https://img.shields.io/badge/💼_Contact_Sales-blue?style=for-the-badge&logoColor=white)](mailto:billnguyen@absi.edu.vn)
+
+*Custom deployment & support*
+
+</td>
+<td align="center" width="33%">
+
+### 🤝 **Community**
+Join our community
+
+[![Join Community](https://img.shields.io/badge/👥_Join_Community-orange?style=for-the-badge&logoColor=white)](https://github.com/abs-technology/moodle/discussions)
+
+*Get help & share ideas*
+
+</td>
+</tr>
+</table>
+
+---
+
+### 🌟 **Star us on GitHub if this helped you!**
+
+<a href="https://github.com/abs-technology/moodle">
+  <img src="https://img.shields.io/github/stars/abs-technology/moodle?style=social" alt="GitHub Stars"/>
+</a>
+
+</div>
+
+---
+
+<div align="center">
+<sub><strong>Built with ❤️ by ABS Technology for the global education community</strong></sub><br/>
+<sub>Licensed under <a href="https://github.com/abs-technology/moodle/blob/main/LICENSE">GPL v3.0</a> • <a href="https://abs.education">abs.education</a> • <a href="mailto:billnguyen@absi.edu.vn">Contact Us</a></sub>
 </div>
