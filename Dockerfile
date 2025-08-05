@@ -139,7 +139,6 @@ RUN groupadd -g $APP_GID $APP_GROUP \
                     /var/www/moodledata \
                     /var/run/php
 
-# Copy các script đã tinh gọn
 COPY scripts/entrypoint.sh /scripts/entrypoint.sh
 COPY scripts/moodle-run.sh /scripts/moodle-run.sh
 COPY scripts/setup/ /scripts/setup/
@@ -147,28 +146,27 @@ COPY scripts/lib/ /scripts/lib/
 COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 
 # ================================
-# Moodle source stage (from local source)
+# Moodle source stage (from Git repository)
 # ================================
-FROM base AS moodle-source
+FROM alpine/git AS moodle-source
 
-# Copy local Moodle source instead of downloading
-COPY source/moodle /opt/moodle-source
-RUN find /opt/moodle-source -type d -exec chmod 755 {} + \
-    && find /opt/moodle-source -type f -exec chmod 644 {} +
+# Clone custom Moodle from Git repository (main branch)
+RUN git clone https://github.com/abs-technology/moodle-custom.git /project
 
 # ================================
 # Final stage
 # ================================
 FROM base AS final
 
-# Copy Moodle source from moodle-source stage to init location
-COPY --from=moodle-source --chown=$APP_USER:$APP_GROUP /opt/moodle-source /opt/moodle-source
+# Copy Moodle source from Git repository
+COPY --from=moodle-source --chown=$APP_USER:$APP_GROUP /project/moodle/moodle/ /opt/moodle-source/
 
-# Copy database dump and moodledata for initialization
+# Copy database from Git repository
 RUN mkdir -p /opt/moodle-init
-COPY source/moodle_db.sql /opt/moodle-init/moodle_db.sql
-COPY source/moodledata /opt/moodle-init/moodledata
-RUN chown -R $APP_USER:$APP_GROUP /opt/moodle-init
+COPY --from=moodle-source --chown=$APP_USER:$APP_GROUP /project/database/init.sql /opt/moodle-init/moodle_db.sql
+
+# Copy moodledata from Git repository (correct path)
+COPY --from=moodle-source --chown=$APP_USER:$APP_GROUP /project/moodle/moodledata /opt/moodle-init/moodledata
 
 # Ghi đè cấu hình Apache mặc định cho Docker
 COPY config/apache/apache2.conf /etc/apache2/apache2.conf

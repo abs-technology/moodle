@@ -21,24 +21,34 @@ load_config
 apply_environment_overrides() {
     # Check if environment overrides have already been applied (stability marker)
     local env_applied_marker="$MOODLE_DATA_DIR/.absi_env_applied"
+    local env_hash_file="$MOODLE_DATA_DIR/.absi_env_hash"
     
-    if [[ -f "$env_applied_marker" ]]; then
-        info "Environment variables already applied on first run. Preserving system stability."
-        debug "Skipping environment overrides to maintain stable configuration"
-        return 0
+    # Calculate current environment hash for proxy settings
+    local current_env_hash=$(echo "${MOODLE_REVERSEPROXY}:${MOODLE_SSLPROXY}" | md5sum | cut -d' ' -f1)
+    
+    if [[ -f "$env_applied_marker" && -f "$env_hash_file" ]]; then
+        local stored_hash=$(cat "$env_hash_file" 2>/dev/null)
+        if [[ "$current_env_hash" == "$stored_hash" ]]; then
+            info "Environment variables unchanged. Preserving system stability."
+            debug "Skipping environment overrides to maintain stable configuration"
+            return 0
+        else
+            info "Environment variables changed. Re-applying configuration..."
+        fi
     fi
     
-    info "First run detected. Applying environment variable overrides to Moodle configuration..."
+    info "Applying environment variable overrides to Moodle configuration..."
     
     # Only apply if config.php exists (pre-built installation)
     if [[ -f "$MOODLE_CONF_FILE" ]]; then
         apply_config_php_overrides
         apply_database_overrides
         
-        # Mark environment variables as applied to prevent future overwrites
+        # Mark environment variables as applied and save current hash
         touch "$env_applied_marker"
-        chown "$APP_USER:$APP_GROUP" "$env_applied_marker"
-        info "Environment variables applied successfully. Future restarts will preserve these settings."
+        echo "$current_env_hash" > "$env_hash_file"
+        chown "$APP_USER:$APP_GROUP" "$env_applied_marker" "$env_hash_file"
+        info "Environment variables applied successfully. Hash: $current_env_hash"
     else
         debug "No config.php found, skipping environment overrides"
     fi
@@ -97,6 +107,24 @@ $config_content = preg_replace(
     '$1 => ' . getenv('MOODLE_DATABASE_PORT_NUMBER'),
     $config_content
 );
+
+// Add Reverse Proxy Configuration
+$proxy_config = '';
+if (getenv('MOODLE_REVERSEPROXY') === 'yes') {
+    $proxy_config .= "\$CFG->reverseproxy = true;\n";
+}
+if (getenv('MOODLE_SSLPROXY') === 'yes') {
+    $proxy_config .= "\$CFG->sslproxy = true;\n";
+}
+
+// Insert proxy config before require_once if any proxy settings are enabled
+if (!empty($proxy_config)) {
+    $config_content = preg_replace(
+        '/(require_once\(__DIR__ \. \'\/lib\/setup\.php\'\);)/',
+        "\n// Proxy Configuration\n" . $proxy_config . "\n$1",
+        $config_content
+    );
+}
 
 file_put_contents($config_file, $config_content);
 echo "Config.php updated successfully\n";

@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎓 ABS Technology Moodle LMS
+# 🎓 ABS Technology LMS powered by Moodle™ LMS
 ### *The World's Most Advanced Moodle Docker Solution*
 
 <p>
@@ -31,6 +31,8 @@
 ```bash
 curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/docker-compose.yml > docker-compose.yml
 curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/env.example > .env
+mkdir -p data/moodle data/moodledata
+chown -R 1000:1000 data/moodle data/moodledata
 docker-compose up -d
 ```
 
@@ -377,7 +379,7 @@ services:
       - mariadb_data:/var/lib/mysql
 
   moodle:
-    image: abstechnology/moodle-standard:latest
+    image: abstechnology/moodle-standard:5.0.1
     ports:
       - "80:8080"
       - "443:8443"
@@ -394,8 +396,8 @@ services:
       - PHP_POST_MAX_SIZE=5G
       - PHP_UPLOAD_MAX_FILESIZE=5G
     volumes:
-      - moodle_data:/var/www/html
-      - moodledata_data:/var/www/moodledata
+      - ./data/moodle_data:/var/www/html
+      - ./data/moodledata_data:/var/www/moodledata
     depends_on:
       - mariadb
 
