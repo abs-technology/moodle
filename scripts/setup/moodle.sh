@@ -108,7 +108,24 @@ $config_content = preg_replace(
     $config_content
 );
 
-// Add Reverse Proxy Configuration
+// Remove existing Proxy Configuration first
+$config_content = preg_replace(
+    '/\/\/ Proxy Configuration\n.*?\n\n/s',
+    '',
+    $config_content
+);
+$config_content = preg_replace(
+    '/\$CFG->reverseproxy\s*=\s*[^;]+;\s*\n/',
+    '',
+    $config_content
+);
+$config_content = preg_replace(
+    '/\$CFG->sslproxy\s*=\s*[^;]+;\s*\n/',
+    '',
+    $config_content
+);
+
+// Add Reverse Proxy Configuration based on current environment
 $proxy_config = '';
 if (getenv('MOODLE_REVERSEPROXY') === 'yes') {
     $proxy_config .= "\$CFG->reverseproxy = true;\n";
@@ -117,7 +134,7 @@ if (getenv('MOODLE_SSLPROXY') === 'yes') {
     $proxy_config .= "\$CFG->sslproxy = true;\n";
 }
 
-// Insert proxy config before require_once if any proxy settings are enabled
+// Insert proxy config before require_once (only if there are settings)
 if (!empty($proxy_config)) {
     $config_content = preg_replace(
         '/(require_once\(__DIR__ \. \'\/lib\/setup\.php\'\);)/',
@@ -386,14 +403,25 @@ require_once($config_file);
 
 $config_content = file_get_contents($config_file);
 
-// Thay thế wwwroot bằng dynamic detection
+// Thay thế wwwroot bằng dynamic detection with proxy awareness
+$sslproxy_enabled = (getenv('MOODLE_SSLPROXY') === 'yes') ? 'true' : 'false';
 $dynamic_wwwroot = '
-// Dynamic wwwroot detection
+// Dynamic wwwroot detection with SSL proxy support
 if (!empty($_SERVER["HTTP_HOST"])) {
-    $protocol = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
+    // If SSL proxy is enabled, force HTTPS regardless of actual request protocol
+    if (' . $sslproxy_enabled . ') {
+        $protocol = "https";
+    } else {
+        $protocol = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
+    }
     $CFG->wwwroot = $protocol . "://" . $_SERVER["HTTP_HOST"];
 } else {
-    $CFG->wwwroot = "http://localhost";
+    // Default fallback also considers SSL proxy
+    if (' . $sslproxy_enabled . ') {
+        $CFG->wwwroot = "https://localhost";
+    } else {
+        $CFG->wwwroot = "http://localhost";
+    }
 }';
 
 $config_content = preg_replace(

@@ -23,7 +23,7 @@ services:
 
   moodle:
     image: abstechnology/moodle-standard:5.0.1
-    container_name: absi-moodle
+    container_name: abs-moodle
     ports:
       - "80:8080"
       - "443:8443"
@@ -72,7 +72,7 @@ services:
       mariadb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/login/index.php"]
+      test: ["CMD", "sh", "-c", "if [ \"$$MOODLE_SSLPROXY\" = \"yes\" ]; then curl -f -k https://localhost:8443/login/index.php; else curl -f http://localhost:8080/login/index.php; fi"]
       interval: 30s
       timeout: 10s
       retries: 5
