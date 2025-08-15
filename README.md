@@ -1,7 +1,7 @@
 <div align="center">
 
 # 🎓 ABS Technology LMS powered by Moodle™ LMS
-### *The World's Most Advanced Moodle Docker Solution*
+### *One of The Most Advanced Moodle Docker Solution*
 
 <p>
   <img src="https://img.shields.io/docker/pulls/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Pulls"/>
@@ -19,7 +19,7 @@
 
 ---
 
-### 🚀 **Production-Ready • Security-Hardened • Performance-Optimized**
+### 🚀 **Production-Ready • Performance-Optimized – Professional-Service**
 
 </div>
 
@@ -33,7 +33,7 @@ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/docker-co
 curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/env.example > .env
 mkdir -p data/moodle data/moodledata
 chown -R 1000:1000 data/moodle data/moodledata
-docker-compose up -d
+docker compose up -d
 ```
 
 <div align="center">
@@ -142,14 +142,14 @@ docker-compose up -d
 </td>
 <td width="33%" align="center">
 
-### 💼 **Professional Support**
+### 💼 **[Professional Support](https://abs.education/mod/page/view.php?id=410)**
 <img src="https://img.shields.io/badge/24/7-Support-orange?style=for-the-badge" alt="24/7 Support"/>
 
 **Expert Assistance**
 - 🎓 **Education Specialists** - LMS experts  
 - 🔄 **Regular Updates** - Security patches
 - 🌍 **Global Support** - Worldwide coverage
-- 📞 **Commercial Support** - Enterprise SLA
+- 📞 **[Commercial Support](https://abs.education/mod/page/view.php?id=410)** - Enterprise SLA
 - 🛠️ **Custom Solutions** - Tailored deployments
 
 </td>
@@ -321,7 +321,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-standard:latest
+  abstechnology/moodle-standard:5.0.1
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -499,7 +499,7 @@ This Docker setup is licensed under the MIT License. Moodle itself is licensed u
 - 🎯 [Live Demo](https://abs.education) - Experience ABS LMS features firsthand
 
 ### 💼 **Enterprise Support**
-- 🏢 **Commercial Support**: billnguyen@absi.edu.vn
+- 🏢 **Commercial Support**: [Professional Services](https://abs.education/mod/page/view.php?id=410) | billnguyen@absi.edu.vn
 - 🌐 **Global Support**: Available across all timezones
 - 🎓 **Training & Consulting**: Custom Moodle implementation services
 - 🚀 **Migration Services**: Seamless migration from other LMS platforms
@@ -534,7 +534,7 @@ Perfect for trying out
 ### 🏢 **Enterprise**  
 Production-ready solution
 
-[![Contact Sales](https://img.shields.io/badge/💼_Contact_Sales-blue?style=for-the-badge&logoColor=white)](mailto:billnguyen@absi.edu.vn)
+[![Contact Sales](https://img.shields.io/badge/💼_Contact_Sales-blue?style=for-the-badge&logoColor=white)](https://abs.education/mod/page/view.php?id=410)
 
 *Custom deployment & support*
 
@@ -595,5 +595,5 @@ Join our community
 
 <div align="center">
 <sub><strong>Built with ❤️ by ABS Technology for the global education community</strong></sub><br/>
-<sub>Licensed under <a href="https://github.com/abs-technology/moodle/blob/main/LICENSE">GPL v3.0</a> • <a href="https://abs.education">abs.education</a> • <a href="mailto:billnguyen@absi.edu.vn">Contact Us</a></sub>
+<sub>Licensed under <a href="https://github.com/abs-technology/moodle/blob/main/LICENSE">GPL v3.0</a> • <a href="https://abs.education">abs.education</a> • <a href="https://abs.education/mod/page/view.php?id=410">Professional Services</a></sub>
 </div>
