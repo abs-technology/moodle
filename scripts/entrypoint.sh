@@ -30,7 +30,7 @@ echo " ════════════════════════�
 echo "  📞 Support & Resources                        "
 echo "     Website: https://abs.education/            "
 echo "     Support: billnguyen@tiki.edu.vn            "
-echo "     Docs: https://docs.abs.education/         "
+echo "     Professional Services: https://abs.education/mod/page/view.php?id=410 "
 echo " ══════════════════════════════════════════════"
 
 echo ""
