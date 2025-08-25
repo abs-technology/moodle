@@ -1,7 +1,7 @@
 # Multi-stage build for optimization
 FROM debian:12-slim AS base
 
-ARG MOODLE_VERSION=5.0.1
+ARG MOODLE_VERSION=5.0.2dev
 ARG PHP_VERSION=8.4
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
@@ -15,51 +15,6 @@ ENV PHP_VERSION=$PHP_VERSION
 ENV APP_USER=$APP_USER
 ENV APP_GROUP=$APP_GROUP
 
-# Enterprise labels - positioned early for metadata availability
-LABEL org.opencontainers.image.title="ABS Premium LMS powered by Moodle™ LMS" \
-      org.opencontainers.image.description="Enterprise-grade Moodle LMS with security hardening, performance optimization, and premium support by ABSI Technology" \
-      org.opencontainers.image.version="5.0.1" \
-      org.opencontainers.image.vendor="ABS Technology Joint Stock Company" \
-      org.opencontainers.image.authors="ABS Technology <support@absi.edu.vn>" \
-      org.opencontainers.image.url="https://abs.education" \
-      org.opencontainers.image.documentation="https://docs.abs.education/" \
-      org.opencontainers.image.source="https://github.com/absi-tech/moodle-premium" \
-      org.opencontainers.image.created="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-      org.opencontainers.image.base.name="docker.io/library/debian:12-slim" \
-      maintainer="ABSI Technology <support@absi.edu.vn>" \
-      \
-      # Security & Compliance labels
-      security.scan.compliant="true" \
-      security.hardened="true" \
-      compliance.level="enterprise" \
-      compliance.standards="ISO27001,SOC2,GDPR" \
-      \
-      # Technical specifications
-      platform.php.version="8.4" \
-      platform.apache.version="2.4" \
-      platform.moodle.version="5.0.1" \
-      platform.database.supported="MariaDB,MySQL,PostgreSQL" \
-      \
-      # Enterprise features
-      enterprise.support="24/7" \
-      enterprise.sla="99.9%" \
-      enterprise.backup="automated" \
-      enterprise.monitoring="included" \
-      enterprise.updates="managed" \
-      \
-      # Company branding
-      company.name="ABS Technology Joint Stock Company" \
-      company.website="https://abs.education" \
-      company.email="support@absi.edu.vn" \
-      company.phone="+84 0933 688 088" \
-      company.address="Ho Chi Minh City, Vietnam" \
-      \
-      # Build information
-      build.tool="Docker Buildx" \
-      build.multi-arch="true" \
-      build.attestations="true" \
-      build.sbom="included"
-
 # Add Sury repository for latest PHP versions
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -67,10 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     && wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg \
     && echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list \
-    && apt-get update \
-    && apt-get upgrade -y
+    && apt-get update
 
-# Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, module PHP needed
+# Installation packages: Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, required PHP modules
+# Ensure all necessary dependencies are installed
 RUN apt-get install -y --no-install-recommends \
     apache2 \
     apache2-utils \
@@ -114,31 +69,41 @@ ENV LC_ALL=en_US.UTF-8
 # Enable PHP extensions
 RUN phpenmod mysqli pdo pdo_mysql opcache
 
-# Create user/group and directories in one optimized step
-RUN groupadd -g $APP_GID $APP_GROUP \
-    && useradd -u $APP_UID -g $APP_GROUP -m -s /bin/bash $APP_USER \
-    && usermod -a -G crontab $APP_USER \
-    && mkdir -p /var/www/html \
-               /var/www/moodledata \
-               /var/log/apache2 \
-               /var/run/apache2 \
-               /var/run/php \
-               /var/lock/apache2 \
-               /scripts/ \
-               /scripts/lib/ \
-               /scripts/setup/ \
-               /docker-entrypoint-init.d/ \
-    && chown -R $APP_USER:$APP_GROUP /var/log/apache2 \
-                                     /var/run/apache2 \
-                                     /var/lock/apache2 \
-                                     /var/www/moodledata \
-                                     /var/run/php \
-    && chmod -R 755 /var/log/apache2 \
-                    /var/run/apache2 \
-                    /var/lock/apache2 \
-                    /var/www/moodledata \
-                    /var/run/php
+# Configure user and group with common UID/GID for bind volumes - Consolidated user creation
+RUN groupadd -g $APP_GID $APP_GROUP 2>/dev/null || true \
+    && id -u $APP_USER >/dev/null 2>&1 || useradd -u $APP_UID -g $APP_GID -m -s /bin/bash $APP_USER \
+    && usermod -a -G crontab $APP_USER 2>/dev/null || true
 
+# Create necessary directories
+RUN mkdir -p /var/www/html \
+           /var/www/moodledata \
+           /var/log/apache2 \
+           /var/run/apache2 \
+           /var/run/php \
+           /var/lock/apache2 \
+           /scripts/ \
+           /scripts/lib/ \
+           /scripts/setup/ \
+           /docker-entrypoint-init.d/
+
+# Set permissions for Apache directories
+RUN chown -R $APP_USER:$APP_GROUP /var/log/apache2 \
+    && chown -R $APP_USER:$APP_GROUP /var/run/apache2 \
+    && chown -R $APP_USER:$APP_GROUP /var/lock/apache2 \
+    && chmod -R 755 /var/log/apache2 \
+    && chmod -R 755 /var/run/apache2 \
+    && chmod -R 755 /var/lock/apache2 \
+    && touch /var/log/apache2/access.log \
+    && touch /var/log/apache2/error.log \
+    && touch /var/log/apache2/other_vhosts_access.log \
+    && chown $APP_USER:$APP_GROUP /var/log/apache2/access.log \
+    && chown $APP_USER:$APP_GROUP /var/log/apache2/error.log \
+    && chown $APP_USER:$APP_GROUP /var/log/apache2/other_vhosts_access.log \
+    && chmod 644 /var/log/apache2/access.log \
+    && chmod 644 /var/log/apache2/error.log \
+    && chmod 644 /var/log/apache2/other_vhosts_access.log
+
+# Copy streamlined scripts
 COPY scripts/entrypoint.sh /scripts/entrypoint.sh
 COPY scripts/moodle-run.sh /scripts/moodle-run.sh
 COPY scripts/setup/ /scripts/setup/
@@ -146,29 +111,28 @@ COPY scripts/lib/ /scripts/lib/
 COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 
 # ================================
-# Moodle source stage (from Git repository)
+# Moodle download stage (separate)
 # ================================
-FROM alpine/git AS moodle-source
+FROM base AS moodle-downloader
 
-# Clone custom Moodle from Git repository (main branch)
-RUN git clone https://github.com/abs-technology/moodle-custom.git /project
+# Download and extract Moodle
+
+RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-latest-500.tgz -o /tmp/moodle.tgz \
+    && mkdir -p /opt/moodle-source \
+    && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
+    && rm -f /tmp/moodle.tgz \
+    && find /opt/moodle-source -type d -exec chmod 755 {} + \
+    && find /opt/moodle-source -type f -exec chmod 644 {} +
 
 # ================================
 # Final stage
 # ================================
 FROM base AS final
 
-# Copy Moodle source from Git repository
-COPY --from=moodle-source --chown=$APP_USER:$APP_GROUP /project/moodle/moodle/ /opt/moodle-source/
+# Copy Moodle source from downloader stage
+COPY --from=moodle-downloader --chown=$APP_USER:$APP_GROUP /opt/moodle-source /opt/moodle-source
 
-# Copy database from Git repository
-RUN mkdir -p /opt/moodle-init
-COPY --from=moodle-source --chown=$APP_USER:$APP_GROUP /project/database/init.sql /opt/moodle-init/moodle_db.sql
-
-# Copy moodledata from Git repository (correct path)
-COPY --from=moodle-source --chown=$APP_USER:$APP_GROUP /project/moodle/moodledata /opt/moodle-init/moodledata
-
-# Ghi đè cấu hình Apache mặc định cho Docker
+# Override default Apache configuration for Docker
 COPY config/apache/apache2.conf /etc/apache2/apache2.conf
 COPY config/apache/sites/000-default.conf /etc/apache2/sites-available/000-default.conf
 COPY config/apache/sites/000-default-ssl.conf /etc/apache2/sites-available/000-default-ssl.conf
@@ -182,35 +146,42 @@ RUN a2ensite 000-default.conf \
     && a2enmod headers \
     && a2enmod remoteip
 
-# Cấu hình PHP
+# Configure PHP
 COPY config/php/php.ini /etc/php/${PHP_VERSION}/fpm/php.ini
 COPY config/php/pool.d/www.conf /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf
 
-# Final configuration and permissions in one optimized step
+# Set permissions for config directories and files so non-root user can modify at runtime
 RUN chown -R $APP_USER:$APP_GROUP /etc/apache2 \
-                                  /etc/php/${PHP_VERSION}/fpm \
-                                  /etc/ssl/certs \
-                                  /etc/ssl/private \
-                                  /var/run \
-                                  /scripts \
-    && rm -f /etc/php/${PHP_VERSION}/cli/php.ini \
-    && ln -s /etc/php/${PHP_VERSION}/fpm/php.ini /etc/php/${PHP_VERSION}/cli/php.ini \
-    && ln -sf /dev/stdout /var/log/apache2/access.log \
+    && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/fpm \
+    && chown -R $APP_USER:$APP_GROUP /etc/ssl/certs \
+    && chown -R $APP_USER:$APP_GROUP /etc/ssl/private \
+    && chown $APP_USER:$APP_GROUP /var/run
+RUN rm -f /etc/php/${PHP_VERSION}/cli/php.ini \
+    && ln -s /etc/php/${PHP_VERSION}/fpm/php.ini /etc/php/${PHP_VERSION}/cli/php.ini
+
+# Configure Apache and PHP-FPM logs to stdout/stderr
+RUN ln -sf /dev/stdout /var/log/apache2/access.log \
     && ln -sf /dev/stderr /var/log/apache2/error.log \
     && ln -sf /dev/stdout /var/log/apache2/other_vhosts_access.log \
-    && ln -sf /dev/stdout /var/log/php${PHP_VERSION}-fpm.log \
+    && ln -sf /dev/stdout /var/log/php${PHP_VERSION}-fpm.log
+
+# Ensure permissions for data and log directories
+RUN chown -R $APP_USER:$APP_GROUP /var/www/moodledata \
+    && chmod -R 775 /var/www/moodledata \
+    && chown -R $APP_USER:$APP_GROUP /var/run/php \
+    && chmod -R 775 /var/run/php \
+    && chown -R $APP_USER:$APP_GROUP /scripts \
     && find /scripts -type f -exec chmod +x {} + \
     && find /docker-entrypoint-init.d/ -type f -exec chmod +x {} +
 
 WORKDIR /var/www/html
 
-# Switch to non-root user for security
-USER $APP_USER
+# Explicit USER directive for Docker Scout detection - Remove duplicate user creation
+USER $APP_USER:$APP_GROUP
 
 # Expose non-privileged ports for non-root user
 EXPOSE 8080 8443
 
-# Entrypoint cho container
+# Entrypoint for container
 ENTRYPOINT ["/scripts/entrypoint.sh"]
 CMD ["/scripts/moodle-run.sh"]
-
