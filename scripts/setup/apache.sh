@@ -39,7 +39,7 @@ debug "Checking Apache modules..."
 ls -la /etc/apache2/mods-enabled/ >/dev/null 2>&1 || debug "No enabled modules found"
 
 # Configure Apache with dynamic PHP version
-PHP_VERSION="${PHP_VERSION:-8.4}"
+PHP_VERSION="${PHP_VERSION:-8.2}"
 info "Configuring Apache for PHP ${PHP_VERSION}..."
 
 # Update Apache main config with dynamic PHP-FPM socket

@@ -1,8 +1,8 @@
 # Multi-stage build for optimization
 FROM debian:12-slim AS base
 
-ARG MOODLE_VERSION=5.0.2dev
-ARG PHP_VERSION=8.4
+ARG MOODLE_VERSION=4.3.12
+ARG PHP_VERSION=8.2
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
 ARG APP_GROUP=absiuser
@@ -117,7 +117,7 @@ FROM base AS moodle-downloader
 
 # Download and extract Moodle
 
-RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-latest-500.tgz -o /tmp/moodle.tgz \
+RUN curl -fsSL https://packaging.moodle.org/stable403/moodle-4.3.12.tgz -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
@@ -146,13 +146,15 @@ RUN a2ensite 000-default.conf \
     && a2enmod headers \
     && a2enmod remoteip
 
-# Configure PHP
+# Configure PHP for both FPM and Apache
 COPY config/php/php.ini /etc/php/${PHP_VERSION}/fpm/php.ini
+COPY config/php/php.ini /etc/php/${PHP_VERSION}/apache2/php.ini
 COPY config/php/pool.d/www.conf /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf
 
 # Set permissions for config directories and files so non-root user can modify at runtime
 RUN chown -R $APP_USER:$APP_GROUP /etc/apache2 \
     && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/fpm \
+    && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/apache2 \
     && chown -R $APP_USER:$APP_GROUP /etc/ssl/certs \
     && chown -R $APP_USER:$APP_GROUP /etc/ssl/private \
     && chown $APP_USER:$APP_GROUP /var/run

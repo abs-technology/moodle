@@ -12,7 +12,7 @@
 
 <p>
   <img src="https://img.shields.io/badge/Moodle-5.0.1-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
-  <img src="https://img.shields.io/badge/PHP-8.4-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
+  <img src="https://img.shields.io/badge/PHP-8.2-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
   <img src="https://img.shields.io/badge/MariaDB-11.7.2-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
   <img src="https://img.shields.io/badge/License-GPL_v3-blue.svg?style=for-the-badge" alt="License"/>
 </p>
@@ -121,7 +121,7 @@ docker compose up -d
 
 **Latest Technology Stack**
 - 🚀 **Moodle 5.0.1** - Latest features
-- 🐘 **PHP 8.4** - Performance boost
+- 🐘 **PHP 8.2** - Performance boost
 - 🗄️ **MariaDB 11.7.2** - Optimized database
 - 🔒 **Security Hardened** - Non-root execution
 - ⚡ **OPcache Enabled** - 3x faster performance
@@ -412,7 +412,7 @@ volumes:
 ### 🚀 **Performance & Scale**
 | Feature | Specification | Benefit |
 |---------|---------------|---------|
-| 🐘 **PHP Version** | 8.4 with OPcache | 40% faster than PHP 7.4 |
+| 🐘 **PHP Version** | 8.2 with OPcache | 40% faster than PHP 7.4 |
 | 🗄️ **Database** | MariaDB 11.7.2 | High-performance, MySQL-compatible |
 | 📁 **File Uploads** | Up to 2GB per file | Support large video/document uploads |
 | 🔄 **Cron Jobs** | Configurable (1-60 min) | Automated maintenance & notifications |

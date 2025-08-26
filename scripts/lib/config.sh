@@ -24,7 +24,7 @@ export MOODLE_SOURCE_DIR="${MOODLE_SOURCE_DIR:-/opt/moodle-source}"
 # PHP CONFIGURATION
 # ============================================================================
 
-export PHP_VERSION="${PHP_VERSION:-8.4}"
+export PHP_VERSION="${PHP_VERSION:-8.2}"
 export PHP_INI_PATH="/etc/php/${PHP_VERSION}/fpm/php.ini"
 export PHP_FPM_WWW_CONF="/etc/php/${PHP_VERSION}/fpm/pool.d/www.conf"
 export PHP_FPM_SOCKET="/var/run/php/php${PHP_VERSION}-fpm.sock"
