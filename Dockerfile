@@ -180,7 +180,8 @@ RUN a2ensite 000-default.conf \
     && a2enmod mpm_prefork \
     && a2enmod ssl \
     && a2enmod headers \
-    && a2enmod remoteip
+    && a2enmod remoteip \
+    && a2dismod php${PHP_VERSION}
 
 # Cấu hình PHP
 COPY config/php/php.ini /etc/php/${PHP_VERSION}/fpm/php.ini
