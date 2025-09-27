@@ -22,7 +22,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.0.1
+    image: abstechnology/moodle-standard:develop-5.0.2-plus
     container_name: abs-moodle
     ports:
       - "80:8080"
@@ -54,6 +54,44 @@ services:
       - PHP_POST_MAX_SIZE=${PHP_POST_MAX_SIZE}
       - PHP_UPLOAD_MAX_FILESIZE=${PHP_UPLOAD_MAX_FILESIZE}
       - PHP_MAX_EXECUTION_TIME=${PHP_MAX_EXECUTION_TIME}
+      - PHP_MAX_INPUT_TIME=${PHP_MAX_INPUT_TIME}
+      - PHP_OUTPUT_BUFFERING=${PHP_OUTPUT_BUFFERING}
+      - PHP_DEFAULT_SOCKET_TIMEOUT=${PHP_DEFAULT_SOCKET_TIMEOUT}
+      
+      # PHP Error Reporting
+      - PHP_ERROR_REPORTING=${PHP_ERROR_REPORTING}
+      - PHP_DISPLAY_ERRORS=${PHP_DISPLAY_ERRORS}
+      - PHP_LOG_ERRORS=${PHP_LOG_ERRORS}
+      
+      # PHP-FPM Pool Settings
+      - PHP_FPM_PM=${PHP_FPM_PM}
+      - PHP_FPM_MAX_CHILDREN=${PHP_FPM_MAX_CHILDREN}
+      - PHP_FPM_START_SERVERS=${PHP_FPM_START_SERVERS}
+      - PHP_FPM_MIN_SPARE_SERVERS=${PHP_FPM_MIN_SPARE_SERVERS}
+      - PHP_FPM_MAX_SPARE_SERVERS=${PHP_FPM_MAX_SPARE_SERVERS}
+      - PHP_FPM_MAX_REQUESTS=${PHP_FPM_MAX_REQUESTS}
+      
+      # Apache Configuration
+      - APACHE_TIMEOUT=${APACHE_TIMEOUT}
+      - APACHE_KEEPALIVE=${APACHE_KEEPALIVE}
+      - APACHE_MAX_KEEPALIVE_REQUESTS=${APACHE_MAX_KEEPALIVE_REQUESTS}
+      - APACHE_KEEPALIVE_TIMEOUT=${APACHE_KEEPALIVE_TIMEOUT}
+      - APACHE_LOG_LEVEL=${APACHE_LOG_LEVEL}
+      - APACHE_START_SERVERS=${APACHE_START_SERVERS}
+      - APACHE_MIN_SPARE_SERVERS=${APACHE_MIN_SPARE_SERVERS}
+      - APACHE_MAX_SPARE_SERVERS=${APACHE_MAX_SPARE_SERVERS}
+      - APACHE_MAX_REQUEST_WORKERS=${APACHE_MAX_REQUEST_WORKERS}
+      - APACHE_MAX_CONNECTIONS_PER_CHILD=${APACHE_MAX_CONNECTIONS_PER_CHILD}
+      - APACHE_SERVER_LIMIT=${APACHE_SERVER_LIMIT}
+      - APACHE_HTTP_PORT=${APACHE_HTTP_PORT}
+      - APACHE_HTTPS_PORT=${APACHE_HTTPS_PORT}
+      
+      # SSL Configuration
+      - SSL_CERT_FILE=${SSL_CERT_FILE}
+      - SSL_KEY_FILE=${SSL_KEY_FILE}
+      
+      # System Configuration
+      - SYSTEM_TIMEZONE=${SYSTEM_TIMEZONE}
       
       # MariaDB Connection Configuration
       - MARIADB_HOST=${MOODLE_DATABASE_HOST}
@@ -65,6 +103,16 @@ services:
       - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
       - MOODLE_SSLPROXY=${MOODLE_SSLPROXY}
       
+      # Container Configuration
+      - CONTAINER_NAME=${CONTAINER_NAME}
+      - CONTAINER_TIMEZONE=${CONTAINER_TIMEZONE}
+      - CONTAINER_LOG_LEVEL=${CONTAINER_LOG_LEVEL}
+      
+      # Support Configuration
+      - SUPPORT_EMAIL=${SUPPORT_EMAIL}
+      - SUPPORT_WEBSITE=${SUPPORT_WEBSITE}
+      - SUPPORT_DOCUMENTATION=${SUPPORT_DOCUMENTATION}
+      
     volumes:
       - ./data/moodle:/var/www/html
       - ./data/moodledata:/var/www/moodledata
@@ -72,7 +120,7 @@ services:
       mariadb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/login/index.php"]
+      test: ["CMD", "sh", "-c", "if [ \"$$MOODLE_SSLPROXY\" = \"yes\" ]; then curl -f -k https://localhost:8443/login/index.php; else curl -f http://localhost:8080/login/index.php; fi"]
       interval: 30s
       timeout: 10s
       retries: 5

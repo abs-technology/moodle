@@ -13,7 +13,7 @@ set -o pipefail
 # Load centralized configuration
 load_config
 
-echo -e "\033[1;32mWelcome to Absi Technology Moodle LMS\033[0m" 
+echo -e "\033[1;32mWelcome to ABS Technology Moodle LMS\033[0m" 
 echo -e "     ___    __         \033[31m_\033[0m "
 echo -e "    /   |  / /_  _____\033[31m(_)\033[0m"
 echo -e "   / /| | / __ \/ ___\033[31m/ /\033[0m "
@@ -22,15 +22,15 @@ echo -e " /_/  |_/_.___/____\033[31m/_/\033[0m   "
                         
 echo ""
 echo " ══════════════════════════════════════════════"
-echo "  🎓 ABSI TECHNOLOGY MOODLE LMS 🎓              "
-echo "     Version: 5.0.1+                           "
-echo "     PHP Version: 8.4                          "
+echo "  🎓 ABS TECHNOLOGY MOODLE LMS 🎓              "
+echo "     Version: 5.0.2+                           "
+echo "     PHP Version: ${PHP_VERSION}               "
 echo "     Apache Version: 2.4                       "
 echo " ══════════════════════════════════════════════"
 echo "  📞 Support & Resources                        "
-echo "     Website: https://abs.education/            "
-echo "     Support:  billnguyen@tiki.edu.vn           "
-echo "     Docs: https://docs.abs.education/         "
+echo "     Website: ${SUPPORT_WEBSITE}               "
+echo "     Support: ${SUPPORT_EMAIL}                 "
+echo "     Documentation: ${SUPPORT_DOCUMENTATION}   "
 echo " ══════════════════════════════════════════════"
 
 echo ""
@@ -97,7 +97,7 @@ if [ -d "$MOODLE_DATA_DIR" ]; then
     fi
 fi
 
-info "** Starting Absi Moodle setup **"
+info "** Starting ABS Technology Moodle setup **"
 
 # 1. Setup Web Server (Apache)
 info "Setting up Apache..."

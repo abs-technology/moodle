@@ -28,6 +28,7 @@ export PHP_VERSION="${PHP_VERSION:-8.4}"
 export PHP_INI_PATH="/etc/php/${PHP_VERSION}/fpm/php.ini"
 export PHP_FPM_WWW_CONF="/etc/php/${PHP_VERSION}/fpm/pool.d/www.conf"
 export PHP_FPM_SOCKET="/var/run/php/php${PHP_VERSION}-fpm.sock"
+export PHP_CLI_INI_PATH="/etc/php/${PHP_VERSION}/cli/php.ini"
 
 # PHP Settings
 export PHP_MEMORY_LIMIT="${PHP_MEMORY_LIMIT:-256M}"
@@ -36,6 +37,22 @@ export PHP_POST_MAX_SIZE="${PHP_POST_MAX_SIZE:-50M}"
 export PHP_UPLOAD_MAX_FILESIZE="${PHP_UPLOAD_MAX_FILESIZE:-40M}"
 export PHP_MAX_EXECUTION_TIME="${PHP_MAX_EXECUTION_TIME:-300}"
 export PHP_MAX_FILE_UPLOADS="${PHP_MAX_FILE_UPLOADS:-20}"
+export PHP_MAX_INPUT_TIME="${PHP_MAX_INPUT_TIME:-60}"
+export PHP_OUTPUT_BUFFERING="${PHP_OUTPUT_BUFFERING:-4096}"
+export PHP_DEFAULT_SOCKET_TIMEOUT="${PHP_DEFAULT_SOCKET_TIMEOUT:-60}"
+
+# PHP-FPM Pool Settings
+export PHP_FPM_PM="${PHP_FPM_PM:-dynamic}"
+export PHP_FPM_MAX_CHILDREN="${PHP_FPM_MAX_CHILDREN:-5}"
+export PHP_FPM_START_SERVERS="${PHP_FPM_START_SERVERS:-2}"
+export PHP_FPM_MIN_SPARE_SERVERS="${PHP_FPM_MIN_SPARE_SERVERS:-1}"
+export PHP_FPM_MAX_SPARE_SERVERS="${PHP_FPM_MAX_SPARE_SERVERS:-3}"
+export PHP_FPM_MAX_REQUESTS="${PHP_FPM_MAX_REQUESTS:-500}"
+
+# PHP Error Reporting
+export PHP_ERROR_REPORTING="${PHP_ERROR_REPORTING:-E_ALL & ~E_NOTICE & ~E_STRICT & ~E_DEPRECATED}"
+export PHP_DISPLAY_ERRORS="${PHP_DISPLAY_ERRORS:-Off}"
+export PHP_LOG_ERRORS="${PHP_LOG_ERRORS:-On}"
 
 # ============================================================================
 # WEB SERVER CONFIGURATION
@@ -46,10 +63,36 @@ export WEB_SERVER_DAEMON_GROUP="${WEB_SERVER_DAEMON_GROUP:-$APP_GROUP}"
 export WEB_SERVER_NAME="${WEB_SERVER_NAME:-localhost}"
 export WEB_SERVER_ADMIN="${WEB_SERVER_ADMIN:-webmaster@localhost}"
 
+# Apache Performance Settings
+export APACHE_TIMEOUT="${APACHE_TIMEOUT:-60}"
+export APACHE_KEEPALIVE="${APACHE_KEEPALIVE:-On}"
+export APACHE_MAX_KEEPALIVE_REQUESTS="${APACHE_MAX_KEEPALIVE_REQUESTS:-1000}"
+export APACHE_KEEPALIVE_TIMEOUT="${APACHE_KEEPALIVE_TIMEOUT:-15}"
+export APACHE_LOG_LEVEL="${APACHE_LOG_LEVEL:-warn}"
+
+# Apache MPM Settings
+export APACHE_START_SERVERS="${APACHE_START_SERVERS:-8}"
+export APACHE_MIN_SPARE_SERVERS="${APACHE_MIN_SPARE_SERVERS:-8}"
+export APACHE_MAX_SPARE_SERVERS="${APACHE_MAX_SPARE_SERVERS:-20}"
+export APACHE_MAX_REQUEST_WORKERS="${APACHE_MAX_REQUEST_WORKERS:-256}"
+export APACHE_MAX_CONNECTIONS_PER_CHILD="${APACHE_MAX_CONNECTIONS_PER_CHILD:-1000}"
+export APACHE_SERVER_LIMIT="${APACHE_SERVER_LIMIT:-256}"
+
 # Apache Paths
 export APACHE_CONFIG_DIR="/etc/apache2"
 export APACHE_SITES_DIR="/etc/apache2/sites-available"
 export APACHE_LOG_DIR="/var/log/apache2"
+
+# Apache Ports
+export APACHE_HTTP_PORT="${APACHE_HTTP_PORT:-8080}"
+export APACHE_HTTPS_PORT="${APACHE_HTTPS_PORT:-8443}"
+
+# SSL Configuration
+export SSL_CERT_FILE="${SSL_CERT_FILE:-/etc/ssl/certs/localhost.crt}"
+export SSL_KEY_FILE="${SSL_KEY_FILE:-/etc/ssl/private/localhost.key}"
+
+# System Configuration
+export SYSTEM_TIMEZONE="${SYSTEM_TIMEZONE:-Asia/Ho_Chi_Minh}"
 export APACHE_RUN_DIR="/var/run/apache2"
 export APACHE_LOCK_DIR="/var/lock/apache2"
 
@@ -97,12 +140,22 @@ export MARIADB_COLLATE="${MARIADB_COLLATE:-utf8mb4_unicode_ci}"
 
 export MOODLE_USERNAME="${MOODLE_USERNAME:-absi_admin}"
 export MOODLE_PASSWORD="${MOODLE_PASSWORD:-password}"
-export MOODLE_EMAIL="${MOODLE_EMAIL:-henry@absi.edu.vn}"
-export MOODLE_SITE_NAME="${MOODLE_SITE_NAME:-Absi Technology Moodle LMS}"
+export MOODLE_EMAIL="${MOODLE_EMAIL:-admin@yourdomain.com}"
+export MOODLE_SITE_NAME="${MOODLE_SITE_NAME:-ABS Technology Moodle LMS}"
+export MOODLE_SITE_FULLNAME="${MOODLE_SITE_FULLNAME:-ABS Technology Learning Management System}"
+export MOODLE_SITE_SHORTNAME="${MOODLE_SITE_SHORTNAME:-ABS-LMS}"
 export MOODLE_CRON_MINUTES="${MOODLE_CRON_MINUTES:-1}"
 export MOODLE_HOST="${MOODLE_HOST:-localhost}"
 export MOODLE_REVERSEPROXY="${MOODLE_REVERSEPROXY:-no}"
 export MOODLE_SSLPROXY="${MOODLE_SSLPROXY:-no}"
+
+# ============================================================================
+# CONTAINER CONFIGURATION
+# ============================================================================
+
+export CONTAINER_NAME="${CONTAINER_NAME:-absi-moodle}"
+export CONTAINER_TIMEZONE="${CONTAINER_TIMEZONE:-UTC}"
+export CONTAINER_LOG_LEVEL="${CONTAINER_LOG_LEVEL:-info}"
 
 # ============================================================================
 # SYSTEM PATHS
@@ -112,6 +165,14 @@ export SYSTEM_LOG_DIR="/var/log"
 export SYSTEM_RUN_DIR="/var/run"
 export SYSTEM_LOCK_DIR="/var/lock"
 export SYSTEM_TMP_DIR="/tmp"
+
+# ============================================================================
+# SUPPORT CONFIGURATION  
+# ============================================================================
+
+export SUPPORT_EMAIL="${SUPPORT_EMAIL:-billnguyen@absi.edu.vn}"
+export SUPPORT_WEBSITE="${SUPPORT_WEBSITE:-https://abs.education}"
+export SUPPORT_DOCUMENTATION="${SUPPORT_DOCUMENTATION:-https://docs.abs.education}"
 
 # ============================================================================
 # HELPER FUNCTIONS

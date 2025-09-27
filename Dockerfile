@@ -147,16 +147,16 @@ RUN a2ensite 000-default.conf \
 
 # Configure PHP
 COPY config/php/php.ini /etc/php/${PHP_VERSION}/fpm/php.ini
+COPY config/php/php.ini /etc/php/${PHP_VERSION}/cli/php.ini
 COPY config/php/pool.d/www.conf /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf
 
 # Set permissions for config directories and files so non-root user can modify at runtime
 RUN chown -R $APP_USER:$APP_GROUP /etc/apache2 \
     && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/fpm \
+    && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/cli \
     && chown -R $APP_USER:$APP_GROUP /etc/ssl/certs \
     && chown -R $APP_USER:$APP_GROUP /etc/ssl/private \
     && chown $APP_USER:$APP_GROUP /var/run
-RUN rm -f /etc/php/${PHP_VERSION}/cli/php.ini \
-    && ln -s /etc/php/${PHP_VERSION}/fpm/php.ini /etc/php/${PHP_VERSION}/cli/php.ini
 
 # Configure Apache and PHP-FPM logs to stdout/stderr
 RUN ln -sf /dev/stdout /var/log/apache2/access.log \

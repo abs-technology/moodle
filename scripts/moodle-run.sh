@@ -39,7 +39,7 @@ rm -f /tmp/moodle-cron.pid
     while true; do
         echo "$(date): Starting cron run..."
         cd /var/www/html
-        /usr/bin/php admin/cli/cron.php
+        /usr/bin/php admin/cli/cron.php --keep-alive=0
         echo "$(date): Cron completed, sleeping for ${CRON_SECONDS} seconds..."
         sleep $CRON_SECONDS
     done
