@@ -1,6 +1,6 @@
 services:
   mariadb:
-    image: bitnamilegacy/mariadb:11.7.2
+    image: mariadb:11.7.2
     container_name: abs-mariadb
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
