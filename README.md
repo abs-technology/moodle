@@ -142,14 +142,14 @@ docker compose up -d
 </td>
 <td width="33%" align="center">
 
-### 💼 **[Professional Support](https://abs.education/mod/page/view.php?id=410)**
+### 💼 **[Professional Support](https://abs.education/mod/page/view.php?id=159)**
 <img src="https://img.shields.io/badge/24/7-Support-orange?style=for-the-badge" alt="24/7 Support"/>
 
 **Expert Assistance**
 - 🎓 **Education Specialists** - LMS experts  
 - 🔄 **Regular Updates** - Security patches
 - 🌍 **Global Support** - Worldwide coverage
-- 📞 **[Commercial Support](https://abs.education/mod/page/view.php?id=410)** - Enterprise SLA
+- 📞 **[Commercial Support](https://abs.education/mod/page/view.php?id=159)** - Enterprise SLA
 - 🛠️ **Custom Solutions** - Tailored deployments
 
 </td>
@@ -499,7 +499,7 @@ This Docker setup is licensed under the MIT License. Moodle itself is licensed u
 - 🎯 [Live Demo](https://abs.education) - Experience ABS LMS features firsthand
 
 ### 💼 **Enterprise Support**
-- 🏢 **Commercial Support**: [Professional Services](https://abs.education/mod/page/view.php?id=410) | billnguyen@absi.edu.vn
+- 🏢 **Commercial Support**: [Professional Services](https://abs.education/mod/page/view.php?id=159) | billnguyen@absi.edu.vn
 - 🌐 **Global Support**: Available across all timezones
 - 🎓 **Training & Consulting**: Custom Moodle implementation services
 - 🚀 **Migration Services**: Seamless migration from other LMS platforms
