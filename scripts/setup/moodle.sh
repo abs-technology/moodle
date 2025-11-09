@@ -39,8 +39,30 @@ wait_for_db_connection() {
 # Main logic of Moodle Setup  
 if [[ -f "$MOODLE_CONF_FILE" ]]; then
     info "Moodle already initialized. Skipping fresh installation."
+    
+    # Ensure Moodle source is available even if already initialized
+    if [[ ! -f "$MOODLE_DIR/lib/setup.php" && -d "$MOODLE_SOURCE_DIR" ]]; then
+        info "Moodle source missing, copying from backup..."
+        cp -r "$MOODLE_SOURCE_DIR"/* "$MOODLE_DIR"/
+        chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR"
+    fi
+    
     chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR" "$MOODLE_DATA_DIR"
     chmod -R 775 "$MOODLE_DATA_DIR"
+    
+    # Add security settings to config.php
+    if ! grep -q "preventexecpath" "$MOODLE_CONF_FILE"; then
+        # Temporarily make writable to add security setting
+        chmod 644 "$MOODLE_CONF_FILE"
+        # Insert before the final require_once line
+        sed -i '/require_once.*lib\/setup\.php/i $CFG->preventexecpath = true;' "$MOODLE_CONF_FILE"
+        debug "Added preventexecpath = true to config.php for security"
+    fi
+    
+    # Set config.php to read-only for security
+    chmod 644 "$MOODLE_CONF_FILE"
+    debug "Set config.php to read-only (644) for security"
+    
     info "Running Moodle database upgrade..."
     php "${MOODLE_DIR}/admin/cli/upgrade.php" --non-interactive --allow-unstable >/dev/null || true
     find "${MOODLE_DATA_DIR}/sessions/" -name "sess_*" -delete || true
@@ -75,6 +97,21 @@ else
         --agree-license >/dev/null
 
     touch "$MOODLE_DATA_DIR/.moodle_initialized"
+    
+    # Add security settings to config.php
+    if [[ -f "$MOODLE_CONF_FILE" ]]; then
+        # Add preventexecpath setting for security
+        if ! grep -q "preventexecpath" "$MOODLE_CONF_FILE"; then
+            # Insert before the final require_once line
+            sed -i '/require_once.*lib\/setup\.php/i $CFG->preventexecpath = true;' "$MOODLE_CONF_FILE"
+            info "Added preventexecpath = true to config.php for security"
+        fi
+        
+        # Set config.php to read-only for security
+        chmod 644 "$MOODLE_CONF_FILE"
+        info "Set config.php to read-only (644) for security"
+    fi
+    
     info "Moodle initial installation completed."
 fi
 
@@ -90,41 +127,110 @@ fi
 # Always update wwwroot each time container starts
 info "Configuring Moodle wwwroot..."
 
-# Use PHP to update wwwroot dynamically
+# Configure Moodle based on load balancing settings (Option B logic with templates)
 if [[ -f "$MOODLE_CONF_FILE" ]]; then
-    # Create temporary PHP file to avoid bash expansion conflicts
-    cat > /tmp/update_wwwroot.php << 'EOF'
-<?php
-define('CLI_SCRIPT', true);
+    info "Configuring Moodle for proxy settings..."
+    debug "MOODLE_REVERSEPROXY: ${MOODLE_REVERSEPROXY}"
+    debug "MOODLE_SSLPROXY: ${MOODLE_SSLPROXY}"
+    debug "MOODLE_DOMAIN: ${MOODLE_DOMAIN:-}"
+    
+    # Configure based on proxy mode using simple approach
+    if [[ "$MOODLE_REVERSEPROXY" == "yes" ]]; then
+        info "Load balancer mode - updating Moodle config for proxy"
+        REVERSEPROXY_SETTING="true"
+        if [[ "$MOODLE_SSLPROXY" == "yes" ]]; then
+            SSLPROXY_SETTING="true"
+        else
+            SSLPROXY_SETTING="false"
+        fi
+        
+        if [[ -n "${MOODLE_DOMAIN:-}" ]]; then
+            # Fixed domain for load balancer
+            WWWROOT_CONFIG='
+// Fixed domain configuration for load balancer
+$protocol = "http";
+if (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") {
+    $protocol = "https";
+} elseif (!empty($_SERVER["HTTP_X_FORWARDED_PROTO"]) && $_SERVER["HTTP_X_FORWARDED_PROTO"] === "https") {
+    $protocol = "https";
+}
+$CFG->wwwroot = $protocol . "://'${MOODLE_DOMAIN}'";'
+        else
+            # Dynamic domain for load balancer  
+            WWWROOT_CONFIG='
+// Dynamic wwwroot detection with load balancer support
+if (!empty($_SERVER["HTTP_HOST"])) {
+    $protocol = "http";
+    if (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") {
+        $protocol = "https";
+    } elseif (!empty($_SERVER["HTTP_X_FORWARDED_PROTO"]) && $_SERVER["HTTP_X_FORWARDED_PROTO"] === "https") {
+        $protocol = "https";
+    }
+    $CFG->wwwroot = $protocol . "://" . $_SERVER["HTTP_HOST"];
+} else {
+    $CFG->wwwroot = "http://localhost";
+}'
+        fi
+        
+        PROXY_CONFIG="
 
-$config_file = $argv[1];
-require_once($config_file);
+// Load balancer configuration
+\$CFG->reverseproxy = ${REVERSEPROXY_SETTING};
+\$CFG->sslproxy = ${SSLPROXY_SETTING};
 
-$config_content = file_get_contents($config_file);
-
-// Replace wwwroot with dynamic detection
-$dynamic_wwwroot = '
-// Dynamic wwwroot detection
+// Session clustering for load balancing
+\$CFG->session_handler_class = '\\core\\session\\file';
+\$CFG->session_file_save_path = '/var/www/moodledata/sessions';"
+        
+    else
+        info "Direct connection mode - updating Moodle config for direct access"
+        
+        if [[ -n "${MOODLE_DOMAIN:-}" ]]; then
+            # Fixed domain for direct connection
+            WWWROOT_CONFIG='
+// Fixed domain configuration for direct connection
+$protocol = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
+$CFG->wwwroot = $protocol . "://'${MOODLE_DOMAIN}'";'
+        else
+            # Dynamic domain for direct connection
+            WWWROOT_CONFIG='
+// Dynamic wwwroot detection - direct connection only
 if (!empty($_SERVER["HTTP_HOST"])) {
     $protocol = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
     $CFG->wwwroot = $protocol . "://" . $_SERVER["HTTP_HOST"];
 } else {
     $CFG->wwwroot = "http://localhost";
-}';
+}'
+        fi
+        
+        PROXY_CONFIG="
 
-$config_content = preg_replace(
-    '/^\$CFG->wwwroot\s*=\s*[^;]+;/m',
-    $dynamic_wwwroot,
-    $config_content
-);
+// Direct connection mode - no load balancer
+// \$CFG->reverseproxy = false; // Default
+// \$CFG->sslproxy = false; // Default
+// Default session handling - no shared storage needed"
+    fi
+    
+    # Create simple PHP script to update config
+    cat > /tmp/update_moodle_config.php << 'PHPEOF'
+<?php
+$config_file = $argv[1];
+$config_content = file_get_contents($config_file);
+
+// Remove old configurations if any
+$config_content = preg_replace('/\/\/ (Load balancer|Direct connection|Fixed domain|Dynamic wwwroot).*?(\$CFG->session_file_save_path.*?;|\/\/ Default session handling.*?\n)/s', '', $config_content);
+
+// Insert new configuration before preventexecpath
+$new_config = $argv[2] . $argv[3];
+$config_content = preg_replace('/(\$CFG->preventexecpath = true;)/', $new_config . "\n\n$1", $config_content);
 
 file_put_contents($config_file, $config_content);
-echo "Moodle wwwroot updated to dynamic detection.\n";
-EOF
+echo "Moodle configuration updated successfully\n";
+PHPEOF
 
-    # Run PHP script with user privileges
-    php /tmp/update_wwwroot.php "$MOODLE_DIR/config.php"
-    rm -f /tmp/update_wwwroot.php
+    # Run PHP script with wwwroot and proxy configs
+    php /tmp/update_moodle_config.php "$MOODLE_DIR/config.php" "$WWWROOT_CONFIG" "$PROXY_CONFIG"
+    rm -f /tmp/update_moodle_config.php
 fi
 
 info "Moodle application setup finished."

@@ -22,7 +22,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:develop-5.0.2-plus
+    image: abstechnology/moodle-standard:develop-5.0.2-plus-lb
     container_name: abs-moodle
     ports:
       - "80:8080"
@@ -102,6 +102,7 @@ services:
       # Proxy Configuration
       - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
       - MOODLE_SSLPROXY=${MOODLE_SSLPROXY}
+      - MOODLE_DOMAIN=${MOODLE_DOMAIN}
       
       # Container Configuration
       - CONTAINER_NAME=${CONTAINER_NAME}

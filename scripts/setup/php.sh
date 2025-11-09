@@ -98,4 +98,38 @@ apply_php_setting "date.timezone" "$SYSTEM_TIMEZONE"
 [[ -f "$PHP_INI_PATH" ]] && sed -i "s|/var/www/moodledata|$MOODLE_DATA_DIR|g" "$PHP_INI_PATH"
 [[ -f "$PHP_CLI_INI_PATH" ]] && sed -i "s|/var/www/moodledata|$MOODLE_DATA_DIR|g" "$PHP_CLI_INI_PATH"
 
+# Configure PHP session path based on load balancing settings
+info "Configuring PHP session storage for proxy mode..."
+debug "MOODLE_REVERSEPROXY: ${MOODLE_REVERSEPROXY}"
+
+if [[ "$MOODLE_REVERSEPROXY" == "yes" ]]; then
+    info "Load balancer mode - using shared session storage"
+    SESSION_SAVE_PATH="${MOODLE_DATA_DIR}/sessions"
+    
+    # Ensure shared session directory exists
+    mkdir -p "$SESSION_SAVE_PATH"
+    chown -R "$APP_USER:$APP_GROUP" "$SESSION_SAVE_PATH"
+    chmod 755 "$SESSION_SAVE_PATH"
+    
+    # Update PHP-FPM pool config for shared sessions
+    if [[ -f "$PHP_FPM_WWW_CONF" ]]; then
+        sed -i "s|php_value\[session.save_path\] = .*|php_value[session.save_path] = \"$SESSION_SAVE_PATH\"|g" "$PHP_FPM_WWW_CONF"
+        debug "Updated PHP-FPM session path to: $SESSION_SAVE_PATH"
+    fi
+else
+    info "Direct connection mode - using local session storage"
+    SESSION_SAVE_PATH="${MOODLE_DATA_DIR}/local_sessions"
+    
+    # Ensure local session directory exists (use moodledata to avoid permission issues)
+    mkdir -p "$SESSION_SAVE_PATH"
+    chown -R "$APP_USER:$APP_GROUP" "$SESSION_SAVE_PATH"
+    chmod 755 "$SESSION_SAVE_PATH"
+    
+    # Update PHP-FPM pool config for local sessions
+    if [[ -f "$PHP_FPM_WWW_CONF" ]]; then
+        sed -i "s|php_value\[session.save_path\] = .*|php_value[session.save_path] = \"$SESSION_SAVE_PATH\"|g" "$PHP_FPM_WWW_CONF"
+        debug "Updated PHP-FPM session path to: $SESSION_SAVE_PATH"
+    fi
+fi
+
 info "PHP setup finished."

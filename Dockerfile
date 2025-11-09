@@ -134,8 +134,11 @@ COPY --from=moodle-downloader --chown=$APP_USER:$APP_GROUP /opt/moodle-source /o
 # Override default Apache configuration for Docker
 COPY config/apache/apache2.conf /etc/apache2/apache2.conf
 COPY config/apache/sites/000-default.conf /etc/apache2/sites-available/000-default.conf
+COPY config/apache/sites/000-default-lb.conf /etc/apache2/sites-available/000-default-lb.conf
+COPY config/apache/sites/000-default-direct.conf /etc/apache2/sites-available/000-default-direct.conf
 COPY config/apache/sites/000-default-ssl.conf /etc/apache2/sites-available/000-default-ssl.conf
 COPY config/apache/conf/other-vhosts-access-log.conf /etc/apache2/conf-available/other-vhosts-access-log.conf
+
 RUN a2ensite 000-default.conf \
     && a2ensite 000-default-ssl.conf \
     && a2enconf other-vhosts-access-log \
