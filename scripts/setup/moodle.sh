@@ -237,14 +237,22 @@ if [ -d "/opt/moodle-source" ]; then
         
         # Copy all source code (first run only)
         info "Copying pre-built source code..."
-        cp -rf /opt/moodle-source/* "$MOODLE_DIR/" 2>/dev/null || true
-        cp -rf /opt/moodle-source/.[!.]* "$MOODLE_DIR/" 2>/dev/null || true
+        # Use tar for reliable directory copying that preserves structure
+        (cd /opt/moodle-source && tar cf - .) | (cd "$MOODLE_DIR" && tar xf -)
         chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR"
         
         # Set proper permissions for Moodle
         find "$MOODLE_DIR" -type d -exec chmod 755 {} +
         find "$MOODLE_DIR" -type f -exec chmod 644 {} +
         info "Moodle source code deployed successfully."
+        
+        # Security fix: Update composer dependencies to fix CVE-2024-51736
+        if command -v composer >/dev/null 2>&1 && [ -f "$MOODLE_DIR/composer.json" ]; then
+            info "Applying security updates for composer dependencies..."
+            cd "$MOODLE_DIR"
+            composer require symfony/process:6.4.14 symfony/http-client:^6.4.14 symfony/mime:^6.4.14 --with-dependencies --no-interaction --optimize-autoloader --update-with-dependencies --quiet || true
+            info "Composer security updates applied successfully."
+        fi
     else
         info "Existing Moodle installation detected. Preserving user data and customizations."
     fi

@@ -54,8 +54,15 @@ RUN apt-get install -y --no-install-recommends \
     acl \
     ssl-cert \
     openssl \
+    git \
+    unzip \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# Install Composer for dependency management and security updates
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \
+    && chmod +x /usr/local/bin/composer \
+    && rm -rf /tmp/composer-setup.php
 
 # Configure locale for UTF-8 support
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
@@ -116,13 +123,26 @@ COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 FROM base AS moodle-downloader
 
 # Download and extract Moodle
-
 RUN curl -fsSL https://packaging.moodle.org/stable405/moodle-latest-405.tgz -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
     && find /opt/moodle-source -type d -exec chmod 755 {} + \
     && find /opt/moodle-source -type f -exec chmod 644 {} +
+
+# Security fix: Update symfony/process to fix CVE-2024-51736
+# Update from vulnerable version 6.4.4 to fixed version 6.4.14
+RUN cd /opt/moodle-source \
+    && composer require symfony/process:6.4.14 symfony/http-client:^6.4.14 symfony/mime:^6.4.14 --with-dependencies --no-interaction --optimize-autoloader --update-with-dependencies \
+    && composer check-platform-reqs --no-dev || true \
+    && composer clear-cache \
+    && rm -rf /root/.composer/cache \
+    && find /opt/moodle-source/vendor -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true \
+    && find /opt/moodle-source/vendor -name "*.md" -type f -delete 2>/dev/null || true \
+    && find /opt/moodle-source/vendor -name "*.txt" -type f -delete 2>/dev/null || true \
+    && find /opt/moodle-source/vendor -name "test" -type d -exec rm -rf {} + 2>/dev/null || true \
+    && find /opt/moodle-source/vendor -name "tests" -type d -exec rm -rf {} + 2>/dev/null || true \
+    && find /opt/moodle-source/vendor -name "Tests" -type d -exec rm -rf {} + 2>/dev/null || true
 
 # ================================
 # Final stage
