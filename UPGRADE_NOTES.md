@@ -90,7 +90,7 @@ SecRuleEngine DetectionOnly
 
 ### 1. Rebuild Docker Image
 ```bash
-docker build -t moodle-core:5.0.3-plus .
+docker build -t moodle-core:4.5.7-plus .
 ```
 
 ### 2. Stop Current Container (Maintenance Window)
@@ -134,8 +134,8 @@ If any issues occur:
 ```bash
 # Use previous image
 docker-compose down
-docker tag moodle-core:5.0.3-plus moodle-core:5.0.3-plus-new
-docker tag moodle-core:5.0.3-plus-old moodle-core:5.0.3-plus
+docker tag moodle-core:4.5.7-plus moodle-core:4.5.7-plus-new
+docker tag moodle-core:4.5.7-plus-old moodle-core:4.5.7-plus
 docker-compose up -d
 ```
 

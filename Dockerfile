@@ -1,7 +1,7 @@
 # Multi-stage build for optimization
 FROM debian:12-slim AS base
 
-ARG MOODLE_VERSION=5.0.3+
+ARG MOODLE_VERSION=4.5.7+
 ARG PHP_VERSION=8.2
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
@@ -129,7 +129,7 @@ COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 FROM base AS moodle-downloader
 
 # Download and extract Moodle
-RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-latest-500.tgz -o /tmp/moodle.tgz \
+RUN curl -fsSL https://packaging.moodle.org/stable405/moodle-latest-405.tgz -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
