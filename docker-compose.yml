@@ -22,7 +22,7 @@ services:
       - moodle_network
 
   moodle:
-    image: moodle-core:4.5.7_fix_composer-plus
+    image: moodle-core:5.0.3-plus
     container_name: abs-moodle
     ports:
       - "80:8080"
