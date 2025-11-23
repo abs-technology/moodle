@@ -1,7 +1,7 @@
 # Multi-stage build for optimization
 FROM debian:12-slim AS base
 
-ARG MOODLE_VERSION=4.5.7+
+ARG MOODLE_VERSION=5.0.3+
 ARG PHP_VERSION=8.2
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
@@ -47,6 +47,12 @@ RUN apt-get install -y --no-install-recommends \
     php${PHP_VERSION}-mysqli \
     php${PHP_VERSION}-pdo \
     php${PHP_VERSION}-pdo-mysql \
+    php${PHP_VERSION}-apcu \
+    php${PHP_VERSION}-imagick \
+    imagemagick \
+    libmagickwand-dev \
+    libapache2-mod-security2 \
+    modsecurity-crs \
     cron \
     locales \
     mariadb-client \
@@ -74,7 +80,7 @@ ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
 # Enable PHP extensions
-RUN phpenmod mysqli pdo pdo_mysql opcache
+RUN phpenmod mysqli pdo pdo_mysql opcache apcu imagick
 
 # Configure user and group with common UID/GID for bind volumes - Consolidated user creation
 RUN groupadd -g $APP_GID $APP_GROUP 2>/dev/null || true \
@@ -123,7 +129,7 @@ COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 FROM base AS moodle-downloader
 
 # Download and extract Moodle
-RUN curl -fsSL https://packaging.moodle.org/stable405/moodle-latest-405.tgz -o /tmp/moodle.tgz \
+RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-latest-500.tgz -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
@@ -157,14 +163,18 @@ COPY config/apache/apache2.conf /etc/apache2/apache2.conf
 COPY config/apache/sites/000-default.conf /etc/apache2/sites-available/000-default.conf
 COPY config/apache/sites/000-default-ssl.conf /etc/apache2/sites-available/000-default-ssl.conf
 COPY config/apache/conf/other-vhosts-access-log.conf /etc/apache2/conf-available/other-vhosts-access-log.conf
+COPY config/apache/conf/security2.conf /etc/apache2/conf-available/security2.conf
 RUN a2ensite 000-default.conf \
     && a2ensite 000-default-ssl.conf \
     && a2enconf other-vhosts-access-log \
+    && a2enconf security2 \
     && a2enmod proxy_fcgi setenvif rewrite \
     && a2enmod mpm_prefork \
     && a2enmod ssl \
     && a2enmod headers \
-    && a2enmod remoteip
+    && a2enmod remoteip \
+    && a2enmod security2 \
+    && a2enmod unique_id
 
 # Configure PHP for both FPM and Apache
 COPY config/php/php.ini /etc/php/${PHP_VERSION}/fpm/php.ini
