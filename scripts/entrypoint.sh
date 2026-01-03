@@ -23,7 +23,7 @@ echo -e " /_/  |_/_____/____/    /_____/_/  /_//____/    /_/  /_/\____/\____/\__
 echo ""
 echo " ══════════════════════════════════════════════"
 echo "  🎓 ABSI TECHNOLOGY MOODLE LMS 🎓              "
-echo "     Version: 4.5.7+                         "
+echo "     Version: 4.5.8+                         "
 echo "     PHP Version: 8.2                          "
 echo "     Apache Version: 2.4                       "
 echo " ══════════════════════════════════════════════"
