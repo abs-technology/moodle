@@ -246,13 +246,9 @@ if [ -d "/opt/moodle-source" ]; then
         find "$MOODLE_DIR" -type f -exec chmod 644 {} +
         info "Moodle source code deployed successfully."
         
-        # Security fix: Update composer dependencies to fix CVE-2024-51736
-        if command -v composer >/dev/null 2>&1 && [ -f "$MOODLE_DIR/composer.json" ]; then
-            info "Applying security updates for composer dependencies..."
-            cd "$MOODLE_DIR"
-            composer require symfony/process:6.4.14 symfony/http-client:^6.4.14 symfony/mime:^6.4.14 --with-dependencies --no-interaction --optimize-autoloader --update-with-dependencies --quiet || true
-            info "Composer security updates applied successfully."
-        fi
+        # Note: Security updates (Symfony, PHPUnit, etc.) are already applied during Docker build
+        # See Dockerfile lines 154-161 for composer security updates
+        # No need to run composer updates again at runtime
     else
         info "Existing Moodle installation detected. Preserving user data and customizations."
     fi

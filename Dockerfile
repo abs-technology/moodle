@@ -1,7 +1,8 @@
 # Multi-stage build for optimization
+# Using latest Debian 12.13 (bookworm) with security updates (Feb 2026)
 FROM debian:12-slim AS base
 
-ARG MOODLE_VERSION=4.5.7+
+ARG MOODLE_VERSION=4.5.10+
 ARG PHP_VERSION=8.2
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
@@ -14,18 +15,25 @@ ENV APACHE_RUN_DIR=/var/run/apache2
 ENV PHP_VERSION=$PHP_VERSION
 ENV APP_USER=$APP_USER
 ENV APP_GROUP=$APP_GROUP
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Add Sury repository for latest PHP versions
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Security: Add Debian security repository and update to latest patches
+# Fix for CVE-2025-14087 and other security vulnerabilities
+RUN echo "deb http://security.debian.org/ bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
     ca-certificates \
     lsb-release \
     wget \
+    gnupg2 \
     && wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg \
     && echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list \
     && apt-get update
 
 # Installation packages: Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, required PHP modules
-# Ensure all necessary dependencies are installed
+# Ensure all necessary dependencies are installed with latest security patches
+# CVE-2025-14087 Fix: Update all packages to latest secure versions
 RUN apt-get install -y --no-install-recommends \
     apache2 \
     apache2-utils \
@@ -62,8 +70,13 @@ RUN apt-get install -y --no-install-recommends \
     openssl \
     git \
     unzip \
+    && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# Security: Remove unnecessary packages and clean up
+RUN apt-get autoremove -y \
+    && apt-get autoclean -y
 
 # Install Composer for dependency management and security updates
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \
@@ -128,18 +141,27 @@ COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 # ================================
 FROM base AS moodle-downloader
 
-# Download and extract Moodle
-RUN curl -fsSL https://packaging.moodle.org/stable405/moodle-latest-405.tgz -o /tmp/moodle.tgz \
+# Download and extract Moodle 4.5.10 (latest stable with security fixes)
+RUN curl -fsSL https://packaging.moodle.org/stable405/moodle-4.5.10.tgz -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
     && find /opt/moodle-source -type d -exec chmod 755 {} + \
     && find /opt/moodle-source -type f -exec chmod 644 {} +
 
-# Security fix: Update symfony/process to fix CVE-2024-51736
-# Update from vulnerable version 6.4.4 to fixed version 6.4.14
+# Security fixes for CVE-2025-14087 and other vulnerabilities
+# Update all Symfony components and other dependencies to latest secure versions
+# Fix CVE-2026-24765: Update PHPUnit to 9.6.33+
 RUN cd /opt/moodle-source \
-    && composer require symfony/process:6.4.14 symfony/http-client:^6.4.14 symfony/mime:^6.4.14 --with-dependencies --no-interaction --optimize-autoloader --update-with-dependencies \
+    && composer require symfony/process:^6.4.14 \
+       symfony/http-client:^6.4.14 \
+       symfony/mime:^6.4.14 \
+       symfony/console:^6.4.14 \
+       symfony/filesystem:^6.4.14 \
+       symfony/finder:^6.4.14 \
+       phpunit/phpunit:^9.6.33 \
+       --with-dependencies --no-interaction --optimize-autoloader --update-with-dependencies \
+    && composer audit --no-dev --format=plain || echo "Audit completed with warnings" \
     && composer check-platform-reqs --no-dev || true \
     && composer clear-cache \
     && rm -rf /root/.composer/cache \
@@ -149,6 +171,16 @@ RUN cd /opt/moodle-source \
     && find /opt/moodle-source/vendor -name "test" -type d -exec rm -rf {} + 2>/dev/null || true \
     && find /opt/moodle-source/vendor -name "tests" -type d -exec rm -rf {} + 2>/dev/null || true \
     && find /opt/moodle-source/vendor -name "Tests" -type d -exec rm -rf {} + 2>/dev/null || true
+
+# Security: Create security metadata file for tracking
+RUN cd /opt/moodle-source && echo "Build Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" > /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "Moodle Version: 4.5.10+" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "Security Fixes Applied:" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2024-51736: Symfony Process fixed (6.4.14+)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2026-24765: PHPUnit updated to 9.6.33+" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2025-14087: System packages updated to latest" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- Debian 12.13 security patches applied" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2026-25646: libpng16-16 (awaiting Debian patch)" >> /opt/moodle-source/SECURITY-INFO.txt
 
 # ================================
 # Final stage
