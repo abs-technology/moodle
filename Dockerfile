@@ -34,6 +34,13 @@ RUN echo "deb http://security.debian.org/ bookworm-security main contrib non-fre
 # Installation packages: Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, required PHP modules
 # Ensure all necessary dependencies are installed with latest security patches
 # CVE-2025-14087 Fix: Update all packages to latest secure versions
+#
+# CVE-2026-6100 Fix: Do NOT install `libmagickwand-dev` (-dev/headers package).
+# It transitively pulls libglib2.0-dev → libglib2.0-dev-bin → python3-distutils
+# → python3.11, which is vulnerable to a Python decompressor use-after-free
+# with no patch yet on Debian Bookworm. Runtime imagemagick support is fully
+# provided by `imagemagick` and `php${PHP_VERSION}-imagick`, which depend on
+# `libmagickwand-6.q16-6` directly (no Python in the chain).
 RUN apt-get install -y --no-install-recommends \
     apache2 \
     apache2-utils \
@@ -58,7 +65,6 @@ RUN apt-get install -y --no-install-recommends \
     php${PHP_VERSION}-apcu \
     php${PHP_VERSION}-imagick \
     imagemagick \
-    libmagickwand-dev \
     libapache2-mod-security2 \
     modsecurity-crs \
     cron \
@@ -71,6 +77,21 @@ RUN apt-get install -y --no-install-recommends \
     git \
     unzip \
     && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Security: Force-upgrade OpenSSL stack to patched versions from bookworm-security.
+# Fix for CVE-2026-31789 (DSA-6201-1): OpenSSL heap buffer overflow on
+# 32-bit platforms when converting large OCTET STRING values (X.509 SKID/AKID)
+# to hex. Required fixed version on Debian 12: 3.0.19-1~deb12u2 or newer.
+# libssl3 is force-upgraded explicitly because it's a shared dependency of
+# Apache, curl, php-curl, etc., and a stale layer cache could otherwise
+# leave the vulnerable copy in place.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade \
+        openssl \
+        libssl3 \
+    && dpkg-query -W -f='${Package} ${Version}\n' openssl libssl3 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -141,8 +162,8 @@ COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 # ================================
 FROM base AS moodle-downloader
 
-# Download and extract Moodle 4.5.10 (latest stable with security fixes)
-RUN curl -fsSL https://packaging.moodle.org/stable405/moodle-4.5.10.tgz -o /tmp/moodle.tgz \
+# Download and extract Moodle 4.5.11 (latest stable with security fixes)
+RUN curl -fsSL https://packaging.moodle.org/stable405/moodle-4.5.11.tgz -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
@@ -180,7 +201,9 @@ RUN cd /opt/moodle-source && echo "Build Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC
     && echo "- CVE-2026-24765: PHPUnit updated to 9.6.33+" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2025-14087: System packages updated to latest" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- Debian 12.13 security patches applied" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2026-25646: libpng16-16 (awaiting Debian patch)" >> /opt/moodle-source/SECURITY-INFO.txt
+    && echo "- CVE-2026-25646: libpng16-16 (awaiting Debian patch)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2026-31789: OpenSSL upgraded to 3.0.19-1~deb12u2+ (DSA-6201-1)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2026-6100: Removed libmagickwand-dev to drop python3.11 chain (no Debian patch yet)" >> /opt/moodle-source/SECURITY-INFO.txt
 
 # ================================
 # Final stage
