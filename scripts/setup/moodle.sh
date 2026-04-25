@@ -226,106 +226,375 @@ EOF
 # ============================================================================
 # MOODLE VERSION DETECTION & UPGRADE FUNCTIONS
 # ============================================================================
+#
+# High-level flow on container start (see MAIN LOGIC at the bottom of this
+# file for the call site):
+#
+#   1. detect_moodle_upgrade_needed()          # is image newer than disk?
+#   2. perform_moodle_upgrade() orchestrates:
+#        a. pre_upgrade_checks()               # disk, php, db, abort marker
+#        b. _upgrade_workspace_init()          # create snapshot dir + log
+#        c. preserve_custom_content()          # config, plugins, themes
+#        d. backup_database_for_upgrade()      # gzipped mysqldump
+#        e. backup_code_for_upgrade()          # full code tar.gz
+#        f. enable_maintenance_mode()
+#        g. replace_moodle_code()              # safe replace into MOODLE_DIR
+#        h. restore_custom_content()
+#        i. run_db_upgrade_if_enabled()        # opt-in via MOODLE_AUTO_DB_UPGRADE
+#        j. disable_maintenance_mode()         # only when DB upgrade ran
+#        k. prune_old_upgrade_snapshots()
+#
+#   On any failure inside d–i, restore_from_snapshot() is invoked which
+#   restores both the DB and the code from the snapshot taken in d/e and
+#   leaves a `.upgrade-aborted` marker so the next container start does not
+#   try the same upgrade again in a loop.
+# ============================================================================
 
-# Detect Moodle version from version.php file
+# NOTE on parsing version.php:
+# Moodle's version.php uses Moodle constants such as MATURITY_STABLE which
+# are NOT defined unless the full Moodle bootstrap has run. A naive
+# `php -r "require 'version.php';"` therefore aborts with a fatal "Undefined
+# constant" error and silently returns nothing - which previously made the
+# upgrade detection a no-op.
+#
+# We instead parse the file as text. version.php is a stable, simple format
+# with one assignment per variable. This is robust across all Moodle 3.x/4.x.
+
+_parse_version_php_var() {
+    # Usage: _parse_version_php_var <file> <var_name>
+    # Echoes the assigned value (without quotes / trailing comment), or empty.
+    local file=$1
+    local var=$2
+    [[ ! -f "$file" ]] && return 1
+
+    # Match e.g. `$version  = 2024100100.05;` or `$release = '4.5.10+ (...)';`
+    # Strip optional inline comment after `;` (e.g. `; // ... `)
+    awk -v v="\\\$$var" '
+        $0 ~ ("^[[:space:]]*" v "[[:space:]]*=") {
+            sub("^[^=]*=[[:space:]]*", "", $0)
+            sub(";.*$", "", $0)
+            gsub("^[[:space:]]+|[[:space:]]+$", "", $0)
+            gsub("^['"'"'\"]|['"'"'\"]$", "", $0)
+            print $0
+            exit
+        }
+    ' "$file"
+}
+
+# Detect Moodle version (numeric, e.g. 2024100100) from version.php.
 get_moodle_version() {
     local version_file=$1
-    
     if [[ ! -f "$version_file" ]]; then
         echo "0"
         return 1
     fi
-    
-    # Extract version number using PHP
-    # Use require_once with error suppression and full path
-    local version=$(php -r "
-        \$version = 0;
-        if (file_exists('$version_file')) {
-            require_once('$version_file');
-        }
-        echo \$version;
-    " 2>/dev/null || echo "0")
-    
-    echo "$version"
+
+    local v
+    v=$(_parse_version_php_var "$version_file" "version")
+    if [[ -z "$v" ]]; then
+        echo "0"
+        return 1
+    fi
+    echo "$v"
 }
 
-# Get human-readable version info
+# Get human-readable release string (e.g. "4.5.10+ (Build: 20240728)").
 get_moodle_version_info() {
     local version_file=$1
-    
     if [[ ! -f "$version_file" ]]; then
         echo "Unknown"
         return 1
     fi
-    
-    local release=$(php -r "
-        \$release = 'Unknown';
-        if (file_exists('$version_file')) {
-            require_once('$version_file');
-        }
-        echo \$release;
-    " 2>/dev/null || echo "Unknown")
-    
-    echo "$release"
+
+    local r
+    r=$(_parse_version_php_var "$version_file" "release")
+    [[ -z "$r" ]] && { echo "Unknown"; return 1; }
+    echo "$r"
 }
 
-# Detect if upgrade is needed
+# Read Moodle's required PHP version (e.g. "8.1.0"). Empty when not declared.
+get_moodle_required_php() {
+    local version_file=$1
+    [[ ! -f "$version_file" ]] && { echo ""; return 1; }
+    _parse_version_php_var "$version_file" "requires"
+}
+
+# Detect if upgrade is needed.
+# Returns 0 when an upgrade should run, 1 otherwise.
+# Aborts on downgrade. Honors `.upgrade-aborted` markers to prevent loops
+# after a previous failed upgrade against the SAME image version.
 detect_moodle_upgrade_needed() {
     local source_version_file="/opt/moodle-source/version.php"
     local running_version_file="${MOODLE_DIR}/version.php"
-    
-    # Check if running version exists
+
     if [[ ! -f "$running_version_file" ]]; then
         debug "No running version.php found - fresh installation"
-        return 1  # Not an upgrade scenario
+        return 1
     fi
-    
-    # Get versions
+
     local source_version=$(get_moodle_version "$source_version_file")
     local running_version=$(get_moodle_version "$running_version_file")
-    
-    # Validate versions are not empty or zero
+
     if [[ -z "$source_version" ]] || [[ "$source_version" == "0" ]]; then
         warn "Could not detect image Moodle version"
         return 1
     fi
-    
+
     if [[ -z "$running_version" ]] || [[ "$running_version" == "0" ]]; then
         warn "Could not detect running Moodle version"
         return 1
     fi
-    
-    debug "Image version: $source_version"
+
+    debug "Image version:   $source_version"
     debug "Running version: $running_version"
-    
-    # Compare versions using awk (more reliable than bc for this use case)
-    local comparison=$(awk -v sv="$source_version" -v rv="$running_version" 'BEGIN {
+
+    local comparison
+    comparison=$(awk -v sv="$source_version" -v rv="$running_version" 'BEGIN {
         if (sv > rv) print "upgrade"
         else if (sv < rv) print "downgrade"
         else print "same"
     }')
-    
+
     case "$comparison" in
         upgrade)
-            # Upgrade needed
+            # If the previous attempt to upgrade to THIS exact image version
+            # was rolled back, refuse to retry automatically. Operator must
+            # remove the marker once they have investigated the failure.
+            local abort_marker="${MOODLE_DATA_DIR}/.upgrade-aborted"
+            if [[ -f "$abort_marker" ]]; then
+                local aborted_version
+                aborted_version=$(grep '^TARGET_VERSION=' "$abort_marker" 2>/dev/null | cut -d= -f2)
+                if [[ "$aborted_version" == "$source_version" ]]; then
+                    error "Previous upgrade to version $source_version was rolled back."
+                    error "Refusing to retry. See $abort_marker for details."
+                    error "Remove the marker after investigating to retry: rm '$abort_marker'"
+                    return 1
+                fi
+            fi
+
             export MOODLE_UPGRADE_FROM_VERSION="$running_version"
             export MOODLE_UPGRADE_TO_VERSION="$source_version"
             export MOODLE_UPGRADE_FROM_RELEASE=$(get_moodle_version_info "$running_version_file")
             export MOODLE_UPGRADE_TO_RELEASE=$(get_moodle_version_info "$source_version_file")
-            return 0  # Upgrade needed
+            return 0
             ;;
         downgrade)
-            # Downgrade detected
-            error "Downgrade detected! Image version ($source_version) is older than running version ($running_version)"
-            error "Moodle downgrade is not supported. Please use correct image version."
-            exit 1
+            # Image is OLDER than what is on disk. We deliberately do NOT
+            # downgrade (Moodle does not support it - the DB schema and
+            # plugin data have already moved forward) and we deliberately do
+            # NOT crash the container. Instead we log a loud warning and
+            # let startup continue using the existing newer code on disk,
+            # so the site stays available while the operator fixes the
+            # image tag (or restores from a snapshot).
+            local source_release running_release
+            source_release=$(get_moodle_version_info "$source_version_file")
+            running_release=$(get_moodle_version_info "$running_version_file")
+
+            warn "╔═══════════════════════════════════════════════════════════╗"
+            warn "║  ⚠  DOWNGRADE ATTEMPT DETECTED - IGNORED                  ║"
+            warn "╠═══════════════════════════════════════════════════════════╣"
+            warn "║  Image version:   $source_release ($source_version)"
+            warn "║  On-disk version: $running_release ($running_version)"
+            warn "║                                                           ║"
+            warn "║  The image you are starting is OLDER than the Moodle      ║"
+            warn "║  install on the persistent volume. Moodle does not        ║"
+            warn "║  support downgrade (DB schema has migrated forward).      ║"
+            warn "║                                                           ║"
+            warn "║  ➜ The container will START NORMALLY using the newer      ║"
+            warn "║    code already on disk. Nothing was changed.             ║"
+            warn "║                                                           ║"
+            warn "║  If this image tag was a mistake:                         ║"
+            warn "║    • Switch back to a tag >= $running_release"
+            warn "║                                                           ║"
+            warn "║  If you really need to roll back to $source_release:"
+            warn "║    1. Stop the container."
+            warn "║    2. Restore code+DB from a snapshot in:                 ║"
+            warn "║         $MOODLE_BACKUP_DIR"
+            if [[ -d "$MOODLE_BACKUP_DIR" ]]; then
+                local snaps
+                snaps=$(find "$MOODLE_BACKUP_DIR" -mindepth 1 -maxdepth 1 \
+                            -type d -name 'upgrade-*' \
+                            -printf '%T@ %f\n' 2>/dev/null \
+                          | sort -rn | awk '{print $2}' | head -3)
+                if [[ -n "$snaps" ]]; then
+                    warn "║       Available snapshots (most recent first):           ║"
+                    while IFS= read -r s; do
+                        [[ -z "$s" ]] && continue
+                        warn "║         - $s"
+                    done <<< "$snaps"
+                else
+                    warn "║       (no snapshots present yet)                          ║"
+                fi
+            fi
+            warn "║    3. Start the container again with the older image.     ║"
+            warn "╚═══════════════════════════════════════════════════════════╝"
+
+            # Drop a marker so that monitoring can detect this state.
+            # Overwrite each start so the most recent attempt is recorded.
+            mkdir -p "$MOODLE_DATA_DIR" 2>/dev/null || true
+            cat > "${MOODLE_DATA_DIR}/.downgrade-attempted" <<EOF
+IMAGE_VERSION=$source_version
+IMAGE_RELEASE=$source_release
+DISK_VERSION=$running_version
+DISK_RELEASE=$running_release
+DETECTED_AT=$(date -Iseconds)
+ACTION=ignored-container-continued-with-disk-version
+EOF
+            chown "${APP_USER}:${APP_GROUP}" "${MOODLE_DATA_DIR}/.downgrade-attempted" 2>/dev/null || true
+
+            # Return 1 so the orchestrator skips perform_moodle_upgrade and
+            # the rest of the entrypoint just brings Moodle up as-is.
+            return 1
             ;;
         same)
-            # Same version
             debug "Moodle version up to date: $source_version"
-            return 1  # No upgrade needed
+            return 1
             ;;
     esac
+}
+
+# ----------------------------------------------------------------------------
+# Upgrade workspace, logging and retention
+# ----------------------------------------------------------------------------
+
+# Globals populated by _upgrade_workspace_init():
+#   _UPGRADE_WORKSPACE  - directory under MOODLE_BACKUP_DIR for this attempt
+#   _UPGRADE_DB_DUMP    - path to gzipped DB dump
+#   _UPGRADE_CODE_TGZ   - path to gzipped code tarball
+#   _UPGRADE_LOG        - path to per-attempt audit log
+
+_upgrade_log() {
+    # Append a line to both stdout (via info) and the per-attempt audit log.
+    local msg="$*"
+    info "$msg"
+    if [[ -n "${_UPGRADE_LOG:-}" ]] && [[ -e "$(dirname "$_UPGRADE_LOG")" ]]; then
+        printf '%s %s\n' "$(date -Iseconds)" "$msg" >> "$_UPGRADE_LOG" 2>/dev/null || true
+    fi
+}
+
+_upgrade_workspace_init() {
+    local from_version=$1
+    local to_version=$2
+    local timestamp
+    timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+
+    mkdir -p "$MOODLE_BACKUP_DIR" 2>/dev/null || true
+
+    if [[ ! -w "$MOODLE_BACKUP_DIR" ]]; then
+        error "Backup directory $MOODLE_BACKUP_DIR is not writable. Cannot proceed safely."
+        return 1
+    fi
+
+    _UPGRADE_WORKSPACE="${MOODLE_BACKUP_DIR}/upgrade-${timestamp}-${from_version}-to-${to_version}"
+    _UPGRADE_DB_DUMP="${_UPGRADE_WORKSPACE}/database.sql.gz"
+    _UPGRADE_CODE_TGZ="${_UPGRADE_WORKSPACE}/code.tar.gz"
+    _UPGRADE_LOG="${_UPGRADE_WORKSPACE}/upgrade.log"
+
+    mkdir -p "$_UPGRADE_WORKSPACE" || return 1
+
+    cat > "${_UPGRADE_WORKSPACE}/metadata.env" <<EOF
+FROM_VERSION=$from_version
+TO_VERSION=$to_version
+FROM_RELEASE=${MOODLE_UPGRADE_FROM_RELEASE:-Unknown}
+TO_RELEASE=${MOODLE_UPGRADE_TO_RELEASE:-Unknown}
+STARTED_AT=$(date -Iseconds)
+HOSTNAME=$(hostname)
+AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE:-no}
+EOF
+
+    : > "$_UPGRADE_LOG"
+    export _UPGRADE_WORKSPACE _UPGRADE_DB_DUMP _UPGRADE_CODE_TGZ _UPGRADE_LOG
+    return 0
+}
+
+# Keep the most recent N upgrade snapshots; delete older ones.
+prune_old_upgrade_snapshots() {
+    local keep=${MOODLE_UPGRADE_RETENTION:-5}
+    [[ ! -d "$MOODLE_BACKUP_DIR" ]] && return 0
+
+    local snapshots
+    snapshots=$(find "$MOODLE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name 'upgrade-*' \
+                  -printf '%T@ %p\n' 2>/dev/null | sort -rn | awk '{print $2}')
+
+    local count=0
+    while IFS= read -r snap; do
+        [[ -z "$snap" ]] && continue
+        count=$((count + 1))
+        if [[ $count -gt $keep ]]; then
+            debug "Pruning old upgrade snapshot: $snap"
+            rm -rf "$snap" 2>/dev/null || true
+        fi
+    done <<< "$snapshots"
+}
+
+# ----------------------------------------------------------------------------
+# Pre-flight checks
+# ----------------------------------------------------------------------------
+
+pre_upgrade_checks() {
+    local source_version_file="/opt/moodle-source/version.php"
+    info "Running pre-upgrade checks..."
+
+    # 1. Disk space: backup_dir + moodle_dir need at least 2x current code size.
+    local code_size_kb
+    code_size_kb=$(du -sk "$MOODLE_DIR" 2>/dev/null | awk '{print $1}')
+    code_size_kb=${code_size_kb:-0}
+    local needed_kb=$((code_size_kb * 2))
+
+    local backup_avail_kb
+    backup_avail_kb=$(df -Pk "$MOODLE_BACKUP_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
+    backup_avail_kb=${backup_avail_kb:-0}
+    if [[ "$backup_avail_kb" -lt "$needed_kb" ]]; then
+        error "Insufficient disk space at $MOODLE_BACKUP_DIR: have ${backup_avail_kb}KB, need ${needed_kb}KB"
+        return 1
+    fi
+
+    local code_avail_kb
+    code_avail_kb=$(df -Pk "$MOODLE_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
+    code_avail_kb=${code_avail_kb:-0}
+    if [[ "$code_avail_kb" -lt "$code_size_kb" ]]; then
+        error "Insufficient disk space at $MOODLE_DIR: have ${code_avail_kb}KB, need ${code_size_kb}KB free"
+        return 1
+    fi
+
+    # 2. PHP version requirement of the new Moodle.
+    local required_php
+    required_php=$(get_moodle_required_php "$source_version_file")
+    if [[ -n "$required_php" ]]; then
+        local current_php
+        current_php=$(php -r 'echo PHP_VERSION;' 2>/dev/null)
+        if ! awk -v c="$current_php" -v r="$required_php" 'BEGIN {
+            split(c, ca, "."); split(r, ra, ".")
+            for (i = 1; i <= 3; i++) {
+                ca[i] = ca[i] + 0; ra[i] = ra[i] + 0
+                if (ca[i] > ra[i]) exit 0
+                if (ca[i] < ra[i]) exit 1
+            }
+            exit 0
+        }'; then
+            error "PHP $current_php is older than Moodle's requirement of $required_php"
+            return 1
+        fi
+        debug "PHP version OK: $current_php >= required $required_php"
+    fi
+
+    # 3. Database connectivity. Retry because the upgrade flow runs BEFORE
+    # the standard `wait_for_db_connection` that's defined later in this file
+    # (the DB container may still be starting when the entrypoint races ahead).
+    info "Waiting for database to become reachable (up to ~60s)..."
+    _check_db_for_upgrade() {
+        echo "SELECT 1" | mariadb_remote_execute \
+            "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
+            "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" \
+            "$MOODLE_DATABASE_PASSWORD" >/dev/null 2>&1
+    }
+    if ! retry_while "_check_db_for_upgrade" 12 5; then
+        error "Database not reachable at ${MOODLE_DATABASE_HOST}:${MOODLE_DATABASE_PORT_NUMBER}"
+        return 1
+    fi
+
+    info "Pre-upgrade checks passed (disk OK, PHP OK, DB reachable)"
+    return 0
 }
 
 # Preserve custom content before upgrade
@@ -475,138 +744,365 @@ restore_custom_content() {
     return 0
 }
 
-# Backup database before upgrade
+# ----------------------------------------------------------------------------
+# Snapshot helpers (database + code) and rollback
+# ----------------------------------------------------------------------------
+
+# Snapshot the live database into ${_UPGRADE_DB_DUMP} (gzipped).
+# Tries `mariadb-dump` first (Debian 12 default), falls back to `mysqldump`.
 backup_database_for_upgrade() {
-    local backup_dir="/var/backups/moodle-upgrade-$(date +%Y%m%d-%H%M%S)"
-    mkdir -p "$backup_dir"
-    
-    info "Backing up database..."
-    
-    # Dump database
-    if mysqldump -h"${MOODLE_DATABASE_HOST}" \
-                 -P"${MOODLE_DATABASE_PORT_NUMBER}" \
-                 -u"${MOODLE_DATABASE_USER}" \
-                 -p"${MOODLE_DATABASE_PASSWORD}" \
-                 "${MOODLE_DATABASE_NAME}" \
-                 > "$backup_dir/database.sql" 2>/dev/null; then
-        info "Database backup created: $backup_dir/database.sql"
-        echo "$backup_dir" > /tmp/moodle-upgrade-backup-location
+    _upgrade_log "Snapshotting database to $_UPGRADE_DB_DUMP ..."
+
+    local dumper=""
+    if command -v mariadb-dump >/dev/null 2>&1; then
+        dumper="mariadb-dump"
+    elif command -v mysqldump >/dev/null 2>&1; then
+        dumper="mysqldump"
+    else
+        error "Neither mariadb-dump nor mysqldump is available"
+        return 1
+    fi
+
+    if "$dumper" \
+            -h"${MOODLE_DATABASE_HOST}" \
+            -P"${MOODLE_DATABASE_PORT_NUMBER}" \
+            -u"${MOODLE_DATABASE_USER}" \
+            -p"${MOODLE_DATABASE_PASSWORD}" \
+            --single-transaction \
+            --quick \
+            --add-drop-table \
+            --routines \
+            --triggers \
+            "${MOODLE_DATABASE_NAME}" 2>/dev/null \
+        | gzip -c > "$_UPGRADE_DB_DUMP"; then
+        local size
+        size=$(du -h "$_UPGRADE_DB_DUMP" | cut -f1)
+        _upgrade_log "Database snapshot OK ($size, dumper=$dumper)"
         return 0
     else
-        warn "Database backup failed, but continuing with upgrade"
+        error "Database snapshot FAILED"
+        rm -f "$_UPGRADE_DB_DUMP"
         return 1
     fi
 }
 
-# Replace Moodle code with new version
+# Snapshot the current MOODLE_DIR contents into ${_UPGRADE_CODE_TGZ} (gzipped tar).
+backup_code_for_upgrade() {
+    _upgrade_log "Snapshotting code to $_UPGRADE_CODE_TGZ ..."
+    if (cd "${MOODLE_DIR}" && tar -czf "$_UPGRADE_CODE_TGZ" . 2>/dev/null); then
+        local size
+        size=$(du -h "$_UPGRADE_CODE_TGZ" | cut -f1)
+        _upgrade_log "Code snapshot OK ($size)"
+        return 0
+    else
+        error "Code snapshot FAILED"
+        rm -f "$_UPGRADE_CODE_TGZ"
+        return 1
+    fi
+}
+
+# Replace contents of ${MOODLE_DIR} with the new code from /opt/moodle-source.
+# We rely on backup_code_for_upgrade() having taken a tarball already; if
+# anything in this function fails, the caller will invoke restore_from_snapshot().
 replace_moodle_code() {
-    info "Replacing Moodle code with new version..."
-    
-    local current_size=$(du -sh "${MOODLE_DIR}" 2>/dev/null | cut -f1 || echo "unknown")
-    info "  Current installation size: $current_size"
-    
-    # Delete all existing code
-    info "  → Removing old code..."
-    find "${MOODLE_DIR}" -mindepth 1 -delete 2>/dev/null || {
+    _upgrade_log "Replacing Moodle code with new version..."
+
+    local old_size
+    old_size=$(du -sh "${MOODLE_DIR}" 2>/dev/null | cut -f1 || echo "unknown")
+    _upgrade_log "  Current installation size: $old_size"
+
+    _upgrade_log "  → Removing old code (tarball backup is at $_UPGRADE_CODE_TGZ)..."
+    if ! find "${MOODLE_DIR}" -mindepth 1 -delete 2>/dev/null; then
         error "Failed to delete old Moodle code"
         return 1
-    }
-    
-    # Copy new code from image
-    info "  → Copying new code from image..."
-    if (cd /opt/moodle-source && tar cf - .) | (cd "${MOODLE_DIR}" && tar xf -); then
-        info "  → Code replacement successful"
-    else
+    fi
+
+    _upgrade_log "  → Copying new code from image..."
+    if ! (cd /opt/moodle-source && tar cf - .) | (cd "${MOODLE_DIR}" && tar xf -); then
         error "Failed to copy new Moodle code"
         return 1
     fi
-    
-    # Set permissions
-    info "  → Setting permissions..."
+
+    _upgrade_log "  → Setting permissions..."
     chown -R "${APP_USER}:${APP_GROUP}" "${MOODLE_DIR}"
     find "${MOODLE_DIR}" -type d -exec chmod 755 {} + 2>/dev/null || true
     find "${MOODLE_DIR}" -type f -exec chmod 644 {} + 2>/dev/null || true
-    
-    local new_size=$(du -sh "${MOODLE_DIR}" 2>/dev/null | cut -f1 || echo "unknown")
-    info "  New installation size: $new_size"
-    
+
+    local new_size
+    new_size=$(du -sh "${MOODLE_DIR}" 2>/dev/null | cut -f1 || echo "unknown")
+    _upgrade_log "  New installation size: $new_size"
     return 0
 }
 
-# Orchestrate the upgrade process
+# Restore both code and DB from the current upgrade snapshot.
+# Used when any post-snapshot step fails. Always attempts to restore code
+# even if DB restore fails (or vice-versa) so the system gets as close to
+# the pre-upgrade state as possible.
+restore_from_snapshot() {
+    local code_ok=1 db_ok=1
+
+    _upgrade_log "===== ROLLBACK INITIATED ====="
+
+    # 1. Restore code from tar.
+    if [[ -f "$_UPGRADE_CODE_TGZ" ]]; then
+        _upgrade_log "Restoring code from $_UPGRADE_CODE_TGZ ..."
+        find "${MOODLE_DIR}" -mindepth 1 -delete 2>/dev/null || true
+        if (cd "${MOODLE_DIR}" && tar -xzf "$_UPGRADE_CODE_TGZ" 2>/dev/null); then
+            chown -R "${APP_USER}:${APP_GROUP}" "${MOODLE_DIR}"
+            _upgrade_log "Code restored from snapshot"
+            code_ok=0
+        else
+            error "Failed to restore code from snapshot $_UPGRADE_CODE_TGZ"
+        fi
+    else
+        warn "No code snapshot to restore from"
+    fi
+
+    # 2. Restore DB from gzipped dump.
+    if [[ -f "$_UPGRADE_DB_DUMP" ]]; then
+        _upgrade_log "Restoring database from $_UPGRADE_DB_DUMP ..."
+        if gunzip -c "$_UPGRADE_DB_DUMP" \
+            | mariadb_remote_execute \
+                "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
+                "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" \
+                "$MOODLE_DATABASE_PASSWORD" >/dev/null 2>&1; then
+            _upgrade_log "Database restored from snapshot"
+            db_ok=0
+        else
+            error "Failed to restore database from snapshot $_UPGRADE_DB_DUMP"
+        fi
+    else
+        warn "No database snapshot to restore from"
+    fi
+
+    # 3. Disable maintenance after rollback so users can come back online.
+    disable_maintenance_mode || true
+
+    # 4. Drop a marker so the next start does not retry the same upgrade.
+    cat > "${MOODLE_DATA_DIR}/.upgrade-aborted" <<EOF
+TARGET_VERSION=${MOODLE_UPGRADE_TO_VERSION}
+TARGET_RELEASE=${MOODLE_UPGRADE_TO_RELEASE}
+FROM_VERSION=${MOODLE_UPGRADE_FROM_VERSION}
+FROM_RELEASE=${MOODLE_UPGRADE_FROM_RELEASE}
+ROLLED_BACK_AT=$(date -Iseconds)
+SNAPSHOT_DIR=${_UPGRADE_WORKSPACE}
+CODE_RESTORED=$([[ $code_ok -eq 0 ]] && echo yes || echo no)
+DB_RESTORED=$([[ $db_ok -eq 0 ]] && echo yes || echo no)
+EOF
+    chown "${APP_USER}:${APP_GROUP}" "${MOODLE_DATA_DIR}/.upgrade-aborted" 2>/dev/null || true
+
+    _upgrade_log "===== ROLLBACK FINISHED (code_ok=$code_ok db_ok=$db_ok) ====="
+
+    if [[ $code_ok -eq 0 && $db_ok -eq 0 ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# ----------------------------------------------------------------------------
+# Maintenance mode helpers
+# ----------------------------------------------------------------------------
+
+enable_maintenance_mode() {
+    if [[ -f "${MOODLE_DIR}/admin/cli/maintenance.php" ]]; then
+        _upgrade_log "Enabling maintenance mode..."
+        php "${MOODLE_DIR}/admin/cli/maintenance.php" --enable >/dev/null 2>&1 || \
+            warn "Could not enable maintenance mode (continuing)"
+    fi
+}
+
+disable_maintenance_mode() {
+    if [[ -f "${MOODLE_DIR}/admin/cli/maintenance.php" ]]; then
+        _upgrade_log "Disabling maintenance mode..."
+        php "${MOODLE_DIR}/admin/cli/maintenance.php" --disable >/dev/null 2>&1 || \
+            warn "Could not disable maintenance mode"
+    fi
+}
+
+# Run Moodle's CLI database upgrade only when MOODLE_AUTO_DB_UPGRADE=yes.
+# Returns:
+#   0  => DB upgrade ran successfully (caller should disable maintenance)
+#   1  => DB upgrade failed (caller should rollback)
+#   2  => Skipped because auto upgrade is disabled (.upgrade-pending was left)
+run_db_upgrade_if_enabled() {
+    if [[ "${MOODLE_AUTO_DB_UPGRADE,,}" != "yes" ]]; then
+        _upgrade_log "MOODLE_AUTO_DB_UPGRADE=no - leaving DB upgrade for the admin (web UI)"
+        touch "${MOODLE_DIR}/.upgrade-pending"
+        cat > "${MOODLE_DIR}/.upgrade-info" <<EOF
+FROM_VERSION=${MOODLE_UPGRADE_FROM_VERSION}
+TO_VERSION=${MOODLE_UPGRADE_TO_VERSION}
+FROM_RELEASE=${MOODLE_UPGRADE_FROM_RELEASE}
+TO_RELEASE=${MOODLE_UPGRADE_TO_RELEASE}
+PREPARED_AT=$(date -Iseconds)
+SNAPSHOT_DIR=${_UPGRADE_WORKSPACE}
+EOF
+        return 2
+    fi
+
+    _upgrade_log "MOODLE_AUTO_DB_UPGRADE=yes - running php admin/cli/upgrade.php ..."
+    if php "${MOODLE_DIR}/admin/cli/upgrade.php" \
+            --non-interactive \
+            --allow-unstable \
+            >> "$_UPGRADE_LOG" 2>&1; then
+        _upgrade_log "Database upgrade completed successfully"
+        return 0
+    else
+        local exit_code=$?
+        error "Database upgrade FAILED (exit code $exit_code). See $_UPGRADE_LOG"
+        return 1
+    fi
+}
+
+# ----------------------------------------------------------------------------
+# Orchestrator
+# ----------------------------------------------------------------------------
+
 perform_moodle_upgrade() {
     info "╔═══════════════════════════════════════════════════════════╗"
     info "║          MOODLE UPGRADE DETECTED                          ║"
     info "╠═══════════════════════════════════════════════════════════╣"
-    info "║  From: $MOODLE_UPGRADE_FROM_RELEASE"
-    info "║  To:   $MOODLE_UPGRADE_TO_RELEASE"
+    info "║  From: $MOODLE_UPGRADE_FROM_RELEASE  ($MOODLE_UPGRADE_FROM_VERSION)"
+    info "║  To:   $MOODLE_UPGRADE_TO_RELEASE  ($MOODLE_UPGRADE_TO_VERSION)"
+    info "║  Auto DB upgrade: ${MOODLE_AUTO_DB_UPGRADE}"
+    info "║  Backup dir:      ${MOODLE_BACKUP_DIR}"
     info "╚═══════════════════════════════════════════════════════════╝"
-    
-    # Step 1: Backup database
-    info "Step 1/5: Backing up database..."
-    backup_database_for_upgrade || warn "Database backup failed, continuing anyway..."
-    
-    # Step 2: Preserve custom content
-    info "Step 2/5: Preserving custom content..."
+
+    # 0/9: Pre-flight checks (no destructive action yet, safe to abort).
+    info "Step 0/9: Running pre-flight checks..."
+    if ! pre_upgrade_checks; then
+        error "Pre-flight checks failed. Aborting upgrade. No data was touched."
+        exit 1
+    fi
+
+    # 1/9: Initialize per-attempt workspace and audit log.
+    info "Step 1/9: Initializing upgrade workspace..."
+    if ! _upgrade_workspace_init "$MOODLE_UPGRADE_FROM_VERSION" "$MOODLE_UPGRADE_TO_VERSION"; then
+        error "Failed to initialize upgrade workspace. Aborting."
+        exit 1
+    fi
+    _upgrade_log "Workspace: $_UPGRADE_WORKSPACE"
+
+    # 2/9: Preserve custom content into /tmp (used by restore_custom_content).
+    # If this fails, abort BEFORE touching DB/code.
+    info "Step 2/9: Preserving custom content..."
     if ! preserve_custom_content; then
-        error "Failed to preserve custom content!"
-        error "Aborting upgrade to prevent data loss."
+        error "Failed to preserve custom content. Aborting upgrade."
         exit 1
     fi
-    
-    # Step 3: Enable maintenance mode (if possible)
-    info "Step 3/5: Enabling maintenance mode..."
-    if [[ -f "${MOODLE_DIR}/admin/cli/maintenance.php" ]]; then
-        php "${MOODLE_DIR}/admin/cli/maintenance.php" --enable 2>/dev/null || true
+
+    # 3/9: DB snapshot (rollback source).
+    info "Step 3/9: Backing up database..."
+    if ! backup_database_for_upgrade; then
+        error "Database backup failed. Aborting upgrade BEFORE replacing code."
+        exit 1
     fi
-    
-    # Step 4: Replace code
-    info "Step 4/5: Replacing Moodle code..."
+
+    # 4/9: Code snapshot (rollback source).
+    info "Step 4/9: Snapshotting current code..."
+    if ! backup_code_for_upgrade; then
+        error "Code snapshot failed. Aborting upgrade BEFORE replacing code."
+        exit 1
+    fi
+
+    # 5/9: Maintenance mode.
+    #
+    # NOTE: We only enable Moodle's CLI "quick" maintenance (climaintenance.html)
+    # when we are going to run the DB upgrade ourselves (MOODLE_AUTO_DB_UPGRADE=yes).
+    # That mode blocks 100% of HTTP access including /admin/, which is the right
+    # behavior for an unattended automated upgrade.
+    #
+    # When MOODLE_AUTO_DB_UPGRADE=no we DELIBERATELY do NOT enable climaintenance,
+    # because the admin must be able to reach /admin/ to click "Upgrade Moodle
+    # database now". Moodle still protects the site automatically: as soon as the
+    # new code is in place, the on-disk $version is greater than the saved DB
+    # version, so every page request shows the "Upgrade required" interstitial
+    # and redirects to the upgrade wizard. Regular users cannot use the site
+    # until the admin finalizes the upgrade, so we get the safety we want
+    # WITHOUT locking the admin out.
+    if [[ "${MOODLE_AUTO_DB_UPGRADE,,}" == "yes" ]]; then
+        info "Step 5/9: Enabling maintenance mode (auto DB upgrade is ON)..."
+        enable_maintenance_mode
+    else
+        info "Step 5/9: Skipping climaintenance (admin must reach /admin/ to finalize)."
+    fi
+
+    # 6/9: Replace code. Failure here triggers rollback.
+    info "Step 6/9: Replacing Moodle code..."
     if ! replace_moodle_code; then
-        error "Code replacement failed!"
-        error "System may be in unstable state. Please check logs."
+        error "Code replacement FAILED. Rolling back..."
+        restore_from_snapshot
         exit 1
     fi
-    
-    # Step 5: Restore custom content
-    info "Step 5/5: Restoring custom content..."
+
+    # 7/9: Restore custom content into the new code tree.
+    info "Step 7/9: Restoring custom content..."
     if ! restore_custom_content; then
-        error "Failed to restore custom content!"
-        error "config.php and custom plugins may be missing!"
+        error "Failed to restore custom content. Rolling back..."
+        restore_from_snapshot
         exit 1
     fi
-    
-    # Mark upgrade pending for admin
-    touch "${MOODLE_DIR}/.upgrade-pending"
-    cat > "${MOODLE_DIR}/.upgrade-info" <<EOF
-FROM_VERSION=$MOODLE_UPGRADE_FROM_VERSION
-TO_VERSION=$MOODLE_UPGRADE_TO_VERSION
-FROM_RELEASE=$MOODLE_UPGRADE_FROM_RELEASE
-TO_RELEASE=$MOODLE_UPGRADE_TO_RELEASE
-PREPARED_AT=$(date -Iseconds)
-BACKUP_LOCATION=$(cat /tmp/moodle-upgrade-backup-location 2>/dev/null || echo "none")
+
+    # 8/9: Optional automatic DB upgrade.
+    # NOTE: this script runs under `set -o errexit`. Calling a function bare
+    # whose non-zero return value we want to inspect would abort the script
+    # immediately. Use the `|| rc=$?` idiom so errexit is suppressed and we
+    # can branch on the actual return code.
+    info "Step 8/9: Database upgrade phase..."
+    local db_step=0
+    run_db_upgrade_if_enabled || db_step=$?
+    case "$db_step" in
+        0)  # auto upgrade succeeded
+            disable_maintenance_mode
+            ;;
+        1)  # auto upgrade failed -> full rollback
+            error "Auto DB upgrade failed. Rolling back code AND database..."
+            restore_from_snapshot
+            exit 1
+            ;;
+        2)  # skipped - admin must finish through the web UI
+            : # leave maintenance mode ON
+            ;;
+    esac
+
+    # 9/9: Retention - drop oldest snapshots.
+    info "Step 9/9: Pruning old snapshots (retention=${MOODLE_UPGRADE_RETENTION})..."
+    prune_old_upgrade_snapshots
+
+    # Final report.
+    cat > "${_UPGRADE_WORKSPACE}/result.txt" <<EOF
+RESULT=success
+DB_UPGRADE=$([[ "$db_step" == "0" ]] && echo auto || echo deferred-to-admin)
+COMPLETED_AT=$(date -Iseconds)
 EOF
-    
+
     info "╔═══════════════════════════════════════════════════════════╗"
-    info "║          MOODLE UPGRADE PREPARATION COMPLETE              ║"
+    info "║          MOODLE UPGRADE COMPLETED                         ║"
     info "╠═══════════════════════════════════════════════════════════╣"
-    info "║                                                           ║"
-    info "║  ✅ Code updated to: $MOODLE_UPGRADE_TO_RELEASE"
-    info "║  ✅ Custom content preserved and restored                ║"
-    info "║  ✅ Database backed up                                   ║"
-    info "║  ✅ Maintenance mode enabled                             ║"
-    info "║                                                           ║"
-    info "║  📋 NEXT STEPS FOR ADMIN:                                ║"
-    info "║                                                           ║"
-    info "║  1. Visit: http://your-moodle-site/admin/                ║"
-    info "║  2. Login as administrator                               ║"
-    info "║  3. Review plugin compatibility report                   ║"
-    info "║  4. Click 'Upgrade Moodle database now'                  ║"
-    info "║  5. Wait for upgrade to complete                         ║"
-    info "║  6. Disable maintenance mode when done                   ║"
-    info "║                                                           ║"
+    info "║  Code:      ${MOODLE_UPGRADE_FROM_RELEASE} → ${MOODLE_UPGRADE_TO_RELEASE}"
+    if [[ "$db_step" == "0" ]]; then
+    info "║  Database:  upgraded automatically (CLI)"
+    info "║  Status:    site is back online"
+    else
+    info "║  Database:  PENDING - admin must finalize"
+    info "║  Status:    Moodle is showing 'Upgrade required' to all users."
+    info "║             Regular users are blocked, admin login still works."
+    info "║"
+    info "║  Next steps for admin:"
+    info "║    1. Visit  http://<your-site>/admin/"
+    info "║    2. Login as administrator (Moodle will redirect"
+    info "║       to the upgrade wizard automatically)"
+    info "║    3. Review plugin compatibility, then click"
+    info "║       'Upgrade Moodle database now'"
+    info "║    4. After Moodle finishes the DB upgrade, the site"
+    info "║       returns to normal automatically."
+    info "║"
+    info "║  Tip: to make this fully unattended next time, set"
+    info "║       MOODLE_AUTO_DB_UPGRADE=yes in your .env"
+    fi
+    info "║"
+    info "║  Snapshot: ${_UPGRADE_WORKSPACE}"
     info "╚═══════════════════════════════════════════════════════════╝"
-    
+
     return 0
 }
 
@@ -693,6 +1189,12 @@ if [ -d "/opt/moodle-source" ]; then
             
             # After upgrade, bypass security check on new code
             bypass_moodle_security_checks
+
+            # Mark that the new orchestrator owns the upgrade decision so the
+            # legacy "Running standard upgrade..." block further down (which used
+            # to unconditionally run admin/cli/upgrade.php and would otherwise
+            # silently override MOODLE_AUTO_DB_UPGRADE=no) skips itself.
+            export _MOODLE_UPGRADE_HANDLED=1
         else
             info "Moodle version is up to date. Preserving user data and customizations."
         fi
@@ -783,9 +1285,18 @@ if [[ -f "$MOODLE_CONF_FILE" ]]; then
         # Bypass publicpaths security check after database import
         bypass_moodle_security_checks
     else
-        info "No pre-built database found. Running standard upgrade..."
-        php "${MOODLE_DIR}/admin/cli/upgrade.php" --non-interactive --allow-unstable >/dev/null || true
-        
+        # If perform_moodle_upgrade already ran, it has already either upgraded
+        # the DB (MOODLE_AUTO_DB_UPGRADE=yes) or DELIBERATELY left it pending so
+        # the admin can finalize through the web wizard (MOODLE_AUTO_DB_UPGRADE=no).
+        # Running admin/cli/upgrade.php here would silently override that decision,
+        # so skip it.
+        if [[ "${_MOODLE_UPGRADE_HANDLED:-0}" == "1" ]]; then
+            info "Moodle upgrade orchestrator already handled the DB step (MOODLE_AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE}). Skipping legacy CLI upgrade."
+        else
+            info "No pre-built database found. Running standard upgrade..."
+            php "${MOODLE_DIR}/admin/cli/upgrade.php" --non-interactive --allow-unstable >/dev/null || true
+        fi
+
         # Apply environment variable overrides after upgrade
         apply_environment_overrides
         

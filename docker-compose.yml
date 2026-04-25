@@ -22,7 +22,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:4.5.11-fix-cve-2026-31789-6100
+    image: abstechnology/moodle-standard:5.0.7
     container_name: abs-moodle
     ports:
       - "80:8080"
@@ -64,10 +64,16 @@ services:
       # Proxy Configuration
       - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
       - MOODLE_SSLPROXY=${MOODLE_SSLPROXY}
-      
+
+      # Upgrade behavior (see env.example for details)
+      - MOODLE_AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE:-no}
+      - MOODLE_BACKUP_DIR=${MOODLE_BACKUP_DIR:-/var/www/moodle-backups}
+      - MOODLE_UPGRADE_RETENTION=${MOODLE_UPGRADE_RETENTION:-5}
+
     volumes:
       - ./data/moodle:/var/www/html
       - ./data/moodledata:/var/www/moodledata
+      - ./data/moodle-backups:/var/www/moodle-backups
     depends_on:
       mariadb:
         condition: service_healthy

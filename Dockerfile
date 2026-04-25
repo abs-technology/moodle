@@ -124,6 +124,7 @@ RUN groupadd -g $APP_GID $APP_GROUP 2>/dev/null || true \
 # Create necessary directories
 RUN mkdir -p /var/www/html \
            /var/www/moodledata \
+           /var/www/moodle-backups \
            /var/log/apache2 \
            /var/run/apache2 \
            /var/run/php \
@@ -162,8 +163,13 @@ COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 # ================================
 FROM base AS moodle-downloader
 
-# Download and extract Moodle 4.5.11 (latest stable with security fixes)
+# Download and extract Moodle 5.0.7 (latest stable with security fixes)
+# To switch versions, comment the active RUN and uncomment one of the alternatives.
+# IMPORTANT: alternatives MUST NOT end with `\` or they tangle with the active RUN
+# (Dockerfile joins continued lines BEFORE comment detection, then bash sees `#RUN`
+# mid-line and treats the rest of the joined command - mkdir, tar, find - as a comment).
 RUN curl -fsSL https://packaging.moodle.org/stable405/moodle-4.5.11.tgz -o /tmp/moodle.tgz \
+#RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-5.0.7.tgz -o /tmp/moodle.tgz 
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
@@ -255,6 +261,8 @@ RUN ln -sf /dev/stdout /var/log/apache2/access.log \
 # Ensure permissions for data and log directories
 RUN chown -R $APP_USER:$APP_GROUP /var/www/moodledata \
     && chmod -R 775 /var/www/moodledata \
+    && chown -R $APP_USER:$APP_GROUP /var/www/moodle-backups \
+    && chmod -R 775 /var/www/moodle-backups \
     && chown -R $APP_USER:$APP_GROUP /var/run/php \
     && chmod -R 775 /var/run/php \
     && chown -R $APP_USER:$APP_GROUP /scripts \
