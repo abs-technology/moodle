@@ -20,11 +20,21 @@ echo -e "   / /| | / __  \__ \     / /   / /|_/ /\__ \     / /|_/ / __ \/ __ \/ 
 echo -e "  / ___ |/ /_/ /__/ /    / /___/ /  / /___/ /    / /  / / /_/ / /_/ / /_/ / /  __/ "
 echo -e " /_/  |_/_____/____/    /_____/_/  /_//____/    /_/  /_/\____/\____/\__,_/_/\___/  "                                                       
 
+# Read version from the baked-in Moodle source so the banner can never lie
+# about which Moodle version this image was built with.
+_banner_release="unknown"
+if [[ -r /opt/moodle-source/version.php ]]; then
+    _banner_release=$(awk -F"'" '/^[[:space:]]*\$release[[:space:]]*=/ {print $2; exit}' \
+        /opt/moodle-source/version.php 2>/dev/null | awk '{print $1}')
+    [[ -z "$_banner_release" ]] && _banner_release="unknown"
+fi
+_banner_php=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.2")
+
 echo ""
 echo " ══════════════════════════════════════════════"
 echo "  🎓 ABSI TECHNOLOGY MOODLE LMS 🎓              "
-echo "     Version: 4.5.11                        "
-echo "     PHP Version: 8.2                          "
+echo "     Version: ${_banner_release}"
+echo "     PHP Version: ${_banner_php}"
 echo "     Apache Version: 2.4                       "
 echo " ══════════════════════════════════════════════"
 echo "  📞 Support & Resources                        "
