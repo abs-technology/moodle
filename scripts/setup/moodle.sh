@@ -268,17 +268,26 @@ _parse_version_php_var() {
     [[ ! -f "$file" ]] && return 1
 
     # Match e.g. `$version  = 2024100100.05;` or `$release = '4.5.10+ (...)';`
-    # Strip optional inline comment after `;` (e.g. `; // ... `)
-    awk -v v="\\\$$var" '
-        $0 ~ ("^[[:space:]]*" v "[[:space:]]*=") {
-            sub("^[^=]*=[[:space:]]*", "", $0)
-            sub(";.*$", "", $0)
-            gsub("^[[:space:]]+|[[:space:]]+$", "", $0)
-            gsub("^['"'"'\"]|['"'"'\"]$", "", $0)
-            print $0
-            exit
-        }
-    ' "$file"
+    # We use sed (not awk dynamic regex) because awk's dynamic-regex
+    # backslash handling differs between gawk and mawk (Debian's default
+    # awk is mawk and silently failed to match `\$version` here, which
+    # made every upgrade detection short-circuit with an empty version).
+    #
+    # Strategy:
+    #   1. Find first line matching `^\s*$<var>\s*=`
+    #   2. Drop everything up to and including the `=`
+    #   3. Drop trailing `;` and anything after it (PHP inline comment etc.)
+    #   4. Trim surrounding whitespace and quotes
+    sed -nE "/^[[:space:]]*\\\$${var}[[:space:]]*=/{
+        s/^[^=]*=[[:space:]]*//
+        s/[[:space:]]*;.*\$//
+        s/^[[:space:]]+//
+        s/[[:space:]]+\$//
+        s/^['\"]+//
+        s/['\"]+\$//
+        p
+        q
+    }" "$file"
 }
 
 # Detect Moodle version (numeric, e.g. 2024100100) from version.php.
