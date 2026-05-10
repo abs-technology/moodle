@@ -1,9 +1,10 @@
 # Multi-stage build for optimization
 # Using latest Debian 12.13 (bookworm) with security updates (Feb 2026)
+# Stack: PHP 8.4 (Sury) + Apache 2.4 + MariaDB client + Moodle 5.2+
 FROM debian:12-slim AS base
 
-ARG MOODLE_VERSION=4.5.10+
-ARG PHP_VERSION=8.2
+ARG MOODLE_VERSION=5.2+
+ARG PHP_VERSION=8.4
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
 ARG APP_GROUP=absiuser
@@ -76,6 +77,7 @@ RUN apt-get install -y --no-install-recommends \
     openssl \
     git \
     unzip \
+    libcap2-bin \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
@@ -114,6 +116,11 @@ ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
 # Enable PHP extensions
+# NOTE: `sodium` is intentionally NOT listed here. The Sury repository for
+# Debian Bookworm ships PHP 8.4 with the sodium extension bundled into the
+# core `php8.4` package and enabled by default - there is no separate
+# `php8.4-sodium` package to install or enable. Trying to `phpenmod sodium`
+# would just no-op. Verify at runtime with `php -m | grep sodium`.
 RUN phpenmod mysqli pdo pdo_mysql opcache apcu imagick
 
 # Configure user and group with common UID/GID for bind volumes - Consolidated user creation
@@ -163,53 +170,76 @@ COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 # ================================
 FROM base AS moodle-downloader
 
-# Download and extract Moodle 5.0.7 (latest stable with security fixes)
+# Download and extract Moodle 5.2+ (latest weekly build of MOODLE_502_STABLE).
+#
+# Why moodle-latest-502.tgz instead of moodle-5.2.tgz?
+#   The "-latest-502" tarball is built every week from the MOODLE_502_STABLE
+#   branch and includes all post-release bug/security fixes. The static
+#   "moodle-5.2.tgz" tarball is the immutable 16/04/2026 release and would
+#   miss every weekly fix shipped after that date.
+#
 # To switch versions, comment the active RUN and uncomment one of the alternatives.
 # IMPORTANT: alternatives MUST NOT end with `\` or they tangle with the active RUN
 # (Dockerfile joins continued lines BEFORE comment detection, then bash sees `#RUN`
 # mid-line and treats the rest of the joined command - mkdir, tar, find - as a comment).
-RUN curl -fsSL https://packaging.moodle.org/stable405/moodle-4.5.11.tgz -o /tmp/moodle.tgz \
-#RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-5.0.7.tgz -o /tmp/moodle.tgz 
+#RUN curl -fsSL https://packaging.moodle.org/stable405/moodle-4.5.11.tgz -o /tmp/moodle.tgz
+#RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-5.0.7.tgz -o /tmp/moodle.tgz
+RUN curl -fsSL https://download.moodle.org/download.php/direct/stable502/moodle-latest-502.tgz -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
     && find /opt/moodle-source -type d -exec chmod 755 {} + \
     && find /opt/moodle-source -type f -exec chmod 644 {} +
 
-# Security fixes for CVE-2025-14087 and other vulnerabilities
-# Update all Symfony components and other dependencies to latest secure versions
-# Fix CVE-2026-24765: Update PHPUnit to 9.6.33+
+# Audit + force-upgrade Moodle's bundled vendor tree.
+#
+# We DO override `aws/aws-sdk-php`:
+#   Moodle 5.2 pins 3.356.22 which is vulnerable to GHSA-27qh-8cxx-2cr5
+#   (CloudFront Policy Document Injection, CVSS 7.7, fixed in 3.371.4).
+#
+# Strategy:
+#   1. Run `composer install` first. If the tarball already has `vendor/`,
+#      this is a no-op. If it is missing (git-style tarball), this installs
+#      everything using the immutable `composer.lock`.
+#   2. Run `composer require` to update the lock file and install the patched version.
+#   3. Verify the version in the build log to ensure it's actually patched.
 RUN cd /opt/moodle-source \
-    && composer require symfony/process:^6.4.14 \
-       symfony/http-client:^6.4.14 \
-       symfony/mime:^6.4.14 \
-       symfony/console:^6.4.14 \
-       symfony/filesystem:^6.4.14 \
-       symfony/finder:^6.4.14 \
-       phpunit/phpunit:^9.6.33 \
-       --with-dependencies --no-interaction --optimize-autoloader --update-with-dependencies \
+    && composer install --no-dev --no-interaction --no-progress --optimize-autoloader \
+    && composer require "aws/aws-sdk-php:^3.371.4" \
+           --no-dev --no-interaction --no-progress \
+           --update-with-all-dependencies \
+           --optimize-autoloader \
+           --classmap-authoritative \
+    && echo "Verifying aws-sdk-php version in image:" \
+    && grep "VERSION =" vendor/aws/aws-sdk-php/src/Sdk.php \
     && composer audit --no-dev --format=plain || echo "Audit completed with warnings" \
     && composer check-platform-reqs --no-dev || true \
     && composer clear-cache \
     && rm -rf /root/.composer/cache \
     && find /opt/moodle-source/vendor -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true \
-    && find /opt/moodle-source/vendor -name "*.md" -type f -delete 2>/dev/null || true \
-    && find /opt/moodle-source/vendor -name "*.txt" -type f -delete 2>/dev/null || true \
-    && find /opt/moodle-source/vendor -name "test" -type d -exec rm -rf {} + 2>/dev/null || true \
-    && find /opt/moodle-source/vendor -name "tests" -type d -exec rm -rf {} + 2>/dev/null || true \
-    && find /opt/moodle-source/vendor -name "Tests" -type d -exec rm -rf {} + 2>/dev/null || true
+    && cd /opt/moodle-source && composer dump-autoload --no-dev --classmap-authoritative
+# WARNING: do NOT add `find vendor -name '*.txt' -delete` or `find vendor -name '*.md' -delete`
+# here. Some Moodle vendor packages (notably `matthiasmullie/minify`) ship
+# *runtime data* as .txt files inside vendor/<pkg>/data/ - blanket-deleting
+# .txt makes Moodle crash with "MatthiasMullie\Minify\JS::getOperatorsForRegex():
+# Argument #1 ($operators) must be of type array, false given" the first time
+# any page tries to minify JS. The few MB saved is not worth the breakage.
+# Same for `tests/` and `Tests/` directories: a few packages still autoload
+# helper classes from those paths at runtime.
 
 # Security: Create security metadata file for tracking
 RUN cd /opt/moodle-source && echo "Build Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" > /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "Moodle Version: 4.5.10+" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "Security Fixes Applied:" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2024-51736: Symfony Process fixed (6.4.14+)" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2026-24765: PHPUnit updated to 9.6.33+" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2025-14087: System packages updated to latest" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- Debian 12.13 security patches applied" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2026-25646: libpng16-16 (awaiting Debian patch)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "Moodle Version: 5.2+ (MOODLE_502_STABLE weekly build)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "PHP Version: 8.4 (Sury repo)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "Base Image: debian:12-slim (bookworm) with bookworm-security patches" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "Built-in security posture (from vendor + base):" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- Symfony 7.x and PHPUnit 11.x ship in Moodle 5.2 (past CVE-2024-51736 and CVE-2026-24765)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2025-14087: system packages updated via apt-get upgrade" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2026-31789: OpenSSL upgraded to 3.0.19-1~deb12u2+ (DSA-6201-1)" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2026-6100: Removed libmagickwand-dev to drop python3.11 chain (no Debian patch yet)" >> /opt/moodle-source/SECURITY-INFO.txt
+    && echo "- CVE-2026-6100: removed libmagickwand-dev to drop python3.11 chain (no Debian patch yet)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2026-25646: libpng16-16 (awaiting Debian patch)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- GHSA-27qh-8cxx-2cr5: aws/aws-sdk-php upgraded to ^3.371.4 (CloudFront policy injection)" >> /opt/moodle-source/SECURITY-INFO.txt
 
 # ================================
 # Final stage
@@ -242,6 +272,17 @@ COPY config/php/php.ini /etc/php/${PHP_VERSION}/fpm/php.ini
 COPY config/php/php.ini /etc/php/${PHP_VERSION}/apache2/php.ini
 COPY config/php/pool.d/www.conf /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf
 
+# Bake a self-signed TLS certificate for `localhost` and trust it system-wide.
+RUN openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        -subj "/C=VN/ST=HCM/L=HCM/O=ABSI/CN=localhost" \
+        -addext "subjectAltName=DNS:localhost,DNS:*.localhost,IP:127.0.0.1,IP:0.0.0.0" \
+        -keyout /etc/ssl/private/localhost.key \
+        -out /etc/ssl/certs/localhost.crt \
+    && cp /etc/ssl/certs/localhost.crt /usr/local/share/ca-certificates/moodle-localhost.crt \
+    && update-ca-certificates \
+    && chmod 644 /etc/ssl/certs/localhost.crt \
+    && chmod 640 /etc/ssl/private/localhost.key
+
 # Set permissions for config directories and files so non-root user can modify at runtime
 RUN chown -R $APP_USER:$APP_GROUP /etc/apache2 \
     && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/fpm \
@@ -269,14 +310,18 @@ RUN chown -R $APP_USER:$APP_GROUP /var/www/moodledata \
     && find /scripts -type f -exec chmod +x {} + \
     && find /docker-entrypoint-init.d/ -type f -exec chmod +x {} +
 
+
+RUN setcap 'cap_net_bind_service=+ep' /usr/sbin/apache2 \
+    && getcap /usr/sbin/apache2
+
 WORKDIR /var/www/html
 
 # Explicit USER directive for Docker Scout detection - Remove duplicate user creation
 USER $APP_USER:$APP_GROUP
 
-# Expose non-privileged ports for non-root user
 EXPOSE 8080 8443
 
 # Entrypoint for container
 ENTRYPOINT ["/scripts/entrypoint.sh"]
 CMD ["/scripts/moodle-run.sh"]
+

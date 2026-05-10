@@ -120,8 +120,8 @@ docker compose up -d
 <img src="https://img.shields.io/badge/Production-Ready-success?style=for-the-badge" alt="Production Ready"/>
 
 **Latest Technology Stack**
-- 🚀 **Moodle 4.5.7** - Latest features
-- 🐘 **PHP 8.2** - Performance boost
+- 🚀 **Moodle 5.2** - Latest features
+- 🐘 **PHP 8.4** - Performance boost
 - 🗄️ **MariaDB 11.7.2** - Optimized database
 - 🔒 **Security Hardened** - Non-root execution
 - ⚡ **OPcache Enabled** - 3x faster performance
