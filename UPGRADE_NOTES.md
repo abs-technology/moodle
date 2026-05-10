@@ -5,7 +5,7 @@
 ## 📦 Packages Added
 
 ### ✅ 1. APCu (PHP User Cache)
-- **Package:** `php8.2-apcu`
+- **Package:** `php8.4-apcu`
 - **Version:** Latest from Sury repository
 - **Purpose:** User-level caching for better performance
 - **Risk Level:** 🟢 LOW
@@ -24,7 +24,7 @@ $CFG->cachestore_apcu = [
 ---
 
 ### ✅ 2. ImageMagick + php-imagick
-- **Packages:** `imagemagick`, `libmagickwand-dev`, `php8.2-imagick`
+- **Packages:** `imagemagick`, `php8.4-imagick`
 - **Version:** Latest from Debian 12 & Sury
 - **Purpose:** Advanced image processing (better quality than GD)
 - **Risk Level:** 🟡 MEDIUM
@@ -90,7 +90,7 @@ SecRuleEngine DetectionOnly
 
 ### 1. Rebuild Docker Image
 ```bash
-docker build -t moodle-core:4.5.7-plus .
+docker build -t moodle-core:5.2 .
 ```
 
 ### 2. Stop Current Container (Maintenance Window)
@@ -134,8 +134,8 @@ If any issues occur:
 ```bash
 # Use previous image
 docker-compose down
-docker tag moodle-core:4.5.7-plus moodle-core:4.5.7-plus-new
-docker tag moodle-core:4.5.7-plus-old moodle-core:4.5.7-plus
+docker tag moodle-core:5.2 moodle-core:5.2-new
+docker tag moodle-core:5.2-old moodle-core:5.2
 docker-compose up -d
 ```
 
@@ -144,13 +144,13 @@ docker-compose up -d
 **Disable APCu:**
 ```bash
 docker exec abs-moodle phpdismod apcu
-docker exec abs-moodle systemctl reload php8.2-fpm
+docker exec abs-moodle systemctl reload php8.4-fpm
 ```
 
 **Disable ImageMagick:**
 ```bash
 docker exec abs-moodle phpdismod imagick
-docker exec abs-moodle systemctl reload php8.2-fpm
+docker exec abs-moodle systemctl reload php8.4-fpm
 ```
 
 **Disable ModSecurity:**

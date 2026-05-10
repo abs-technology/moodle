@@ -22,12 +22,23 @@ echo -e " /_/  |_/_____/____/    /_____/_/  /_//____/    /_/  /_/\____/\____/\__
 
 # Read version from the baked-in Moodle source so the banner can never lie
 # about which Moodle version this image was built with.
+#
+# Moodle layout differs between major versions:
+#   - Moodle 4.x:  /opt/moodle-source/version.php
+#   - Moodle 5.x:  /opt/moodle-source/public/version.php  (codebase moved
+#                  into public/ as part of the 5.x restructure)
+# Try the 5.x location first (the newer the more likely to be relevant), then
+# fall back to the 4.x location.
 _banner_release="unknown"
-if [[ -r /opt/moodle-source/version.php ]]; then
-    _banner_release=$(awk -F"'" '/^[[:space:]]*\$release[[:space:]]*=/ {print $2; exit}' \
-        /opt/moodle-source/version.php 2>/dev/null | awk '{print $1}')
-    [[ -z "$_banner_release" ]] && _banner_release="unknown"
-fi
+for _vfile in /opt/moodle-source/public/version.php /opt/moodle-source/version.php; do
+    if [[ -r "$_vfile" ]]; then
+        _banner_release=$(awk -F"'" '/^[[:space:]]*\$release[[:space:]]*=/ {print $2; exit}' \
+            "$_vfile" 2>/dev/null | awk '{print $1}')
+        [[ -n "$_banner_release" ]] && break
+    fi
+done
+[[ -z "$_banner_release" ]] && _banner_release="unknown"
+unset _vfile
 _banner_php=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.2")
 
 echo ""
@@ -40,7 +51,8 @@ echo " ════════════════════════�
 echo "  📞 Support & Resources                        "
 echo "     Website: https://abs.education/            "
 echo "     Support: billnguyen@absi.edu.vn            "
-echo "     Professional Services: https://abs.education/mod/page/view.php?id=159 "
+echo "     On Docker Hub: https://hub.docker.com/r/abstechnology/moodle-standard "
+echo "     Google Marketplace: https://console.cloud.google.com/marketplace/browse?filter=partner:ABS%20Technology%20LLC                "
 echo " ══════════════════════════════════════════════"
 
 echo ""
