@@ -502,6 +502,87 @@ Always use strong passwords for database and admin accounts. You can generate se
 $ openssl rand -base64 32
 ```
 
+### 🛡️ Docker Scout — Image Vulnerability & Policy Gate
+
+Mỗi lần build/push image, repo cung cấp sẵn `Makefile` + script `scripts/utils/docker-scout.sh`
+để quét lỗ hổng (CVE) và đánh giá 7 policy chuẩn của [Docker Scout](https://docs.docker.com/scout/):
+
+1. No high-profile vulnerabilities
+2. No fixable critical or high vulnerabilities
+3. No unapproved base images
+4. Supply chain attestations (SBOM + Provenance)
+5. No outdated base images
+6. No AGPL v3 licenses
+7. Default non-root user
+
+**Yêu cầu trước khi chạy**
+
+```bash
+# Docker Desktop ≥ 4.24 đã đi kèm Docker Scout. Nếu thiếu:
+curl -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s --
+
+# Đăng nhập Docker Hub (cần để pull image và push sau khi pass)
+docker login
+
+# (Optional) Bật/tắt policy cho org tại:
+#   https://hub.docker.com/orgs/<your-org>/policy
+```
+
+**Workflow ngắn gọn qua Makefile** (khuyến nghị)
+
+```bash
+make login                 # Login Docker Hub (chỉ làm 1 lần)
+make build                 # Build amd64 local + scan + policy gate (KHÔNG push)
+make push                  # Re-verify gate + multi-arch build + push lên Hub
+# Hoặc chạy cả 2 liên tiếp:
+make build push
+```
+
+Các lệnh phụ:
+
+```bash
+make help                  # Xem toàn bộ target
+make scan                  # Quickview Scout — 7 policy + CVE summary
+make policy                # Chỉ chạy policy gate (exit ≠ 0 nếu fail)
+make cves                  # CVE chi tiết theo severity
+make fix                   # Gợi ý nâng cấp base image / fix CVE
+make info                  # Xem image local + manifest registry
+make tag-latest            # Tag :TAG → :latest (giữ manifest multi-arch)
+make clean                 # Dọn image test
+make push-only             # Push KHÔNG build, KHÔNG gate (chỉ dùng khi đã verify tay)
+```
+
+Override biến tùy ý:
+
+```bash
+make build TAG=4.5.12                                  # Đổi tag
+make push  TAG=4.5.12 PLATFORMS=linux/amd64            # Push 1 arch
+make push  PLATFORMS=linux/amd64,linux/arm64,linux/arm/v7
+make build IMAGE=abstechnology/moodle-standard TAG=5.2.0
+make build PUSH_ON_FAIL=yes                            # Override gate (KHÔNG khuyến khích)
+```
+
+**Workflow đầy đủ gọi thẳng script** (nếu không dùng make)
+
+```bash
+IMAGE=abstechnology/moodle-core TAG=4.5.11 \
+  ./scripts/utils/docker-scout.sh release
+```
+
+Script/Makefile sẽ **chặn push** nếu policy nào fail. Override bằng `PUSH_ON_FAIL=yes`
+(không khuyến khích).
+
+**Gợi ý: chạy tự động trước mỗi `git push` qua hook**
+
+```bash
+cat > .git/hooks/pre-push <<'EOF'
+#!/usr/bin/env bash
+# Chặn git push nếu Docker image fail policy gate
+make build TAG=$(git rev-parse --short HEAD) || exit 1
+EOF
+chmod +x .git/hooks/pre-push
+```
+
 ## Maintenance
 
 ### Backing Up Your Container
