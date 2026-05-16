@@ -211,15 +211,24 @@ RUN curl -fsSL https://download.moodle.org/download.php/direct/stable502/moodle-
 #      everything using the immutable `composer.lock`.
 #   2. Run `composer require` to update the lock file and install the patched version.
 #   3. Verify the version in the build log to ensure it's actually patched.
+# NOTE: `composer require` does NOT accept `--no-dev` (composer 2.x only allows
+# `--update-no-dev`). Previously this line silently failed with "The --no-dev
+# option does not exist", but build still passed because the verification step
+# (`grep VERSION =`) didn't enforce version match. Result: aws-sdk-php stayed
+# at the vulnerable 3.356.22 pinned by Moodle's composer.json/lock.
+#
+# Fix: use `--update-no-dev` and assert version >= 3.371.4 via PHP version_compare
+# so the build fails loudly if the upgrade does not stick.
 RUN cd /opt/moodle-source \
     && composer install --no-dev --no-interaction --no-progress --optimize-autoloader \
     && composer require "aws/aws-sdk-php:^3.371.4" \
-           --no-dev --no-interaction --no-progress \
+           --update-no-dev --no-interaction --no-progress \
            --update-with-all-dependencies \
            --optimize-autoloader \
            --classmap-authoritative \
-    && echo "Verifying aws-sdk-php version in image:" \
-    && grep "VERSION =" vendor/aws/aws-sdk-php/src/Sdk.php \
+    && AWS_SDK_VER=$(php -r "require 'vendor/autoload.php'; echo Aws\Sdk::VERSION;") \
+    && echo "aws-sdk-php version in image: $AWS_SDK_VER" \
+    && php -r "exit(version_compare('$AWS_SDK_VER', '3.371.4', '<') ? 1 : 0);" \
     && composer audit --no-dev --format=plain || echo "Audit completed with warnings" \
     && composer check-platform-reqs --no-dev || true \
     && composer clear-cache \
