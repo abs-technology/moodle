@@ -24,7 +24,7 @@
 #   recommendations  Gợi ý nâng cấp base image / fix CVE.
 #
 # Cấu hình qua env vars (hoặc CLI flag, xem --help):
-#   IMAGE         Tên image, ví dụ abstechnology/moodle-core (bắt buộc).
+#   IMAGE         Tên image, ví dụ abstechnology/moodle-standard (bắt buộc).
 #   TAG           Tag, ví dụ 4.5.11 (bắt buộc).
 #   PLATFORMS     linux/amd64[,linux/arm64]. Mặc định linux/amd64.
 #                 Multi-arch: list nhiều platform cách nhau dấu phẩy.
@@ -40,9 +40,9 @@
 #   ONLY_SEVERITY critical,high  — severity scan CVE.
 #
 # Ví dụ:
-#   IMAGE=abstechnology/moodle-core TAG=4.5.11 ./scripts/utils/docker-scout.sh release
-#   IMAGE=abstechnology/moodle-core TAG=4.5.11 ./scripts/utils/docker-scout.sh policy
-#   ./scripts/utils/docker-scout.sh quickview --image abstechnology/moodle-core:4.5.11
+#   IMAGE=abstechnology/moodle-standard TAG=4.5.11 ./scripts/utils/docker-scout.sh release
+#   IMAGE=abstechnology/moodle-standard TAG=4.5.11 ./scripts/utils/docker-scout.sh policy
+#   ./scripts/utils/docker-scout.sh quickview --image abstechnology/moodle-standard:4.5.11
 # =============================================================================
 
 set -euo pipefail
@@ -120,13 +120,28 @@ ensure_docker_scout() {
     fi
 }
 
+ensure_docker_login() {
+    [[ "${SKIP_LOGIN_CHECK:-no}" == "yes" ]] && return 0
+
+    local config="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+    if [[ -f "$config" ]] \
+        && grep -qE '"(auths|credsStore|credHelpers)"[[:space:]]*:' "$config" 2>/dev/null; then
+        return 0
+    fi
+
+    err "Chưa thấy Docker credentials trong $config."
+    err "Scout cần auth để gọi API policy/CVE. Chạy: docker login"
+    err "Bỏ qua check (nếu auth qua cách khác): SKIP_LOGIN_CHECK=yes make ..."
+    exit 4
+}
+
 ensure_required_vars() {
     local missing=()
     [[ -z "${IMAGE}" ]] && missing+=("IMAGE")
     [[ -z "${TAG}"   ]] && missing+=("TAG")
     if (( ${#missing[@]} )); then
         err "Thiếu biến: ${missing[*]}"
-        err "Ví dụ: IMAGE=abstechnology/moodle-core TAG=4.5.11 $0 $CMD"
+        err "Ví dụ: IMAGE=abstechnology/moodle-standard TAG=4.5.11 $0 $CMD"
         exit 2
     fi
     if [[ -z "${ORG}" ]]; then
@@ -194,6 +209,7 @@ cmd_build() {
 
 cmd_quickview() {
     ensure_docker_scout
+    ensure_docker_login
     ensure_required_vars
     local img; img="$(full_image)"
     section "Quickview $img"
@@ -202,6 +218,7 @@ cmd_quickview() {
 
 cmd_scan() {
     ensure_docker_scout
+    ensure_docker_login
     ensure_required_vars
     local img; img="$(full_image)"
     section "CVE scan $img (severity: $ONLY_SEVERITY)"
@@ -214,6 +231,7 @@ cmd_scan() {
 
 cmd_recommendations() {
     ensure_docker_scout
+    ensure_docker_login
     ensure_required_vars
     section "Recommendations $(full_image)"
     docker scout recommendations "$(full_image)"
@@ -221,6 +239,7 @@ cmd_recommendations() {
 
 cmd_policy() {
     ensure_docker_scout
+    ensure_docker_login
     ensure_required_vars
     local img; img="$(full_image)"
 
@@ -232,12 +251,15 @@ cmd_policy() {
     hr
 
     # `docker scout policy` đánh giá tất cả policy đã enable cho org.
-    # --exit-on policy → exit code ≠ 0 nếu có policy fail (gate-keeper).
+    # --exit-code → exit code = 2 nếu có policy fail (gate-keeper).
+    # (Trước đây dùng --exit-on, đã bị bỏ trong Scout CLI hiện tại.)
     # --org giúp Scout dùng đúng policy config trên Hub.
+    #
+    # LƯU Ý: KHÔNG được dùng `if ! cmd; then rc=$?` — trong `then` của `if !`,
+    # `$?` luôn là 0 (exit code của phép phủ định, không phải của cmd gốc).
+    # Pattern đúng là `cmd || rc=$?` để bắt đúng exit code của cmd.
     local rc=0
-    if ! docker scout policy "$img" --org "$ORG" --exit-on policy; then
-        rc=$?
-    fi
+    docker scout policy "$img" --org "$ORG" --exit-code || rc=$?
 
     hr
     if (( rc == 0 )); then
@@ -280,25 +302,38 @@ cmd_release() {
     local gate_arch="${GATE_ARCH:-linux/amd64}"
     local original_platforms="$PLATFORMS"
 
+    # Phase 1 strategy:
+    #   - SKIP_BUILD=no  → luôn build $gate_arch local cho gate.
+    #   - SKIP_BUILD=yes → tái sử dụng image local đã có (vd. từ `make build`
+    #     trước đó). Nhưng nếu image KHÔNG tồn tại (do `make clean`, máy mới,
+    #     CI fresh runner...), auto-fallback sang build để gate có thứ quét,
+    #     thay vì để Scout fail mơ hồ ở bước sau.
     if [[ "$SKIP_BUILD" != "yes" ]]; then
         log "Phase 1 — build $gate_arch local cho policy gate"
         PLATFORMS="$gate_arch" cmd_build
+    elif docker image inspect "$img" >/dev/null 2>&1; then
+        ok "SKIP_BUILD=yes và image local '$img' đã có → tái sử dụng cho gate."
     else
-        warn "SKIP_BUILD=yes → bỏ qua build, dùng image local hiện có."
+        warn "SKIP_BUILD=yes nhưng KHÔNG tìm thấy image local '$img'."
+        warn "→ Auto build $gate_arch để có image cho policy gate."
+        PLATFORMS="$gate_arch" cmd_build
     fi
 
     cmd_quickview || true
 
-    if ! cmd_policy; then
-        local rc=$?
+    # Lưu exit code thật của cmd_policy. Pattern `cmd || rc=$?` an toàn dưới
+    # `set -e` và bắt đúng exit code (xem ghi chú trong cmd_policy).
+    local policy_rc=0
+    cmd_policy || policy_rc=$?
+    if (( policy_rc != 0 )); then
         if [[ "$PUSH_ON_FAIL" == "yes" ]]; then
-            warn "Policy fail nhưng PUSH_ON_FAIL=yes → vẫn push (arch: $gate_arch)."
+            warn "Policy fail (rc=$policy_rc) nhưng PUSH_ON_FAIL=yes → vẫn push (arch: $gate_arch)."
             cmd_push
-            exit "$rc"
+            exit "$policy_rc"
         fi
-        err "RELEASE ABORT: $img không pass policy. Không push."
+        err "RELEASE ABORT: $img không pass policy (rc=$policy_rc). Không push."
         err "Set PUSH_ON_FAIL=yes để override (KHÔNG khuyến khích)."
-        exit "$rc"
+        exit "$policy_rc"
     fi
 
     # ----- Phase 2: push thật (single hoặc multi-arch) --------------------- #

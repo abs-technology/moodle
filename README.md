@@ -4,10 +4,10 @@
 ### *One of The Most Advanced Moodle Docker Solution*
 
 <p>
-  <img src="https://img.shields.io/docker/pulls/abstechnology/moodle-core?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Pulls"/>
-  <img src="https://img.shields.io/docker/stars/abstechnology/moodle-core?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Stars"/>  
+  <img src="https://img.shields.io/docker/pulls/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Pulls"/>
+  <img src="https://img.shields.io/docker/stars/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Stars"/>  
   <img src="https://img.shields.io/github/stars/abs-technology/moodle?style=for-the-badge&logo=github&logoColor=white&color=181717" alt="GitHub Stars"/>
-  <img src="https://img.shields.io/docker/image-size/abstechnology/moodle-core?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Image Size"/>
+  <img src="https://img.shields.io/docker/image-size/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Image Size"/>
 </p>
 
 <p>
@@ -258,13 +258,13 @@ docker compose up -d
 The recommended way to get the ABS Technology Moodle Docker Image is to pull the prebuilt image from the Docker Hub Registry.
 
 ```console
-$ docker pull abstechnology/moodle-core:latest
+$ docker pull abstechnology/moodle-standard:latest
 ```
 
 To use a specific version, you can pull a versioned tag:
 
 ```console
-$ docker pull abstechnology/moodle-core:4.5.7-plus
+$ docker pull abstechnology/moodle-standard:4.5.11
 ```
 
 ## How to Use This Image
@@ -321,7 +321,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-core:4.5.7-plus
+  abstechnology/moodle-standard:4.5.11
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -389,7 +389,7 @@ services:
       - moodle_network
 
   moodle:
-    image: moodle-core:4.5.7-plus
+    image: abstechnology/moodle-standard:4.5.11
     container_name: abs-moodle
     ports:
       - "80:8080"
@@ -491,7 +491,7 @@ The image includes SSL support with self-signed certificates for development. Fo
 $ docker run -d --name moodle \
   -v /path/to/your/cert.pem:/etc/ssl/certs/server.crt \
   -v /path/to/your/key.pem:/etc/ssl/private/server.key \
-  abstechnology/moodle-core:latest
+  abstechnology/moodle-standard:latest
 ```
 
 ### Password Security
@@ -558,14 +558,14 @@ Override biến tùy ý:
 make build TAG=4.5.12                                  # Đổi tag
 make push  TAG=4.5.12 PLATFORMS=linux/amd64            # Push 1 arch
 make push  PLATFORMS=linux/amd64,linux/arm64,linux/arm/v7
-make build IMAGE=abstechnology/moodle-standard TAG=5.2.0
+make build IMAGE=abstechnology/moodle-standard TAG=5.0.7
 make build PUSH_ON_FAIL=yes                            # Override gate (KHÔNG khuyến khích)
 ```
 
 **Workflow đầy đủ gọi thẳng script** (nếu không dùng make)
 
 ```bash
-IMAGE=abstechnology/moodle-core TAG=4.5.11 \
+IMAGE=abstechnology/moodle-standard TAG=4.5.11 \
   ./scripts/utils/docker-scout.sh release
 ```
 

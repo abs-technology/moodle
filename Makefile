@@ -18,10 +18,9 @@
 # =============================================================================
 
 # ---- Configurable variables ------------------------------------------------ #
-IMAGE        ?= abstechnology/moodle-core
+IMAGE        ?= abstechnology/moodle-standard
 TAG          ?= 4.5.11
 PLATFORMS    ?= linux/amd64,linux/arm64
-GATE_ARCH    ?= linux/amd64
 ORG          ?= abstechnology
 DOCKERFILE   ?= Dockerfile
 CONTEXT      ?= .
@@ -29,6 +28,17 @@ SEVERITY     ?= critical,high
 BUILD_ARGS   ?=
 SKIP_BUILD   ?= no
 PUSH_ON_FAIL ?= no
+
+# ---- Auto-detect host arch cho GATE phase --------------------------------- #
+# Phase gate (make build) build NATIVE 1 arch của host để tránh QEMU emulation
+# (Apple Silicon build linux/amd64 chậm 3-5x). Phase push mới làm multi-arch.
+# Override: make build GATE_ARCH=linux/amd64
+HOST_ARCH := $(shell uname -m)
+ifneq (,$(filter $(HOST_ARCH),arm64 aarch64))
+    GATE_ARCH ?= linux/arm64
+else
+    GATE_ARCH ?= linux/amd64
+endif
 
 # ---- Internal -------------------------------------------------------------- #
 SCOUT        := ./scripts/utils/docker-scout.sh
@@ -44,12 +54,13 @@ export BUILD_ARGS SKIP_BUILD PUSH_ON_FAIL
 .PHONY: help
 help: ## Hiển thị danh sách target
 	@printf '\033[1mABS Technology Moodle — Makefile\033[0m\n\n'
-	@printf 'Image     : %s\n' "$(IMG_FULL)"
-	@printf 'Platforms : %s\n' "$(PLATFORMS)"
-	@printf 'Gate arch : %s\n\n' "$(GATE_ARCH)"
+	@printf 'Image      : %s\n'   "$(IMG_FULL)"
+	@printf 'Host arch  : %s\n'   "$(HOST_ARCH)"
+	@printf 'Gate arch  : %s  \033[2m(build local, gate Scout — native, KHÔNG emulation)\033[0m\n' "$(GATE_ARCH)"
+	@printf 'Push archs : %s  \033[2m(multi-arch khi push lên registry)\033[0m\n\n' "$(PLATFORMS)"
 	@printf '\033[1mTargets:\033[0m\n'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9._-]+:.*?## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
-	@printf '\n\033[1mOverride:\033[0m make <target> TAG=... PLATFORMS=...\n'
+	@printf '\n\033[1mOverride:\033[0m make <target> TAG=... PLATFORMS=... GATE_ARCH=...\n'
 
 # ---- Main workflow --------------------------------------------------------- #
 .PHONY: build
