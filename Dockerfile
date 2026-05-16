@@ -82,18 +82,26 @@ RUN apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Security: Force-upgrade OpenSSL stack to patched versions from bookworm-security.
-# Fix for CVE-2026-31789 (DSA-6201-1): OpenSSL heap buffer overflow on
-# 32-bit platforms when converting large OCTET STRING values (X.509 SKID/AKID)
-# to hex. Required fixed version on Debian 12: 3.0.19-1~deb12u2 or newer.
-# libssl3 is force-upgraded explicitly because it's a shared dependency of
-# Apache, curl, php-curl, etc., and a stale layer cache could otherwise
-# leave the vulnerable copy in place.
+# Security: Force-upgrade selected libraries to patched versions from
+# bookworm-security. We do this explicitly (instead of relying on the earlier
+# `apt-get upgrade`) because:
+#   1. Layer cache can leave a stale package index → upgrade misses recent fixes.
+#   2. These libs are transitive dependencies of apache2, curl, php-curl... a
+#      stale copy in a lower layer is enough for scanners to flag the image.
+#
+# Fixes applied:
+#   - CVE-2026-31789 (DSA-6201-1)  openssl/libssl3 >= 3.0.19-1~deb12u2
+#       Heap buffer overflow on 32-bit platforms when converting large OCTET
+#       STRING values (X.509 SKID/AKID) to hex.
+#   - CVE-2026-27135                libnghttp2-14 >= 1.52.0-1+deb12u3
+#       nghttp2 HTTP/2 stack vulnerability; affects curl, apache2 mod_http2,
+#       php-curl.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --only-upgrade \
         openssl \
         libssl3 \
-    && dpkg-query -W -f='${Package} ${Version}\n' openssl libssl3 \
+        libnghttp2-14 \
+    && dpkg-query -W -f='${Package} ${Version}\n' openssl libssl3 libnghttp2-14 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -237,6 +245,7 @@ RUN cd /opt/moodle-source && echo "Build Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC
     && echo "- Symfony 7.x and PHPUnit 11.x ship in Moodle 5.2 (past CVE-2024-51736 and CVE-2026-24765)" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2025-14087: system packages updated via apt-get upgrade" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2026-31789: OpenSSL upgraded to 3.0.19-1~deb12u2+ (DSA-6201-1)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2026-27135: libnghttp2-14 upgraded to 1.52.0-1+deb12u3+" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2026-6100: removed libmagickwand-dev to drop python3.11 chain (no Debian patch yet)" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2026-25646: libpng16-16 (awaiting Debian patch)" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- GHSA-27qh-8cxx-2cr5: aws/aws-sdk-php upgraded to ^3.371.4 (CloudFront policy injection)" >> /opt/moodle-source/SECURITY-INFO.txt
