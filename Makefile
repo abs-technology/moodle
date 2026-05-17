@@ -35,8 +35,20 @@ PUSH_ON_FAIL ?= no
 # BUILDER:  buildx builder LOCAL (driver=docker-container). KHÔNG dùng Docker
 #   Build Cloud (`--driver cloud`); script sẽ recreate builder nếu phát hiện
 #   driver khác.
-NO_CACHE     ?= yes
-BUILDER      ?= scout-builder
+NO_CACHE       ?= yes
+BUILDER        ?= scout-builder
+
+# Pin BuildKit + SBOM scanner để Go runtime ≥ 1.21.0 (CVE-2023-24531).
+# External scanners (Google Artifact Analysis, Trivy) sẽ KHÔNG còn flag Go
+# toolchain cũ nhúng trong SBOM/provenance attestation.
+BUILDKIT_IMAGE ?= moby/buildkit:latest
+SBOM_SCANNER   ?= docker/buildkit-syft-scanner:1.11.0
+
+# ATTESTATIONS: full | provenance-only | none
+#   full          (default): SBOM + Provenance (cần cho Scout supply-chain policy)
+#   provenance-only: tắt SBOM (loại syft Go binary khỏi metadata)
+#   none          : tắt cả 2 — dùng khi external scanner chặn Go CVE
+ATTESTATIONS   ?= full
 
 # ---- Auto-detect host arch cho GATE phase --------------------------------- #
 # Phase gate (make build) build NATIVE 1 arch của host để tránh QEMU emulation
@@ -56,7 +68,7 @@ IMG_FULL     := $(IMAGE):$(TAG)
 export IMAGE TAG PLATFORMS GATE_ARCH ORG DOCKERFILE CONTEXT
 export ONLY_SEVERITY=$(SEVERITY)
 export BUILD_ARGS SKIP_BUILD PUSH_ON_FAIL
-export NO_CACHE BUILDER
+export NO_CACHE BUILDER BUILDKIT_IMAGE SBOM_SCANNER ATTESTATIONS
 
 # ---- Help (default) -------------------------------------------------------- #
 .DEFAULT_GOAL := help
