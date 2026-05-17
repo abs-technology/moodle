@@ -38,6 +38,12 @@
 #   PUSH_ON_FAIL  yes|no — push kể cả khi policy fail (KHÔNG khuyến khích).
 #   SKIP_BUILD    yes|no — release dùng image đã có sẵn local.
 #   ONLY_SEVERITY critical,high  — severity scan CVE.
+#   NO_CACHE      yes|no — bỏ build cache mỗi lần build (default: yes).
+#                 Đảm bảo luôn pull patches mới nhất từ bookworm-security.
+#                 Set NO_CACHE=no khi dev test nhanh.
+#   BUILDER       T\u00ean buildx builder (default: scout-builder).
+#                 BẮT BUỘC driver=docker-container — không dùng Docker Build
+#                 Cloud (`--driver cloud`); build hoàn toàn trên máy local.
 #
 # Ví dụ:
 #   IMAGE=abstechnology/moodle-standard TAG=4.5.11 ./scripts/utils/docker-scout.sh release
@@ -79,6 +85,16 @@ BUILD_ARGS="${BUILD_ARGS:-}"
 PUSH_ON_FAIL="${PUSH_ON_FAIL:-no}"
 SKIP_BUILD="${SKIP_BUILD:-no}"
 ONLY_SEVERITY="${ONLY_SEVERITY:-critical,high}"
+
+# NO_CACHE  yes|no — bỏ toàn bộ build cache mỗi lần build (default: yes).
+#            Lợi ích: luôn pull base image mới nhất + apply patches mới nhất từ
+#            bookworm-security, không bị BuildKit cache hit layer cũ chứa CVE
+#            đã được vá. Override bằng NO_CACHE=no khi cần build nhanh để dev.
+NO_CACHE="${NO_CACHE:-yes}"
+
+# BUILDER  Tên buildx builder (default: scout-builder, driver docker-container).
+#          Force local build — KHÔNG dùng Docker Build Cloud (`--driver cloud`).
+BUILDER="${BUILDER:-scout-builder}"
 
 # Policy slugs Docker Scout dùng để khớp với tiêu chí trong ảnh.
 # Trong v1.20+, `docker scout policy <image>` đánh giá tất cả policy đã enable
@@ -152,13 +168,32 @@ ensure_required_vars() {
 full_image() { printf '%s:%s' "${IMAGE}" "${TAG}"; }
 
 ensure_buildx_builder() {
-    if ! docker buildx inspect scout-builder >/dev/null 2>&1; then
-        log "Tạo buildx builder 'scout-builder' (driver: docker-container, hỗ trợ SBOM/provenance)"
-        docker buildx create --name scout-builder --driver docker-container --use >/dev/null
-        docker buildx inspect --bootstrap scout-builder >/dev/null
-    else
-        docker buildx use scout-builder >/dev/null
+    # Bắt buộc local builder (driver=docker-container). Nếu builder tồn tại với
+    # driver khác (vd. `cloud` khi user đã setup Docker Build Cloud), recreate
+    # để đảm bảo build hoàn toàn trên máy local — KHÔNG gửi context lên cloud.
+    local desired_driver="docker-container"
+    local current_driver=""
+
+    if docker buildx inspect "$BUILDER" >/dev/null 2>&1; then
+        current_driver=$(docker buildx inspect "$BUILDER" 2>/dev/null \
+            | awk -F': *' '/^Driver:/{print $2; exit}')
+        if [[ "$current_driver" != "$desired_driver" ]]; then
+            warn "Builder '$BUILDER' đang dùng driver='$current_driver' (KHÔNG phải local)."
+            warn "Recreate với driver='$desired_driver' để build hoàn toàn local..."
+            docker buildx rm "$BUILDER" >/dev/null 2>&1 || true
+            current_driver=""
+        fi
     fi
+
+    if [[ -z "$current_driver" ]]; then
+        log "Tạo buildx builder '$BUILDER' (driver: $desired_driver, hỗ trợ SBOM/provenance, build local)"
+        docker buildx create --name "$BUILDER" --driver "$desired_driver" --use >/dev/null
+        docker buildx inspect --bootstrap "$BUILDER" >/dev/null
+    else
+        docker buildx use "$BUILDER" >/dev/null
+    fi
+
+    log "Builder hiện tại: $BUILDER (driver: $desired_driver, local)"
 }
 
 # ------------------------- Subcommands -------------------------------------- #
@@ -167,19 +202,33 @@ cmd_build() {
     ensure_buildx_builder
 
     local img; img="$(full_image)"
-    section "Build $img ($PLATFORMS) với SBOM + Provenance"
+    local cache_msg
+    if [[ "$NO_CACHE" == "yes" ]]; then
+        cache_msg="NO CACHE (rebuild from scratch)"
+    else
+        cache_msg="dùng cache (NO_CACHE=no)"
+    fi
+    section "Build $img ($PLATFORMS) — $cache_msg, SBOM + Provenance"
 
     local -a args=(
         buildx build
+        --builder "$BUILDER"
         --file "$DOCKERFILE"
         --platform "$PLATFORMS"
         --tag "$img"
         --sbom=true
         --provenance=mode=max
+        --pull
         --label "org.opencontainers.image.source=$(git config --get remote.origin.url 2>/dev/null || echo unknown)"
         --label "org.opencontainers.image.revision=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
         --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     )
+
+    # --no-cache: bỏ toàn bộ layer cache để luôn pull patches mới nhất từ
+    # bookworm-security. Build chậm hơn nhưng đảm bảo không sót CVE cũ.
+    if [[ "$NO_CACHE" == "yes" ]]; then
+        args+=( --no-cache )
+    fi
 
     # Build args
     if [[ -n "$BUILD_ARGS" ]]; then

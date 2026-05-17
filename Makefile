@@ -29,6 +29,15 @@ BUILD_ARGS   ?=
 SKIP_BUILD   ?= no
 PUSH_ON_FAIL ?= no
 
+# Build determinism (default: NO cache, local builder only) ---------------- #
+# NO_CACHE: rebuild from scratch mỗi lần để luôn pull base + security patches
+#   mới nhất từ bookworm-security. Override: make build NO_CACHE=no (dev test).
+# BUILDER:  buildx builder LOCAL (driver=docker-container). KHÔNG dùng Docker
+#   Build Cloud (`--driver cloud`); script sẽ recreate builder nếu phát hiện
+#   driver khác.
+NO_CACHE     ?= yes
+BUILDER      ?= scout-builder
+
 # ---- Auto-detect host arch cho GATE phase --------------------------------- #
 # Phase gate (make build) build NATIVE 1 arch của host để tránh QEMU emulation
 # (Apple Silicon build linux/amd64 chậm 3-5x). Phase push mới làm multi-arch.
@@ -47,6 +56,7 @@ IMG_FULL     := $(IMAGE):$(TAG)
 export IMAGE TAG PLATFORMS GATE_ARCH ORG DOCKERFILE CONTEXT
 export ONLY_SEVERITY=$(SEVERITY)
 export BUILD_ARGS SKIP_BUILD PUSH_ON_FAIL
+export NO_CACHE BUILDER
 
 # ---- Help (default) -------------------------------------------------------- #
 .DEFAULT_GOAL := help
@@ -57,10 +67,12 @@ help: ## Hiển thị danh sách target
 	@printf 'Image      : %s\n'   "$(IMG_FULL)"
 	@printf 'Host arch  : %s\n'   "$(HOST_ARCH)"
 	@printf 'Gate arch  : %s  \033[2m(build local, gate Scout — native, KHÔNG emulation)\033[0m\n' "$(GATE_ARCH)"
-	@printf 'Push archs : %s  \033[2m(multi-arch khi push lên registry)\033[0m\n\n' "$(PLATFORMS)"
+	@printf 'Push archs : %s  \033[2m(multi-arch khi push lên registry)\033[0m\n' "$(PLATFORMS)"
+	@printf 'Builder    : %s  \033[2m(driver=docker-container, build LOCAL — không dùng cloud)\033[0m\n' "$(BUILDER)"
+	@printf 'No-cache   : %s  \033[2m(rebuild from scratch để luôn có patches mới nhất)\033[0m\n\n' "$(NO_CACHE)"
 	@printf '\033[1mTargets:\033[0m\n'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9._-]+:.*?## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
-	@printf '\n\033[1mOverride:\033[0m make <target> TAG=... PLATFORMS=... GATE_ARCH=...\n'
+	@printf '\n\033[1mOverride:\033[0m make <target> TAG=... PLATFORMS=... GATE_ARCH=... NO_CACHE=no\n'
 
 # ---- Main workflow --------------------------------------------------------- #
 .PHONY: build
