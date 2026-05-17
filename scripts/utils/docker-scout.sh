@@ -96,6 +96,31 @@ NO_CACHE="${NO_CACHE:-yes}"
 #          Force local build — KHÔNG dùng Docker Build Cloud (`--driver cloud`).
 BUILDER="${BUILDER:-scout-builder}"
 
+# BUILDKIT_IMAGE  Pin BuildKit version cho builder. Đảm bảo Go runtime của
+#                 BuildKit (dùng trong provenance generator) ≥ 1.21.0 để
+#                 tránh CVE-2023-24531 (Go toolchain). `moby/buildkit:latest`
+#                 hiện build với Go 1.23+, an toàn.
+BUILDKIT_IMAGE="${BUILDKIT_IMAGE:-moby/buildkit:latest}"
+
+# SBOM_SCANNER    Image dùng để generate SBOM attestation. Mặc định Docker
+#                 dùng `docker/buildkit-syft-scanner:stable-1`. PIN version
+#                 mới để tránh Go binary cũ (CVE-2023-24531). Tất cả tag mới
+#                 dùng Go 1.25+ — kiểm tra bằng:
+#                   docker create docker/buildkit-syft-scanner:<tag> \
+#                       && docker cp <id>:/bin/syft-scanner /tmp/s \
+#                       && strings /tmp/s | grep -E '^go1\\.' | head -1
+SBOM_SCANNER="${SBOM_SCANNER:-docker/buildkit-syft-scanner:1.11.0}"
+
+# ATTESTATIONS    full | provenance-only | none
+#   full            (default): SBOM + Provenance (mode=max). Cần cho Scout
+#                   policy "Supply chain attestations".
+#   provenance-only: Bỏ SBOM (loại syft-scanner Go binary khỏi metadata),
+#                   giữ Provenance. Dùng khi scanner ngoài (Google, Trivy...)
+#                   complain về Go CVE trong syft-scanner.
+#   none            Tắt cả SBOM lẫn Provenance. Image hoàn toàn không có Go
+#                   metadata. SẼ LÀM FAIL policy "Supply chain attestations".
+ATTESTATIONS="${ATTESTATIONS:-full}"
+
 # Policy slugs Docker Scout dùng để khớp với tiêu chí trong ảnh.
 # Trong v1.20+, `docker scout policy <image>` đánh giá tất cả policy đã enable
 # cho org. Bạn cũng có thể bật/tắt riêng từng policy tại
@@ -171,29 +196,45 @@ ensure_buildx_builder() {
     # Bắt buộc local builder (driver=docker-container). Nếu builder tồn tại với
     # driver khác (vd. `cloud` khi user đã setup Docker Build Cloud), recreate
     # để đảm bảo build hoàn toàn trên máy local — KHÔNG gửi context lên cloud.
+    #
+    # Cũng đảm bảo BuildKit image đã pin để Go runtime của BuildKit ≥ 1.21.0
+    # (tránh CVE-2023-24531 nhúng trong provenance attestation).
     local desired_driver="docker-container"
     local current_driver=""
+    local current_image=""
+    local needs_recreate=0
 
     if docker buildx inspect "$BUILDER" >/dev/null 2>&1; then
         current_driver=$(docker buildx inspect "$BUILDER" 2>/dev/null \
             | awk -F': *' '/^Driver:/{print $2; exit}')
+        current_image=$(docker buildx inspect "$BUILDER" 2>/dev/null \
+            | awk '/^[[:space:]]*Image:/{print $2; exit}')
+
         if [[ "$current_driver" != "$desired_driver" ]]; then
-            warn "Builder '$BUILDER' đang dùng driver='$current_driver' (KHÔNG phải local)."
-            warn "Recreate với driver='$desired_driver' để build hoàn toàn local..."
+            warn "Builder '$BUILDER' driver='$current_driver' (KHÔNG phải local) — recreate"
+            needs_recreate=1
+        elif [[ -n "$BUILDKIT_IMAGE" && "$current_image" != "$BUILDKIT_IMAGE" ]]; then
+            warn "Builder '$BUILDER' BuildKit image='${current_image:-default}' khác '$BUILDKIT_IMAGE' — recreate"
+            needs_recreate=1
+        fi
+
+        if (( needs_recreate )); then
             docker buildx rm "$BUILDER" >/dev/null 2>&1 || true
             current_driver=""
         fi
     fi
 
     if [[ -z "$current_driver" ]]; then
-        log "Tạo buildx builder '$BUILDER' (driver: $desired_driver, hỗ trợ SBOM/provenance, build local)"
-        docker buildx create --name "$BUILDER" --driver "$desired_driver" --use >/dev/null
+        log "Tạo buildx builder '$BUILDER' (driver: $desired_driver, BuildKit: $BUILDKIT_IMAGE, local)"
+        docker buildx create --name "$BUILDER" --driver "$desired_driver" \
+            --driver-opt "image=$BUILDKIT_IMAGE" \
+            --use >/dev/null
         docker buildx inspect --bootstrap "$BUILDER" >/dev/null
     else
         docker buildx use "$BUILDER" >/dev/null
     fi
 
-    log "Builder hiện tại: $BUILDER (driver: $desired_driver, local)"
+    log "Builder: $BUILDER (BuildKit: $BUILDKIT_IMAGE, SBOM scanner: $SBOM_SCANNER, attestations: $ATTESTATIONS)"
 }
 
 # ------------------------- Subcommands -------------------------------------- #
@@ -208,7 +249,7 @@ cmd_build() {
     else
         cache_msg="dùng cache (NO_CACHE=no)"
     fi
-    section "Build $img ($PLATFORMS) — $cache_msg, SBOM + Provenance"
+    section "Build $img ($PLATFORMS) — $cache_msg, attestations=$ATTESTATIONS"
 
     local -a args=(
         buildx build
@@ -216,13 +257,35 @@ cmd_build() {
         --file "$DOCKERFILE"
         --platform "$PLATFORMS"
         --tag "$img"
-        --sbom=true
-        --provenance=mode=max
         --pull
         --label "org.opencontainers.image.source=$(git config --get remote.origin.url 2>/dev/null || echo unknown)"
         --label "org.opencontainers.image.revision=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
         --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     )
+
+    # Attestations: pin SBOM scanner image để Go runtime ≥ 1.21.0, tránh
+    # CVE-2023-24531 (cmd/go toolchain) bị external scanners (Google Artifact
+    # Analysis, Trivy, etc.) phát hiện trong attestation manifest.
+    case "$ATTESTATIONS" in
+        full)
+            args+=(
+                --attest "type=sbom,generator=$SBOM_SCANNER"
+                --attest "type=provenance,mode=max"
+            )
+            ;;
+        provenance-only)
+            args+=( --attest "type=provenance,mode=max" )
+            warn "ATTESTATIONS=provenance-only → SBOM bị tắt; Scout policy 'Supply chain attestations' sẽ partial"
+            ;;
+        none)
+            warn "ATTESTATIONS=none → KHÔNG có SBOM/Provenance; Scout policy 'Supply chain attestations' sẽ FAIL"
+            warn "Chỉ dùng khi external scanner (Google) bắt buộc không có Go metadata"
+            ;;
+        *)
+            err "ATTESTATIONS='$ATTESTATIONS' không hợp lệ. Dùng: full | provenance-only | none"
+            exit 2
+            ;;
+    esac
 
     # --no-cache: bỏ toàn bộ layer cache để luôn pull patches mới nhất từ
     # bookworm-security. Build chậm hơn nhưng đảm bảo không sót CVE cũ.
