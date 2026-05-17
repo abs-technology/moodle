@@ -89,19 +89,31 @@ RUN apt-get install -y --no-install-recommends \
 #   2. These libs are transitive dependencies of apache2, curl, php-curl... a
 #      stale copy in a lower layer is enough for scanners to flag the image.
 #
-# Fixes applied:
+# Fixes applied (verified via `docker scout cves --only-fixed`):
 #   - CVE-2026-31789 (DSA-6201-1)  openssl/libssl3 >= 3.0.19-1~deb12u2
 #       Heap buffer overflow on 32-bit platforms when converting large OCTET
 #       STRING values (X.509 SKID/AKID) to hex.
 #   - CVE-2026-27135                libnghttp2-14 >= 1.52.0-1+deb12u3
 #       nghttp2 HTTP/2 stack vulnerability; affects curl, apache2 mod_http2,
 #       php-curl.
+#   - CVE-2023-38199 (CRITICAL)     modsecurity-crs >= 3.3.4-1+deb12u2
+#       OWASP CRS rule bypass / header injection (CVSS 9.x).
+#   - CVE-2026-0861, CVE-2026-0915, CVE-2026-4046, CVE-2026-4437,
+#     CVE-2025-15281 (5x HIGH)      locales (glibc) >= 2.36-9+deb12u14
+#       glibc locale handling vulnerabilities; upgrading `locales` also
+#       pulls patched libc-bin/libc6.
+#   - CVE-2025-6297                 dpkg >= 1.21.23
+#       dpkg-deb directory permission DoS on adversarial .deb packages.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --only-upgrade \
         openssl \
         libssl3 \
         libnghttp2-14 \
-    && dpkg-query -W -f='${Package} ${Version}\n' openssl libssl3 libnghttp2-14 \
+        modsecurity-crs \
+        locales \
+        dpkg \
+    && dpkg-query -W -f='${Package} ${Version}\n' \
+        openssl libssl3 libnghttp2-14 modsecurity-crs locales dpkg \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -255,6 +267,9 @@ RUN cd /opt/moodle-source && echo "Build Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC
     && echo "- CVE-2025-14087: system packages updated via apt-get upgrade" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2026-31789: OpenSSL upgraded to 3.0.19-1~deb12u2+ (DSA-6201-1)" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2026-27135: libnghttp2-14 upgraded to 1.52.0-1+deb12u3+" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2023-38199 (CRITICAL): modsecurity-crs upgraded to 3.3.4-1+deb12u2+" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2026-0861,0915,4046,4437,CVE-2025-15281: locales/glibc upgraded to 2.36-9+deb12u14+" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2025-6297: dpkg upgraded to 1.21.23+" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2026-6100: removed libmagickwand-dev to drop python3.11 chain (no Debian patch yet)" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2026-25646: libpng16-16 (awaiting Debian patch)" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- GHSA-27qh-8cxx-2cr5: aws/aws-sdk-php upgraded to ^3.371.4 (CloudFront policy injection)" >> /opt/moodle-source/SECURITY-INFO.txt
