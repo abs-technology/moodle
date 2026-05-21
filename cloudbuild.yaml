@@ -1,0 +1,127 @@
+# Google Cloud Build pipeline cho Moodle Marketplace.
+
+substitutions:
+  _AR_REGION:  asia-southeast1
+  _AR_REPO:    moodle-marketplace
+  _IMAGE:      moodle-standard
+  _BRANCH:     moodle-core-5-2-plus
+  _TAG:        5-2-plus
+  # Multi-arch: amd64 (Marketplace VM) + arm64 (customer pull về máy Apple Silicon / ARM server).
+  # Override single-arch: --substitutions=_PLATFORMS=linux/amd64
+  _PLATFORMS:  linux/amd64,linux/arm64
+  # BuildKit registry cache: lưu intermediate layers vào AR dưới tag
+  # `<IMAGE>:<TAG>-buildcache`. Lần 2 trở đi chỉ rebuild layer thay đổi.
+  #   _NO_CACHE=""     → dùng cache (default, build nhanh)
+  #   _NO_CACHE="true" → force --no-cache (rebuild from scratch, dùng khi
+  #                      cần pull fresh apt patches từ bookworm-security)
+  _NO_CACHE:   ""
+
+options:
+  # E2_HIGHCPU_32 = Cloud Build Gen 2 machine (Cascade Lake/EPYC, 32 vCPU,
+  # 32 GB RAM). Best price/perf cho multi-arch QEMU emulation:
+  #   - Build amd64 + arm64 trong ~10-15 phút (vs 30-40' với E2_HIGHCPU_8)
+  #   - Rẻ hơn ~30% so với N1_HIGHCPU_32 cùng vCPU (gen1 hardware cũ)
+  # Lưu ý: cần submit qua regional pool (`gcloud builds submit --region=`)
+  # để được dùng Cloud Build Gen 2 execution environment (startup nhanh).
+  machineType: E2_HIGHCPU_32
+  logging:     CLOUD_LOGGING_ONLY
+
+# Multi-arch QEMU emulation chậm hơn native → giữ timeout 45' cho an toàn
+timeout: 2700s
+
+steps:
+  # ---- 0. Install QEMU emulators (cho phép build arm64 trên amd64 VM) ----- #
+  - id: qemu-setup
+    name: gcr.io/cloud-builders/docker
+    args:
+      - run
+      - --privileged
+      - --rm
+      - tonistiigi/binfmt:latest
+      - --install
+      - arm64,amd64
+
+  # ---- 1. Setup buildx builder local trong Cloud Build VM ----------------- #
+  - id: buildx-setup
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        docker buildx create --name gcb --driver docker-container --use
+        docker buildx inspect --bootstrap
+        echo "=== Verify multi-arch support ==="
+        docker buildx inspect | grep -i platforms
+
+  # ---- 2. Build single-arch amd64, KHÔNG SBOM/Provenance, push lên AR ----- #
+  #
+  # Quy ước biến trong block bash này:
+  #   - ${_AR_REGION}, ${_AR_REPO}, ${_IMAGE}, ${_TAG} = Cloud Build substitutions
+  #   - ${PROJECT_ID}, ${BUILD_ID} = Cloud Build built-in substitutions
+  #   - $$IMG = SHELL variable (Cloud Build pass `$IMG` thẳng cho bash)
+  #     KHÔNG dùng `$IMG` trực tiếp — Cloud Build parser sẽ báo lỗi
+  #     "key in the template ... is not a valid built-in substitution".
+  - id: build-push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        IMG="${_AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_IMAGE}:${_TAG}"
+        CACHE_REF="$${IMG}-buildcache"
+
+        # Conditional cache flags. Pattern dùng array bash để build dynamic args.
+        CACHE_ARGS=()
+        if [[ "${_NO_CACHE}" == "true" ]]; then
+            echo "=== _NO_CACHE=true → rebuild from scratch (slow but fresh patches) ==="
+            CACHE_ARGS+=(--no-cache)
+        else
+            echo "=== Cache from/to: $$CACHE_REF (BuildKit registry cache) ==="
+            # --cache-from: nếu cache image chưa tồn tại (lần đầu) → bỏ qua,
+            #               không fail. BuildKit có flag `ignore-error=true`.
+            # --cache-to mode=max: push TẤT CẢ intermediate layers (max compression).
+            #               mode=min chỉ push final → lần sau ít hit.
+            CACHE_ARGS+=(
+                --cache-from "type=registry,ref=$$CACHE_REF"
+                --cache-to   "type=registry,ref=$$CACHE_REF,mode=max,image-manifest=true,oci-mediatypes=true"
+            )
+        fi
+
+        echo "=== Build $$IMG (platforms=${_PLATFORMS}, attestations=off) ==="
+        docker buildx build \
+            --builder gcb \
+            --platform "${_PLATFORMS}" \
+            "$${CACHE_ARGS[@]}" \
+            --provenance=false \
+            --sbom=false \
+            --label "org.opencontainers.image.source=https://github.com/abs-technology/moodle" \
+            --label "org.opencontainers.image.revision=${BUILD_ID}" \
+            --label "org.opencontainers.image.created=$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --label "ai.absi.moodle.branch=${_BRANCH}" \
+            --label "com.googleapis.cloudmarketplace.product.service.name=moodle-standard" \
+            --tag "$$IMG" \
+            --push \
+            .
+        echo "=== Verify image manifest (multi-arch, không attestation) ==="
+        docker buildx imagetools inspect "$$IMG"
+        echo "=== Cache image (intermediate layers cho lần build sau) ==="
+        docker buildx imagetools inspect "$$CACHE_REF" 2>/dev/null || echo "(cache chưa tạo — đây là build đầu)"
+
+  # KHÔNG có scan step ở đây: Artifact Registry tự động trigger Container
+  # Scanning API ngay khi image được push (yêu cầu API
+  # `containerscanning.googleapis.com` đã enable, làm 1 lần khi setup repo).
+  #
+  # Cách check vulnerabilities sau khi build xong:
+  #   1. Console GUI:
+  #      https://console.cloud.google.com/artifacts/docker/<PROJECT>/<REGION>/<REPO>/<IMAGE>
+  #      → click image digest → tab "Vulnerabilities"
+  #
+  #   2. CLI:
+  #      gcloud artifacts docker images list-vulnerabilities \
+  #          asia-southeast1-docker.pkg.dev/<PROJECT>/<REPO>/<IMAGE>@<DIGEST>
+  #
+  #   3. Filter CVE cụ thể:
+  #      gcloud artifacts docker images describe <IMG>@<DIGEST> \
+  #          --show-package-vulnerability | grep CVE-2023-24531

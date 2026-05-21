@@ -96,35 +96,16 @@ NO_CACHE="${NO_CACHE:-yes}"
 #          Force local build — KHÔNG dùng Docker Build Cloud (`--driver cloud`).
 BUILDER="${BUILDER:-scout-builder}"
 
-# BUILDKIT_IMAGE  Pin BuildKit version cho builder. Đảm bảo Go runtime của
-#                 BuildKit (dùng trong provenance generator) ≥ 1.21.0 để
-#                 tránh CVE-2023-24531 (Go toolchain). `moby/buildkit:latest`
-#                 hiện build với Go 1.23+, an toàn.
+
 BUILDKIT_IMAGE="${BUILDKIT_IMAGE:-moby/buildkit:latest}"
 
-# SBOM_SCANNER    Image dùng để generate SBOM attestation. Mặc định Docker
-#                 dùng `docker/buildkit-syft-scanner:stable-1`. PIN version
-#                 mới để tránh Go binary cũ (CVE-2023-24531). Tất cả tag mới
-#                 dùng Go 1.25+ — kiểm tra bằng:
-#                   docker create docker/buildkit-syft-scanner:<tag> \
-#                       && docker cp <id>:/bin/syft-scanner /tmp/s \
-#                       && strings /tmp/s | grep -E '^go1\\.' | head -1
+# 
 SBOM_SCANNER="${SBOM_SCANNER:-docker/buildkit-syft-scanner:1.11.0}"
 
-# ATTESTATIONS    full | provenance-only | none
-#   full            (default): SBOM + Provenance (mode=max). Cần cho Scout
-#                   policy "Supply chain attestations".
-#   provenance-only: Bỏ SBOM (loại syft-scanner Go binary khỏi metadata),
-#                   giữ Provenance. Dùng khi scanner ngoài (Google, Trivy...)
-#                   complain về Go CVE trong syft-scanner.
-#   none            Tắt cả SBOM lẫn Provenance. Image hoàn toàn không có Go
-#                   metadata. SẼ LÀM FAIL policy "Supply chain attestations".
+
 ATTESTATIONS="${ATTESTATIONS:-full}"
 
-# Policy slugs Docker Scout dùng để khớp với tiêu chí trong ảnh.
-# Trong v1.20+, `docker scout policy <image>` đánh giá tất cả policy đã enable
-# cho org. Bạn cũng có thể bật/tắt riêng từng policy tại
-# https://hub.docker.com/orgs/<ORG>/policy
+
 DEFAULT_POLICIES=(
     "default-non-root-user"
     "no-agpl-v3-licenses"
