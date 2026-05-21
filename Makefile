@@ -50,6 +50,15 @@ SBOM_SCANNER   ?= docker/buildkit-syft-scanner:1.11.0
 #   none          : tắt cả 2 — dùng khi external scanner chặn Go CVE
 ATTESTATIONS   ?= full
 
+# ---- Google Cloud Build (Marketplace VM Solution test) -------------------- #
+# Build Dockerfile qua Cloud Build + scan bằng Container Analysis — chính
+# scanner Google Cloud Marketplace dùng để validate image partner submit.
+# Tag = `brand` (branch minus prefix `moodle-core-`).
+AR_REGION      ?= asia-southeast1
+AR_REPO        ?= moodle-marketplace
+AR_IMAGE       ?= moodle-standard
+GCB_OPTS       ?=
+
 # ---- Auto-detect host arch cho GATE phase --------------------------------- #
 # Phase gate (make build) build NATIVE 1 arch của host để tránh QEMU emulation
 # (Apple Silicon build linux/amd64 chậm 3-5x). Phase push mới làm multi-arch.
@@ -69,6 +78,7 @@ export IMAGE TAG PLATFORMS GATE_ARCH ORG DOCKERFILE CONTEXT
 export ONLY_SEVERITY=$(SEVERITY)
 export BUILD_ARGS SKIP_BUILD PUSH_ON_FAIL
 export NO_CACHE BUILDER BUILDKIT_IMAGE SBOM_SCANNER ATTESTATIONS
+export AR_REGION AR_REPO AR_IMAGE
 
 # ---- Help (default) -------------------------------------------------------- #
 .DEFAULT_GOAL := help
@@ -81,7 +91,10 @@ help: ## Hiển thị danh sách target
 	@printf 'Gate arch  : %s  \033[2m(build local, gate Scout — native, KHÔNG emulation)\033[0m\n' "$(GATE_ARCH)"
 	@printf 'Push archs : %s  \033[2m(multi-arch khi push lên registry)\033[0m\n' "$(PLATFORMS)"
 	@printf 'Builder    : %s  \033[2m(driver=docker-container, build LOCAL — không dùng cloud)\033[0m\n' "$(BUILDER)"
-	@printf 'No-cache   : %s  \033[2m(rebuild from scratch để luôn có patches mới nhất)\033[0m\n\n' "$(NO_CACHE)"
+	@printf 'No-cache   : %s  \033[2m(rebuild from scratch để luôn có patches mới nhất)\033[0m\n' "$(NO_CACHE)"
+	@BRANCH=$$(git rev-parse --abbrev-ref HEAD 2>/dev/null); \
+	BRAND="$${BRANCH#moodle-core-}"; \
+	printf 'GCP target : %s-docker.pkg.dev/<PROJECT>/%s/%s:%s\n\n' "$(AR_REGION)" "$(AR_REPO)" "$(AR_IMAGE)" "$$BRAND"
 	@printf '\033[1mTargets:\033[0m\n'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9._-]+:.*?## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf '\n\033[1mOverride:\033[0m make <target> TAG=... PLATFORMS=... GATE_ARCH=... NO_CACHE=no\n'
@@ -141,6 +154,42 @@ clean: ## Xóa image test (*-scout-test) + dangling
 	@docker images "$(IMAGE)" --format "{{.Repository}}:{{.Tag}}" | grep -E "scout-test$$" | xargs -r docker rmi -f 2>/dev/null || true
 	@docker image prune -f
 	@printf '\033[32m[ ok ]\033[0m Đã dọn\n'
+
+# ---- Google Cloud Platform Build (Marketplace test) ------------------------ #
+# Build Dockerfile qua GCP Cloud Build service + scan bằng Container Analysis
+# (chính scanner Google Marketplace dùng).
+.PHONY: gcp-build
+gcp-build: ## Build qua Google Cloud Build + scan Container Analysis (tag=brand)
+	@IMAGE=$(AR_IMAGE) AR_REGION=$(AR_REGION) AR_REPO=$(AR_REPO) \
+		./scripts/utils/gcb-submit.sh $(GCB_OPTS)
+
+.PHONY: gcp-build-ts
+gcp-build-ts: ## Như `make gcp-build` nhưng tag có timestamp (tránh ghi đè)
+	@$(MAKE) gcp-build GCB_OPTS=--with-timestamp
+
+.PHONY: gcp-build-full
+gcp-build-full: ## Như `make gcp-build` nhưng tag = nguyên branch (moodle-core-5-2-plus)
+	@$(MAKE) gcp-build GCB_OPTS=--full-branch
+
+.PHONY: gcp-build-fresh
+gcp-build-fresh: ## Force --no-cache trên Cloud Build (pull fresh apt security patches)
+	@NO_CACHE=true $(MAKE) gcp-build
+
+.PHONY: gcp-show-iam
+gcp-show-iam: ## Hiển thị IAM policy hiện tại của Artifact Registry repo
+	@gcloud artifacts repositories get-iam-policy $(AR_REPO) --location=$(AR_REGION)
+
+.PHONY: gcp-build-info
+gcp-build-info: ## Hiển thị tag/image sẽ build qua GCP Cloud Build (preview, không submit)
+	@BRANCH=$$(git rev-parse --abbrev-ref HEAD); \
+	BRAND="$${BRANCH#moodle-core-}"; \
+	PROJECT=$$(gcloud config get-value project 2>/dev/null || echo '<PROJECT_ID-chưa-set>'); \
+	printf '\033[1m== GCP Cloud Build target ==\033[0m\n'; \
+	printf '  Project   : %s\n' "$$PROJECT"; \
+	printf '  Branch    : %s\n' "$$BRANCH"; \
+	printf '  Brand→Tag : %s\n' "$$BRAND"; \
+	printf '  Image     : %s-docker.pkg.dev/%s/%s/%s:%s\n' \
+		"$(AR_REGION)" "$$PROJECT" "$(AR_REPO)" "$(AR_IMAGE)" "$$BRAND"
 
 # ---- Compose helpers ------------------------------------------------------- #
 .PHONY: up
