@@ -17,7 +17,10 @@ load_config
 # FUNCTION DEFINITIONS
 # ============================================================================
 
-# Apply environment variable overrides to config.php and database
+# Apply environment variable overrides to the Moodle DATABASE only.
+# config.php itself is generated exactly once (see generate_moodle_config) and
+# is intentionally NEVER rewritten on subsequent container starts - the operator
+# owns that file from first install onwards.
 apply_environment_overrides() {
     # Check if environment overrides have already been applied (stability marker)
     local env_applied_marker="$MOODLE_DATA_DIR/.absi_env_applied"
@@ -37,119 +40,20 @@ apply_environment_overrides() {
         fi
     fi
     
-    info "Applying environment variable overrides to Moodle configuration..."
+    info "Syncing environment overrides to the Moodle database (config.php is left untouched)..."
     
-    # Only apply if config.php exists (pre-built installation)
+    # Only sync DB-side settings if Moodle is actually installed (config.php present).
     if [[ -f "$MOODLE_CONF_FILE" ]]; then
-        apply_config_php_overrides
         apply_database_overrides
         
         # Mark environment variables as applied and save current hash
         touch "$env_applied_marker"
         echo "$current_env_hash" > "$env_hash_file"
         chown "$APP_USER:$APP_GROUP" "$env_applied_marker" "$env_hash_file"
-        info "Environment variables applied successfully. Hash: $current_env_hash"
+        info "Environment DB overrides applied successfully. Hash: $current_env_hash"
     else
         debug "No config.php found, skipping environment overrides"
     fi
-}
-
-# Update config.php with environment variables
-apply_config_php_overrides() {
-    info "Updating config.php with environment variables..."
-    
-    # Create temporary PHP script to update config.php safely
-    cat > /tmp/update_config.php << 'EOF'
-<?php
-$config_file = $argv[1];
-$config_content = file_get_contents($config_file);
-
-// Update database connection settings
-$config_content = preg_replace(
-    '/\$CFG->dbtype\s*=\s*[^;]+;/',
-    '$CFG->dbtype    = \'' . getenv('MOODLE_DATABASE_TYPE') . '\';',
-    $config_content
-);
-
-$config_content = preg_replace(
-    '/\$CFG->dbhost\s*=\s*[^;]+;/',
-    '$CFG->dbhost    = \'' . getenv('MOODLE_DATABASE_HOST') . '\';',
-    $config_content
-);
-
-$config_content = preg_replace(
-    '/\$CFG->dbname\s*=\s*[^;]+;/',
-    '$CFG->dbname    = \'' . getenv('MARIADB_DATABASE') . '\';',
-    $config_content
-);
-
-$config_content = preg_replace(
-    '/\$CFG->dbuser\s*=\s*[^;]+;/',
-    '$CFG->dbuser    = \'' . getenv('MARIADB_USER') . '\';',
-    $config_content
-);
-
-$config_content = preg_replace(
-    '/\$CFG->dbpass\s*=\s*[^;]+;/',
-    '$CFG->dbpass    = \'' . getenv('MARIADB_PASSWORD') . '\';',
-    $config_content
-);
-
-$config_content = preg_replace(
-    '/\$CFG->prefix\s*=\s*[^;]+;/',
-    '$CFG->prefix    = \'mdl_\';',
-    $config_content
-);
-
-// Update port in dboptions if exists
-$config_content = preg_replace(
-    '/([\'"]dbport[\'"])\s*=>\s*[0-9]+/',
-    '$1 => ' . getenv('MOODLE_DATABASE_PORT_NUMBER'),
-    $config_content
-);
-
-// Remove existing Proxy Configuration first
-$config_content = preg_replace(
-    '/\/\/ Proxy Configuration\n.*?\n\n/s',
-    '',
-    $config_content
-);
-$config_content = preg_replace(
-    '/\$CFG->reverseproxy\s*=\s*[^;]+;\s*\n/',
-    '',
-    $config_content
-);
-$config_content = preg_replace(
-    '/\$CFG->sslproxy\s*=\s*[^;]+;\s*\n/',
-    '',
-    $config_content
-);
-
-// Add Reverse Proxy Configuration based on current environment
-$proxy_config = '';
-if (getenv('MOODLE_REVERSEPROXY') === 'yes') {
-    $proxy_config .= "\$CFG->reverseproxy = true;\n";
-}
-if (getenv('MOODLE_SSLPROXY') === 'yes') {
-    $proxy_config .= "\$CFG->sslproxy = true;\n";
-}
-
-// Insert proxy config before require_once (only if there are settings)
-if (!empty($proxy_config)) {
-    $config_content = preg_replace(
-        '/(require_once\(__DIR__ \. \'\/lib\/setup\.php\'\);)/',
-        "\n// Proxy Configuration\n" . $proxy_config . "\n$1",
-        $config_content
-    );
-}
-
-file_put_contents($config_file, $config_content);
-echo "Config.php updated successfully\n";
-EOF
-
-    php /tmp/update_config.php "$MOODLE_CONF_FILE"
-    rm -f /tmp/update_config.php
-    debug "Config.php updated with environment variables"
 }
 
 # Update database settings with environment variables
@@ -1159,6 +1063,140 @@ bypass_moodle_security_checks() {
     fi
 }
 
+# ----------------------------------------------------------------------------
+# config.php generation (FIRST-TIME setup only)
+# ----------------------------------------------------------------------------
+#
+# Build a complete config.php from environment variables exactly ONCE, on the
+# very first container start (before the database is installed).
+#
+# Load-balancing / reverse-proxy directives are written ACTIVE when their env
+# var is declared, and left COMMENTED OUT otherwise, so an operator can simply
+# uncomment and tune them later. After this first generation the entrypoint
+# NEVER rewrites the file again - it belongs to the operator from then on.
+#
+# Relevant env vars:
+#   MOODLE_WWWROOT      Fixed site URL (recommended for LB). Empty => dynamic
+#                       per-request detection from HTTP_HOST.
+#   MOODLE_REVERSEPROXY yes => $CFG->reverseproxy = true; (else commented out)
+#   MOODLE_SSLPROXY     yes => $CFG->sslproxy = true;     (else commented out)
+generate_moodle_config() {
+    local config_file="$1"
+    info "Generating config.php from environment (first-time setup only)..."
+
+    # Reverse proxy / SSL proxy lines: active when enabled, commented otherwise.
+    local rp_line sp_line
+    if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}"; then
+        rp_line='$CFG->reverseproxy = true;'
+    else
+        rp_line='// $CFG->reverseproxy = true;   // enable when behind a load balancer / reverse proxy (MOODLE_REVERSEPROXY=yes)'
+    fi
+    if is_boolean_yes "${MOODLE_SSLPROXY:-no}"; then
+        sp_line='$CFG->sslproxy = true;'
+    else
+        sp_line='// $CFG->sslproxy = true;        // enable when TLS is terminated at the proxy (MOODLE_SSLPROXY=yes)'
+    fi
+
+    # --- Header + database connection (env-interpolated heredoc) -------------
+    cat > "$config_file" <<EOF
+<?php  // Moodle configuration file
+//
+// Generated automatically on FIRST container start from environment variables.
+// Generated at: $(date -Iseconds)
+//
+// IMPORTANT: This file is created only once. Subsequent container restarts and
+// automated upgrades will NOT modify it (it is preserved/restored as-is).
+// Tune it freely - it is yours from here on.
+
+unset(\$CFG);
+global \$CFG;
+\$CFG = new stdClass();
+
+// ====================================================================
+// Database connection
+// ====================================================================
+\$CFG->dbtype    = '${MOODLE_DATABASE_TYPE}';
+\$CFG->dblibrary = 'native';
+\$CFG->dbhost    = '${MOODLE_DATABASE_HOST}';
+\$CFG->dbname    = '${MOODLE_DATABASE_NAME}';
+\$CFG->dbuser    = '${MOODLE_DATABASE_USER}';
+\$CFG->dbpass    = '${MOODLE_DATABASE_PASSWORD}';
+\$CFG->prefix    = 'mdl_';
+\$CFG->dboptions = array(
+    'dbpersist'   => 0,
+    'dbport'      => ${MOODLE_DATABASE_PORT_NUMBER},
+    'dbsocket'    => '',
+    'dbcollation' => '${MARIADB_COLLATE}',
+);
+
+EOF
+
+    # --- Site address: fixed (MOODLE_WWWROOT) or dynamic detection ---------
+    if [[ -n "${MOODLE_WWWROOT:-}" ]]; then
+        cat >> "$config_file" <<EOF
+// ====================================================================
+// Site address (FIXED - from MOODLE_WWWROOT)
+// ====================================================================
+\$CFG->wwwroot   = '${MOODLE_WWWROOT}';
+
+EOF
+    else
+        local sslproxy_bool='false'
+        is_boolean_yes "${MOODLE_SSLPROXY:-no}" && sslproxy_bool='true'
+        cat >> "$config_file" <<EOF
+// ====================================================================
+// Site address (DYNAMIC detection - MOODLE_WWWROOT not set)
+// Scheme + host are derived per request. For a load-balanced production site
+// it is strongly recommended to use a FIXED site URL instead: comment out the
+// dynamic block below and uncomment the line here with your real domain.
+//
+//   \$CFG->wwwroot = 'https://domain';   // <-- thay 'domain' bằng tên miền thật
+//
+// ====================================================================
+\$__absi_sslproxy = ${sslproxy_bool};
+if (!empty(\$_SERVER['HTTP_HOST'])) {
+    if (\$__absi_sslproxy) {
+        \$__absi_scheme = 'https';
+    } else {
+        \$__absi_scheme = (!empty(\$_SERVER['HTTPS']) && \$_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    }
+    \$CFG->wwwroot = \$__absi_scheme . '://' . \$_SERVER['HTTP_HOST'];
+} else {
+    \$CFG->wwwroot = \$__absi_sslproxy ? 'https://localhost' : 'http://localhost';
+}
+unset(\$__absi_sslproxy, \$__absi_scheme);
+
+EOF
+    fi
+
+    # --- Storage, admin dir, permissions, LB section, tail -----------------
+    cat >> "$config_file" <<EOF
+// ====================================================================
+// File storage
+// ====================================================================
+\$CFG->dataroot  = '${MOODLE_DATA_DIR}';
+\$CFG->admin     = 'admin';
+\$CFG->directorypermissions = 02777;
+
+// ====================================================================
+// Load balancing / reverse proxy
+// Enabled automatically when MOODLE_REVERSEPROXY / MOODLE_SSLPROXY are set to
+// "yes" at first start. Otherwise left commented so you can turn them on later.
+// ====================================================================
+${rp_line}
+${sp_line}
+
+require_once(__DIR__ . '/lib/setup.php');
+
+// There is no php closing tag in this file,
+// it is intentional because it prevents trailing whitespace problems!
+EOF
+
+    chown "${APP_USER}:${APP_GROUP}" "$config_file" 2>/dev/null || true
+    chmod 640 "$config_file" 2>/dev/null || true
+    info "config.php generated at $config_file"
+}
+
 # ============================================================================
 # MAIN LOGIC
 # ============================================================================
@@ -1318,7 +1356,7 @@ if [[ -f "$MOODLE_CONF_FILE" ]]; then
     chmod -R 775 "$MOODLE_DATA_DIR"
     find "${MOODLE_DATA_DIR}/sessions/" -name "sess_*" -delete || true
 else
-    info "No config.php found. Running standard Moodle installation..."
+    info "No config.php found. Running first-time Moodle setup..."
     
     ensure_dir_exists "$MOODLE_DATA_DIR" "$APP_USER" "$APP_GROUP" "775"
     ensure_dir_exists "$MOODLE_DIR" "$APP_USER" "$APP_GROUP" "755"
@@ -1326,33 +1364,27 @@ else
     # Chờ database sẵn sàng với database name cụ thể
     wait_for_db_connection "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"
 
-    info "Running Moodle CLI installation..."
-        php "${MOODLE_DIR}/admin/cli/install.php" \
-            --lang=en \
-            --chmod=2775 \
-            --wwwroot="http://${MOODLE_HOST}" \
-            --dataroot="${MOODLE_DATA_DIR}" \
-            --adminuser="${MOODLE_USERNAME}" \
-            --adminpass="${MOODLE_PASSWORD}" \
-            --adminemail="${MOODLE_EMAIL}" \
-            --fullname="${MOODLE_SITE_NAME}" \
-            --shortname="${MOODLE_SITE_NAME}" \
-            --dbtype="${MOODLE_DATABASE_TYPE}" \
-            --dbhost="${MOODLE_DATABASE_HOST}" \
-            --dbport="${MOODLE_DATABASE_PORT_NUMBER}" \
-            --dbname="${MOODLE_DATABASE_NAME}" \
-            --dbuser="${MOODLE_DATABASE_USER}" \
-            --dbpass="${MOODLE_DATABASE_PASSWORD}" \
-            --non-interactive \
-            --allow-unstable \
-            --agree-license >/dev/null
+    # Generate config.php ONCE from the environment (load-balancing aware).
+    # This is the only time the entrypoint writes config.php; later starts
+    # leave it exactly as the operator configured it.
+    generate_moodle_config "$MOODLE_CONF_FILE"
+
+    # Install the database against the freshly generated config.php. We use
+    # install_database.php (NOT install.php) precisely because config.php
+    # already exists and we want full control over its contents.
+    info "Installing Moodle database (admin/cli/install_database.php)..."
+    php "${MOODLE_DIR}/admin/cli/install_database.php" \
+        --lang=en \
+        --adminuser="${MOODLE_USERNAME}" \
+        --adminpass="${MOODLE_PASSWORD}" \
+        --adminemail="${MOODLE_EMAIL}" \
+        --fullname="${MOODLE_SITE_NAME}" \
+        --shortname="${MOODLE_SITE_SHORTNAME}" \
+        --agree-license >/dev/null
 
     touch "$MOODLE_DATA_DIR/.moodle_initialized"
     info "Moodle initialization completed."
-    
-    # Apply environment variable overrides after fresh installation
-    apply_environment_overrides
-        
+
     # Bypass publicpaths security check after fresh installation
     bypass_moodle_security_checks
 fi
@@ -1366,55 +1398,8 @@ if pgrep cron > /dev/null; then
     pkill -HUP cron || true
 fi
 
-# Luôn cập nhật wwwroot mỗi khi container start
-info "Configuring Moodle wwwroot..."
-
-# Sử dụng PHP để cập nhật wwwroot động
-if [[ -f "$MOODLE_CONF_FILE" ]]; then
-    # Tạo file PHP tạm để tránh bash expansion conflicts
-    cat > /tmp/update_wwwroot.php << 'EOF'
-<?php
-define('CLI_SCRIPT', true);
-
-$config_file = $argv[1];
-require_once($config_file);
-
-$config_content = file_get_contents($config_file);
-
-// Thay thế wwwroot bằng dynamic detection with proxy awareness
-$sslproxy_enabled = (getenv('MOODLE_SSLPROXY') === 'yes') ? 'true' : 'false';
-$dynamic_wwwroot = '
-// Dynamic wwwroot detection with SSL proxy support
-if (!empty($_SERVER["HTTP_HOST"])) {
-    // If SSL proxy is enabled, force HTTPS regardless of actual request protocol
-    if (' . $sslproxy_enabled . ') {
-        $protocol = "https";
-    } else {
-        $protocol = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
-    }
-    $CFG->wwwroot = $protocol . "://" . $_SERVER["HTTP_HOST"];
-} else {
-    // Default fallback also considers SSL proxy
-    if (' . $sslproxy_enabled . ') {
-        $CFG->wwwroot = "https://localhost";
-    } else {
-        $CFG->wwwroot = "http://localhost";
-    }
-}';
-
-$config_content = preg_replace(
-    '/^\$CFG->wwwroot\s*=\s*[^;]+;/m',
-    $dynamic_wwwroot,
-    $config_content
-);
-
-file_put_contents($config_file, $config_content);
-echo "Moodle wwwroot updated to dynamic detection.\n";
-EOF
-
-    # Chạy PHP script với quyền user
-    php /tmp/update_wwwroot.php "$MOODLE_DIR/config.php"
-    rm -f /tmp/update_wwwroot.php
-fi
+# wwwroot is baked into config.php at first install (generate_moodle_config):
+# either a fixed MOODLE_WWWROOT or a dynamic per-request detection block.
+# We deliberately do NOT touch config.php on subsequent starts anymore.
 
 info "Moodle application setup finished."
