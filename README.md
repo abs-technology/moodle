@@ -4,10 +4,10 @@
 ### *One of The Most Advanced Moodle Docker Solution*
 
 <p>
-  <img src="https://img.shields.io/docker/pulls/abstechnology/moodle-core?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Pulls"/>
-  <img src="https://img.shields.io/docker/stars/abstechnology/moodle-core?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Stars"/>  
+  <img src="https://img.shields.io/docker/pulls/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Pulls"/>
+  <img src="https://img.shields.io/docker/stars/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Stars"/>  
   <img src="https://img.shields.io/github/stars/abs-technology/moodle?style=for-the-badge&logo=github&logoColor=white&color=181717" alt="GitHub Stars"/>
-  <img src="https://img.shields.io/docker/image-size/abstechnology/moodle-core?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Image Size"/>
+  <img src="https://img.shields.io/docker/image-size/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Image Size"/>
 </p>
 
 <p>
@@ -29,8 +29,8 @@
 *Get your Moodle LMS running in under 2 minutes!*
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-4-5-7-plus/docker-compose.yml > docker-compose.yml
-curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-4-5-7-plus/env.example > .env
+curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-1-plus/docker-compose.yml > docker-compose.yml
+curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-1-plus/env.example > .env
 mkdir -p data/moodle data/moodledata
 chown -R 1000:1000 data/moodle data/moodledata
 docker compose up -d
@@ -258,13 +258,13 @@ docker compose up -d
 The recommended way to get the ABS Technology Moodle Docker Image is to pull the prebuilt image from the Docker Hub Registry.
 
 ```console
-$ docker pull abstechnology/moodle-core:latest
+$ docker pull abstechnology/moodle-standard:latest
 ```
 
 To use a specific version, you can pull a versioned tag:
 
 ```console
-$ docker pull abstechnology/moodle-core:5.2.1-plus
+$ docker pull abstechnology/moodle-standard:5.2.1-plus
 ```
 
 ## How to Use This Image
@@ -274,8 +274,8 @@ $ docker pull abstechnology/moodle-core:5.2.1-plus
 The main folder of this repository contains a functional [`docker-compose.yml`](https://github.com/abs-technology/moodle/blob/main/docker-compose.yml) file. Run the application using it as shown below:
 
 ```console
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-4-5-7-plus/docker-compose.yml > docker-compose.yml
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-4-5-7-plus/env.example > .env
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-1-plus/docker-compose.yml > docker-compose.yml
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-1-plus/env.example > .env
 $ docker-compose up -d
 ```
 
@@ -321,7 +321,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-core:5.2.1-plus
+  abstechnology/moodle-standard:5.2.1-plus
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -389,7 +389,7 @@ services:
       - moodle_network
 
   moodle:
-    image: moodle-core:5.2.1-plus
+    image: abstechnology/moodle-standard:5.2.1-plus
     container_name: abs-moodle
     ports:
       - "80:8080"
@@ -431,10 +431,16 @@ services:
       # Proxy Configuration
       - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
       - MOODLE_SSLPROXY=${MOODLE_SSLPROXY}
-      
+
+      # Upgrade behavior (see env.example for details)
+      - MOODLE_AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE:-no}
+      - MOODLE_BACKUP_DIR=${MOODLE_BACKUP_DIR:-/var/www/moodle-backups}
+      - MOODLE_UPGRADE_RETENTION=${MOODLE_UPGRADE_RETENTION:-5}
+
     volumes:
       - ./data/moodle:/var/www/html
       - ./data/moodledata:/var/www/moodledata
+      - ./data/moodle-backups:/var/www/moodle-backups
     depends_on:
       mariadb:
         condition: service_healthy
@@ -491,7 +497,7 @@ The image includes SSL support with self-signed certificates for development. Fo
 $ docker run -d --name moodle \
   -v /path/to/your/cert.pem:/etc/ssl/certs/server.crt \
   -v /path/to/your/key.pem:/etc/ssl/private/server.key \
-  abstechnology/moodle-core:latest
+  abstechnology/moodle-standard:latest
 ```
 
 ### Password Security
