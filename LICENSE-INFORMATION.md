@@ -122,7 +122,7 @@ You must:
 To view all licenses of included packages:
 
 ```bash
-docker run --rm abstechnology/moodle-standard:4.5.10 \
+docker run --rm abstechnology/moodle-standard:5.2.1-plus \
   bash -c "cd /opt/moodle-source && composer licenses"
 ```
 
@@ -197,4 +197,4 @@ All included licenses are **compatible** with GPL v3:
 
 **Last Updated:** February 13, 2026  
 **License Version:** GPL-3.0-or-later  
-**Moodle Version:** 4.5.10+
+**Moodle Version:** 5.2.1+

@@ -39,7 +39,7 @@ for _vfile in /opt/moodle-source/public/version.php /opt/moodle-source/version.p
 done
 [[ -z "$_banner_release" ]] && _banner_release="unknown"
 unset _vfile
-_banner_php=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.2")
+_banner_php=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.4")
 
 echo ""
 echo " ══════════════════════════════════════════════"
