@@ -19,7 +19,7 @@
 
 # ---- Configurable variables ------------------------------------------------ #
 IMAGE        ?= abstechnology/moodle-standard
-TAG          ?= 5.2-plus
+TAG          ?= 5.2.1-plus
 PLATFORMS    ?= linux/amd64,linux/arm64
 ORG          ?= abstechnology
 DOCKERFILE   ?= Dockerfile
@@ -168,7 +168,7 @@ gcp-build-ts: ## Như `make gcp-build` nhưng tag có timestamp (tránh ghi đè
 	@$(MAKE) gcp-build GCB_OPTS=--with-timestamp
 
 .PHONY: gcp-build-full
-gcp-build-full: ## Như `make gcp-build` nhưng tag = nguyên branch (moodle-core-5-2-plus)
+gcp-build-full: ## Như `make gcp-build` nhưng tag = nguyên branch (moodle-core-5-2-1-plus)
 	@$(MAKE) gcp-build GCB_OPTS=--full-branch
 
 .PHONY: gcp-build-fresh

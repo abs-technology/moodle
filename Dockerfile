@@ -1,6 +1,6 @@
 FROM debian:12-slim AS base
 
-ARG MOODLE_VERSION=5.2+
+ARG MOODLE_VERSION=5.2.1+
 ARG PHP_VERSION=8.4
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
@@ -151,7 +151,6 @@ COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 # ================================
 FROM base AS moodle-downloader
 
-
 RUN curl -fsSL https://download.moodle.org/download.php/direct/stable502/moodle-latest-502.tgz -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
@@ -176,24 +175,6 @@ RUN cd /opt/moodle-source \
     && rm -rf /root/.composer/cache \
     && find /opt/moodle-source/vendor -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true \
     && cd /opt/moodle-source && composer dump-autoload --no-dev --classmap-authoritative
-
-# Security: Create security metadata file for tracking
-RUN cd /opt/moodle-source && echo "Build Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" > /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "Moodle Version: 5.2+ (MOODLE_502_STABLE weekly build)" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "PHP Version: 8.4 (Sury repo)" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "Base Image: debian:12-slim (bookworm) with bookworm-security patches" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "Built-in security posture (from vendor + base):" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- Symfony 7.x and PHPUnit 11.x ship in Moodle 5.2 (past CVE-2024-51736 and CVE-2026-24765)" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2025-14087: system packages updated via apt-get upgrade" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2026-31789: OpenSSL upgraded to 3.0.19-1~deb12u2+ (DSA-6201-1)" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2026-27135: libnghttp2-14 upgraded to 1.52.0-1+deb12u3+" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2023-38199 (CRITICAL): modsecurity-crs upgraded to 3.3.4-1+deb12u2+" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2026-0861,0915,4046,4437,CVE-2025-15281: locales/glibc upgraded to 2.36-9+deb12u14+" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2025-6297: dpkg upgraded to 1.21.23+" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2026-6100: removed libmagickwand-dev to drop python3.11 chain (no Debian patch yet)" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2026-25646: libpng16-16 (awaiting Debian patch)" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- GHSA-27qh-8cxx-2cr5: aws/aws-sdk-php upgraded to ^3.371.4 (CloudFront policy injection)" >> /opt/moodle-source/SECURITY-INFO.txt
 
 # ================================
 # Final stage
