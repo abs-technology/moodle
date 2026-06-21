@@ -38,9 +38,8 @@
 #   PUSH_ON_FAIL  yes|no — push kể cả khi policy fail (KHÔNG khuyến khích).
 #   SKIP_BUILD    yes|no — release dùng image đã có sẵn local.
 #   ONLY_SEVERITY critical,high  — severity scan CVE.
-#   NO_CACHE      yes|no — bỏ build cache mỗi lần build (default: yes).
-#                 Đảm bảo luôn pull patches mới nhất từ bookworm-security.
-#                 Set NO_CACHE=no khi dev test nhanh.
+#   NO_CACHE      yes|no — bỏ build cache (default: no).
+#   PULL_BASE     yes|no — pull base image trước build (default: no).
 #   BUILDER       T\u00ean buildx builder (default: scout-builder).
 #                 BẮT BUỘC driver=docker-container — không dùng Docker Build
 #                 Cloud (`--driver cloud`); build hoàn toàn trên máy local.
@@ -86,11 +85,13 @@ PUSH_ON_FAIL="${PUSH_ON_FAIL:-no}"
 SKIP_BUILD="${SKIP_BUILD:-no}"
 ONLY_SEVERITY="${ONLY_SEVERITY:-critical,high}"
 
-# NO_CACHE  yes|no — bỏ toàn bộ build cache mỗi lần build (default: yes).
-#            Lợi ích: luôn pull base image mới nhất + apply patches mới nhất từ
-#            bookworm-security, không bị BuildKit cache hit layer cũ chứa CVE
-#            đã được vá. Override bằng NO_CACHE=no khi cần build nhanh để dev.
-NO_CACHE="${NO_CACHE:-yes}"
+# NO_CACHE  yes|no — bỏ toàn bộ layer cache (default: no — dùng cache khi dev).
+# PULL_BASE yes|no — pull base image trước build (default: no; tự bật khi NO_CACHE=yes).
+NO_CACHE="${NO_CACHE:-no}"
+PULL_BASE="${PULL_BASE:-no}"
+if [[ "$NO_CACHE" == "yes" ]]; then
+    PULL_BASE=yes
+fi
 
 # BUILDER  Tên buildx builder (default: scout-builder, driver docker-container).
 #          Force local build — KHÔNG dùng Docker Build Cloud (`--driver cloud`).
@@ -227,6 +228,8 @@ cmd_build() {
     local cache_msg
     if [[ "$NO_CACHE" == "yes" ]]; then
         cache_msg="NO CACHE (rebuild from scratch)"
+    elif [[ "$PULL_BASE" == "yes" ]]; then
+        cache_msg="dùng cache + pull base image"
     else
         cache_msg="dùng cache (NO_CACHE=no)"
     fi
@@ -238,11 +241,14 @@ cmd_build() {
         --file "$DOCKERFILE"
         --platform "$PLATFORMS"
         --tag "$img"
-        --pull
         --label "org.opencontainers.image.source=$(git config --get remote.origin.url 2>/dev/null || echo unknown)"
         --label "org.opencontainers.image.revision=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
         --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     )
+
+    if [[ "$PULL_BASE" == "yes" ]]; then
+        args+=( --pull )
+    fi
 
     # Attestations: pin SBOM scanner image để Go runtime ≥ 1.21.0, tránh
     # CVE-2023-24531 (cmd/go toolchain) bị external scanners (Google Artifact
