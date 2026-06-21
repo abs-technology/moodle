@@ -163,12 +163,10 @@ RUN curl -fsSL "${MOODLE_DOWNLOAD_URL}" -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
-    && find /opt/moodle-source -type d -exec chmod 755 {} + \
-    && find /opt/moodle-source -type f -exec chmod 644 {} + \
     && MOODLE_VERSION="${MOODLE_VERSION}" MOODLE_RELEASE_PREFIX="${MOODLE_RELEASE_PREFIX}" \
        bash /scripts/verify-moodle-layout.sh /opt/moodle-source
 
-#
+# Composer: one pass with authoritative classmap (skip audit/platform check at build — slow).
 RUN cd /opt/moodle-source \
     && composer install --no-dev --no-interaction --no-progress --optimize-autoloader \
     && composer require "aws/aws-sdk-php:^3.371.4" \
@@ -179,12 +177,9 @@ RUN cd /opt/moodle-source \
     && AWS_SDK_VER=$(php -r "require 'vendor/autoload.php'; echo Aws\Sdk::VERSION;") \
     && echo "aws-sdk-php version in image: $AWS_SDK_VER" \
     && php -r "exit(version_compare('$AWS_SDK_VER', '3.371.4', '<') ? 1 : 0);" \
-    && composer audit --no-dev --format=plain || echo "Audit completed with warnings" \
-    && composer check-platform-reqs --no-dev || true \
     && composer clear-cache \
     && rm -rf /root/.composer/cache \
-    && find /opt/moodle-source/vendor -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true \
-    && cd /opt/moodle-source && composer dump-autoload --no-dev --classmap-authoritative
+    && find /opt/moodle-source/vendor -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true
 
 # ================================
 # Final stage
