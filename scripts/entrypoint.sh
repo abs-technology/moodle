@@ -9,6 +9,7 @@ set -o pipefail
 . /scripts/lib/filesystem.sh
 . /scripts/lib/service.sh
 . /scripts/lib/validations.sh
+. /scripts/lib/moodle_paths.sh
 
 # Load centralized configuration
 load_config
@@ -20,25 +21,14 @@ echo -e "   / /| | / __  \__ \     / /   / /|_/ /\__ \     / /|_/ / __ \/ __ \/ 
 echo -e "  / ___ |/ /_/ /__/ /    / /___/ /  / /___/ /    / /  / / /_/ / /_/ / /_/ / /  __/ "
 echo -e " /_/  |_/_____/____/    /_____/_/  /_//____/    /_/  /_/\____/\____/\__,_/_/\___/  "                                                       
 
-# Read version from the baked-in Moodle source so the banner can never lie
-# about which Moodle version this image was built with.
-#
-# Moodle layout differs between major versions:
-#   - Moodle 4.x:  /opt/moodle-source/version.php
-#   - Moodle 5.x:  /opt/moodle-source/public/version.php  (codebase moved
-#                  into public/ as part of the 5.x restructure)
-# Try the 5.x location first (the newer the more likely to be relevant), then
-# fall back to the 4.x location.
+# Read version from build metadata (verified at Docker build time).
 _banner_release="unknown"
-for _vfile in /opt/moodle-source/public/version.php /opt/moodle-source/version.php; do
-    if [[ -r "$_vfile" ]]; then
-        _banner_release=$(awk -F"'" '/^[[:space:]]*\$release[[:space:]]*=/ {print $2; exit}' \
-            "$_vfile" 2>/dev/null | awk '{print $1}')
-        [[ -n "$_banner_release" ]] && break
-    fi
-done
+if [[ -r /opt/moodle-source/.absi-build-metadata ]]; then
+    _banner_release=$(sed -n '3p' /opt/moodle-source/.absi-build-metadata)
+elif [[ -r /opt/moodle-source/public/version.php ]]; then
+    _banner_release=$(moodle_read_release /opt/moodle-source/public/version.php)
+fi
 [[ -z "$_banner_release" ]] && _banner_release="unknown"
-unset _vfile
 _banner_php=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.4")
 
 echo ""

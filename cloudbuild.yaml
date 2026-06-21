@@ -6,6 +6,11 @@ substitutions:
   _IMAGE:      moodle-standard
   _BRANCH:     moodle-core-5-2-1-plus
   _TAG:        5-2-1-plus
+  # Must match versions.lock
+  _MOODLE_VERSION:       5.2.1+
+  _MOODLE_RELEASE_PREFIX: 5.2.1
+  _MOODLE_DOWNLOAD_URL:  https://download.moodle.org/download.php/direct/stable502/moodle-latest-502.tgz
+  _PHP_VERSION:          8.4
   # Multi-arch: amd64 (Marketplace VM) + arm64 (customer pull về máy Apple Silicon / ARM server).
   # Override single-arch: --substitutions=_PLATFORMS=linux/amd64
   _PLATFORMS:  linux/amd64,linux/arm64
@@ -94,6 +99,10 @@ steps:
             --builder gcb \
             --platform "${_PLATFORMS}" \
             "$${CACHE_ARGS[@]}" \
+            --build-arg MOODLE_VERSION=${_MOODLE_VERSION} \
+            --build-arg MOODLE_RELEASE_PREFIX=${_MOODLE_RELEASE_PREFIX} \
+            --build-arg MOODLE_DOWNLOAD_URL=${_MOODLE_DOWNLOAD_URL} \
+            --build-arg PHP_VERSION=${_PHP_VERSION} \
             --provenance=false \
             --sbom=false \
             --label "org.opencontainers.image.source=https://github.com/abs-technology/moodle" \

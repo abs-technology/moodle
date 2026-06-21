@@ -6,6 +6,7 @@ set -o pipefail
 . /scripts/lib/logging.sh
 . /scripts/lib/config.sh
 . /scripts/lib/service.sh
+. /scripts/lib/moodle_paths.sh
 
 # Load centralized configuration
 load_config
@@ -30,11 +31,15 @@ start_cron() {
         MOODLE_CRON_MINUTES=1
     fi
     
+    cron_script=$(moodle_cli_script "cron.php" "$MOODLE_DIR") \
+        || { error "Cannot start Moodle cron: admin/cli/cron.php not found"; return 1; }
+
     # Convert MOODLE_CRON_MINUTES to seconds for --keep-alive parameter
     local cron_seconds=$((MOODLE_CRON_MINUTES * 60))
     info "Starting Moodle cron with ${MOODLE_CRON_MINUTES} minute interval (${cron_seconds} seconds)"
-    
-    nohup /usr/bin/php /var/www/html/admin/cli/cron.php --keep-alive=${cron_seconds} > /tmp/moodle-cron.log 2>&1 &
+    info "Cron script: $cron_script"
+
+    nohup /usr/bin/php "$cron_script" --keep-alive="${cron_seconds}" > /tmp/moodle-cron.log 2>&1 &
     echo $! > /tmp/moodle-cron.pid
     info "Moodle cron process started (PID: $!)"
 }
