@@ -1,6 +1,8 @@
 FROM debian:12-slim AS base
 
 ARG MOODLE_VERSION=5.2.1+
+ARG MOODLE_RELEASE_PREFIX=5.2.1
+ARG MOODLE_DOWNLOAD_URL=https://download.moodle.org/download.php/direct/stable502/moodle-latest-502.tgz
 ARG PHP_VERSION=8.4
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
@@ -142,21 +144,29 @@ RUN chown -R $APP_USER:$APP_GROUP /var/log/apache2 \
 # Copy streamlined scripts
 COPY scripts/entrypoint.sh /scripts/entrypoint.sh
 COPY scripts/moodle-run.sh /scripts/moodle-run.sh
+COPY scripts/verify-moodle-layout.sh /scripts/verify-moodle-layout.sh
 COPY scripts/setup/ /scripts/setup/
 COPY scripts/lib/ /scripts/lib/
 COPY scripts/post-init.d/ /docker-entrypoint-init.d/
+RUN chmod +x /scripts/verify-moodle-layout.sh
 
 # ================================
 # Moodle download stage (separate)
 # ================================
 FROM base AS moodle-downloader
 
-RUN curl -fsSL https://download.moodle.org/download.php/direct/stable502/moodle-latest-502.tgz -o /tmp/moodle.tgz \
+ARG MOODLE_VERSION
+ARG MOODLE_RELEASE_PREFIX
+ARG MOODLE_DOWNLOAD_URL
+
+RUN curl -fsSL "${MOODLE_DOWNLOAD_URL}" -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
     && find /opt/moodle-source -type d -exec chmod 755 {} + \
-    && find /opt/moodle-source -type f -exec chmod 644 {} +
+    && find /opt/moodle-source -type f -exec chmod 644 {} + \
+    && MOODLE_VERSION="${MOODLE_VERSION}" MOODLE_RELEASE_PREFIX="${MOODLE_RELEASE_PREFIX}" \
+       bash /scripts/verify-moodle-layout.sh /opt/moodle-source
 
 #
 RUN cd /opt/moodle-source \
@@ -180,6 +190,20 @@ RUN cd /opt/moodle-source \
 # Final stage
 # ================================
 FROM base AS final
+
+ARG MOODLE_VERSION
+ARG MOODLE_RELEASE_PREFIX
+ARG PHP_VERSION
+
+LABEL org.opencontainers.image.version="${MOODLE_VERSION}" \
+      ai.absi.moodle.version="${MOODLE_VERSION}" \
+      ai.absi.moodle.release-prefix="${MOODLE_RELEASE_PREFIX}" \
+      ai.absi.moodle.layout="5" \
+      ai.absi.moodle.php="${PHP_VERSION}"
+
+ENV MOODLE_VERSION=${MOODLE_VERSION} \
+    MOODLE_RELEASE_PREFIX=${MOODLE_RELEASE_PREFIX} \
+    MOODLE_LAYOUT=5
 
 # Copy Moodle source from downloader stage
 COPY --from=moodle-downloader --chown=$APP_USER:$APP_GROUP /opt/moodle-source /opt/moodle-source

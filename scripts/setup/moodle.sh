@@ -9,6 +9,7 @@ set -o pipefail
 . /scripts/lib/validations.sh
 . /scripts/lib/mariadb.sh
 . /scripts/lib/php.sh
+. /scripts/lib/moodle_paths.sh
 
 # Load centralized configuration
 load_config
@@ -237,20 +238,9 @@ get_moodle_required_php() {
     _parse_version_php_var "$version_file" "requires"
 }
 
-# Locate version.php in either Moodle 4.x or 5.x layout.
-# Echoes the resolved path (or empty when not found).
+# Locate version.php (Moodle 5.2: public/version.php only).
 _resolve_moodle_version_file() {
-    local base=$1
-    # Moodle 5.x moved the codebase under public/ - check there FIRST so newer
-    # installs are detected correctly.
-    for candidate in "${base}/public/version.php" "${base}/version.php"; do
-        if [[ -f "$candidate" ]]; then
-            echo "$candidate"
-            return 0
-        fi
-    done
-    echo ""
-    return 1
+    moodle_version_file "$1" || echo ""
 }
 
 # Detect if upgrade is needed.
@@ -845,19 +835,17 @@ EOF
 # ----------------------------------------------------------------------------
 
 enable_maintenance_mode() {
-    if [[ -f "${MOODLE_DIR}/admin/cli/maintenance.php" ]]; then
-        _upgrade_log "Enabling maintenance mode..."
-        php "${MOODLE_DIR}/admin/cli/maintenance.php" --enable >/dev/null 2>&1 || \
-            warn "Could not enable maintenance mode (continuing)"
-    fi
+    local script
+    script=$(moodle_cli_script "maintenance.php" "$MOODLE_DIR" 2>/dev/null) || return 0
+    _upgrade_log "Enabling maintenance mode..."
+    php "$script" --enable >/dev/null 2>&1 || warn "Could not enable maintenance mode (continuing)"
 }
 
 disable_maintenance_mode() {
-    if [[ -f "${MOODLE_DIR}/admin/cli/maintenance.php" ]]; then
-        _upgrade_log "Disabling maintenance mode..."
-        php "${MOODLE_DIR}/admin/cli/maintenance.php" --disable >/dev/null 2>&1 || \
-            warn "Could not disable maintenance mode"
-    fi
+    local script
+    script=$(moodle_cli_script "maintenance.php" "$MOODLE_DIR" 2>/dev/null) || return 0
+    _upgrade_log "Disabling maintenance mode..."
+    php "$script" --disable >/dev/null 2>&1 || warn "Could not disable maintenance mode"
 }
 
 # Run Moodle's CLI database upgrade only when MOODLE_AUTO_DB_UPGRADE=yes.
@@ -880,8 +868,10 @@ EOF
         return 2
     fi
 
-    _upgrade_log "MOODLE_AUTO_DB_UPGRADE=yes - running php admin/cli/upgrade.php ..."
-    if php "${MOODLE_DIR}/admin/cli/upgrade.php" \
+    _upgrade_log "MOODLE_AUTO_DB_UPGRADE=yes - running admin/cli/upgrade.php ..."
+    local upgrade_script
+    upgrade_script=$(moodle_cli_script "upgrade.php" "$MOODLE_DIR") || return 1
+    if php "$upgrade_script" \
             --non-interactive \
             --allow-unstable \
             >> "$_UPGRADE_LOG" 2>&1; then
@@ -1051,23 +1041,10 @@ EOF
 # This check fails because vendor/, composer.json must exist for Moodle to work
 # We've already secured these via Apache configuration, so we bypass the check
 bypass_moodle_security_checks() {
-    # Moodle 5.x moved most of the codebase under public/. The publicpaths
-    # check itself lives at:
-    #   - Moodle 4.x:  ${MOODLE_DIR}/lib/classes/check/environment/publicpaths.php
-    #   - Moodle 5.x:  ${MOODLE_DIR}/public/lib/classes/check/environment/publicpaths.php
-    # Try both so this script keeps working for both layouts.
-    local publicpaths_file=""
-    for candidate in \
-        "${MOODLE_DIR}/public/lib/classes/check/environment/publicpaths.php" \
-        "${MOODLE_DIR}/lib/classes/check/environment/publicpaths.php"; do
-        if [[ -f "$candidate" ]]; then
-            publicpaths_file="$candidate"
-            break
-        fi
-    done
+    local publicpaths_file="${MOODLE_DIR}/public/lib/classes/check/environment/publicpaths.php"
 
-    if [[ -z "$publicpaths_file" ]]; then
-        debug "publicpaths.php not found in either Moodle 4.x or 5.x layout, skipping bypass"
+    if [[ ! -f "$publicpaths_file" ]]; then
+        debug "publicpaths.php not found at Moodle 5.x path, skipping bypass"
         return 0
     fi
     
@@ -1260,6 +1237,31 @@ EOF
     info "config.php generated at $config_file"
 }
 
+# Download H5P content types once after Moodle is installed.
+# Moodle schedules this monthly by default; without an initial run the Content
+# bank "Add" button stays disabled on new sites until the 1st of the month.
+bootstrap_h5p_content_types() {
+    local marker="$MOODLE_DATA_DIR/.absi_h5p_types_bootstrapped"
+    local task_script log_file="/tmp/moodle-h5p-bootstrap.log"
+
+    [[ -f "$marker" ]] && return 0
+    [[ ! -f "${MOODLE_DIR}/config.php" ]] && return 0
+
+    task_script=$(moodle_cli_script "scheduled_task.php" "$MOODLE_DIR" 2>/dev/null) || {
+        warn "H5P bootstrap skipped: admin/cli/scheduled_task.php not found"
+        return 0
+    }
+
+    info "Bootstrapping H5P content types (first run)..."
+    if php "$task_script" --execute='\core\task\h5p_get_content_types_task' >> "$log_file" 2>&1; then
+        touch "$marker"
+        chown "${APP_USER}:${APP_GROUP}" "$marker" 2>/dev/null || true
+        info "H5P content types ready (Content bank Add button will work)"
+    else
+        warn "H5P bootstrap failed — see $log_file (will retry on next container start)"
+    fi
+}
+
 # ============================================================================
 # MAIN LOGIC
 # ============================================================================
@@ -1273,8 +1275,7 @@ if [ -d "/opt/moodle-source" ]; then
     #   - at MOODLE_DIR/version.php in 4.x
     #   - at MOODLE_DIR/public/version.php in 5.x (codebase moved into public/)
     # So we accept EITHER as a valid signal that an installation is present.
-    if [ ! -f "$MOODLE_DIR/config-dist.php" ] \
-       || { [ ! -f "$MOODLE_DIR/version.php" ] && [ ! -f "$MOODLE_DIR/public/version.php" ]; }; then
+    if [ ! -f "$MOODLE_DIR/config-dist.php" ] || [ ! -f "$MOODLE_DIR/public/version.php" ]; then
         info "First run detected or incomplete Moodle installation. Initializing from pre-built source..."
         ensure_dir_exists "$MOODLE_DIR" "$APP_USER" "$APP_GROUP" "755"
         
@@ -1410,19 +1411,12 @@ if [[ -f "$MOODLE_CONF_FILE" ]]; then
             info "Moodle upgrade orchestrator already handled the DB step (MOODLE_AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE}). Skipping legacy CLI upgrade."
         else
             info "No pre-built database found. Running standard upgrade..."
-            # Detect upgrade script path (Moodle 4.x vs 5.x)
-            upgrade_script=""
-            for candidate in "${MOODLE_DIR}/public/admin/cli/upgrade.php" "${MOODLE_DIR}/admin/cli/upgrade.php"; do
-                if [[ -f "$candidate" ]]; then
-                    upgrade_script="$candidate"
-                    break
-                fi
-            done
+            upgrade_script=$(moodle_cli_script "upgrade.php" "$MOODLE_DIR" 2>/dev/null) || upgrade_script=""
 
             if [[ -n "$upgrade_script" ]]; then
                 php "$upgrade_script" --non-interactive --allow-unstable >/dev/null || true
             else
-                warn "Could not find upgrade.php in either 4.x or 5.x layout"
+                warn "Could not find admin/cli/upgrade.php"
             fi
         fi
 
@@ -1454,13 +1448,7 @@ else
     # Install the database against the freshly generated config.php. We use
     # install_database.php (NOT install.php) precisely because config.php already
     # exists and we want full control over its contents. Detect 4.x vs 5.x layout.
-    install_db_script=""
-    for candidate in "${MOODLE_DIR}/public/admin/cli/install_database.php" "${MOODLE_DIR}/admin/cli/install_database.php"; do
-        if [[ -f "$candidate" ]]; then
-            install_db_script="$candidate"
-            break
-        fi
-    done
+    install_db_script=$(moodle_cli_script "install_database.php" "$MOODLE_DIR" 2>/dev/null) || install_db_script=""
 
     if [[ -n "$install_db_script" ]]; then
         info "Installing Moodle database using $install_db_script ..."
@@ -1473,7 +1461,7 @@ else
             --shortname="${MOODLE_SITE_SHORTNAME}" \
             --agree-license >/dev/null
     else
-        error "Could not find install_database.php in either 4.x or 5.x layout. Installation failed."
+        error "Could not find admin/cli/install_database.php. Installation failed."
         exit 1
     fi
 
@@ -1503,5 +1491,7 @@ if [[ -f "$MOODLE_DIR/composer.json" ]]; then
     info "Optimizing Composer autoloader for production..."
     composer dump-autoload --no-dev --classmap-authoritative --working-dir="$MOODLE_DIR" --quiet || warn "Failed to optimize composer autoloader"
 fi
+
+bootstrap_h5p_content_types
 
 info "Moodle application setup finished."

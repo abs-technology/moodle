@@ -1,0 +1,10 @@
+# versions.lock — pinned build manifest (moodle-core-5-2-1-plus)
+# Single source of truth. Change here, then rebuild.
+
+MOODLE_VERSION := 5.2.1+
+MOODLE_RELEASE_PREFIX := 5.2.1
+MOODLE_STABLE_BRANCH := stable502
+MOODLE_DOWNLOAD_URL := https://download.moodle.org/download.php/direct/stable502/moodle-latest-502.tgz
+MOODLE_LAYOUT := 5
+PHP_VERSION := 8.4
+DOCKER_TAG := 5.2.1-plus

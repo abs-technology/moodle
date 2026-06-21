@@ -1,31 +1,16 @@
 # =============================================================================
-# Makefile — ABS Technology Moodle Docker image
-#
-# Wrapper cho scripts/utils/docker-scout.sh (build + Docker Scout policy gate
-# + push). Mặc định build MULTI-ARCH (amd64 + arm64).
-#
-# Quick start:
-#     make help                       # Xem toàn bộ target
-#     make build                      # Build amd64 local + scan + policy gate (KHÔNG push)
-#     make push                       # Rebuild multi-arch + re-verify gate + push (cần login)
-#     make build push                 # Chạy cả hai liên tiếp
-#
-# Override biến:
-#     make build TAG=4.5.12
-#     make push  PLATFORMS=linux/amd64                # Push 1 arch
-#     make push  PLATFORMS=linux/amd64,linux/arm64    # Mặc định, đa kiến trúc
-#     make build PUSH_ON_FAIL=yes                     # Skip gate (KHÔNG khuyến khích)
-# =============================================================================
+
+-include versions.lock
 
 # ---- Configurable variables ------------------------------------------------ #
 IMAGE        ?= abstechnology/moodle-standard
-TAG          ?= 5.2.1-plus
+TAG          ?= $(DOCKER_TAG)
 PLATFORMS    ?= linux/amd64,linux/arm64
 ORG          ?= abstechnology
 DOCKERFILE   ?= Dockerfile
 CONTEXT      ?= .
 SEVERITY     ?= critical,high
-BUILD_ARGS   ?=
+BUILD_ARGS   ?= MOODLE_VERSION=$(MOODLE_VERSION) MOODLE_RELEASE_PREFIX=$(MOODLE_RELEASE_PREFIX) MOODLE_DOWNLOAD_URL=$(MOODLE_DOWNLOAD_URL) PHP_VERSION=$(PHP_VERSION)
 SKIP_BUILD   ?= no
 PUSH_ON_FAIL ?= no
 
@@ -100,8 +85,12 @@ help: ## Hiển thị danh sách target
 	@printf '\n\033[1mOverride:\033[0m make <target> TAG=... PLATFORMS=... GATE_ARCH=... NO_CACHE=no\n'
 
 # ---- Main workflow --------------------------------------------------------- #
+.PHONY: verify-versions
+verify-versions: ## Kiểm tra versions.lock khớp Dockerfile/Makefile/compose
+	@./scripts/verify-build-manifest.sh
+
 .PHONY: build
-build: ## Build $(GATE_ARCH) local (--load) + Scout quickview + policy gate (KHÔNG push)
+build: verify-versions ## Build $(GATE_ARCH) local (--load) + Scout quickview + policy gate (KHÔNG push)
 	@PLATFORMS=$(GATE_ARCH) $(SCOUT) build
 	@$(SCOUT) quickview || true
 	@$(SCOUT) policy
