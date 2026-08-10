@@ -26,12 +26,14 @@ export IMAGE TAG ORG PLATFORMS BUILD_ARGS BUILDER NO_CACHE GATE_ARCH
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build push scan policy fix login tag-latest up down logs shell
+DATA_DIRS := data/moodle data/moodledata data/moodle-backups
+
+.PHONY: help build push scan policy fix login tag-latest up down remove logs shell
 
 help: ## Lệnh có sẵn
 	@printf 'Image : %s\n' "$(IMG_FULL)"
 	@printf 'Push  : %s (Scout gate → multi-arch)\n\n' "$(PLATFORMS)"
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9._-]+:.*?## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9._-]+:.*?## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 build: ## Build local 1 arch (--no-cache, test nhanh)
 	@./scripts/verify-build-manifest.sh
@@ -66,6 +68,18 @@ up: ## docker compose up -d
 
 down: ## docker compose down
 	@docker compose down
+
+remove: ## Dừng stack + xoá data Moodle + volume MariaDB
+	@docker compose down -v
+	@mkdir -p $(DATA_DIRS)
+	@docker run --rm \
+		-v "$(CURDIR)/data/moodle:/wipe/moodle" \
+		-v "$(CURDIR)/data/moodledata:/wipe/moodledata" \
+		-v "$(CURDIR)/data/moodle-backups:/wipe/moodle-backups" \
+		alpine:3.20 \
+		sh -c 'find /wipe/moodle /wipe/moodledata /wipe/moodle-backups -mindepth 1 -delete'
+	@touch data/moodle/.gitkeep data/moodledata/.gitkeep
+	@printf 'Đã xoá sạch: %s + volume mariadb_data\n' "$(DATA_DIRS)"
 
 logs: ## Xem log moodle
 	@docker compose logs -f moodle

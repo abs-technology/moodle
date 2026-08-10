@@ -1047,15 +1047,15 @@ bypass_moodle_security_checks() {
         debug "publicpaths.php not found at Moodle 5.x path, skipping bypass"
         return 0
     fi
-    
-    info "Bypassing Moodle publicpaths security check..."
-    
-    # Check if already bypassed
+
+    # Already patched → silent no-op (avoid duplicate INFO logs on first boot)
     if grep -q "Force OK: bypass Moodle public path security check" "$publicpaths_file"; then
         debug "Security check already bypassed, skipping"
         return 0
     fi
-    
+
+    info "Bypassing Moodle publicpaths security check..."
+
     # Backup original file
     cp "$publicpaths_file" "${publicpaths_file}.backup"
     
@@ -1240,26 +1240,57 @@ EOF
 # Download H5P content types once after Moodle is installed.
 # Moodle schedules this monthly by default; without an initial run the Content
 # bank "Add" button stays disabled on new sites until the 1st of the month.
+#
+# MOODLE_BOOTSTRAP_H5P:
+#   background (default) — run hub download after setup so Apache starts sooner
+#   sync                 — block until H5P types are ready (old behaviour)
+#   no                   — skip (Content bank Add waits for monthly cron / manual task)
 bootstrap_h5p_content_types() {
     local marker="$MOODLE_DATA_DIR/.absi_h5p_types_bootstrapped"
     local task_script log_file="/tmp/moodle-h5p-bootstrap.log"
+    local mode="${MOODLE_BOOTSTRAP_H5P:-background}"
 
     [[ -f "$marker" ]] && return 0
     [[ ! -f "${MOODLE_DIR}/config.php" ]] && return 0
+
+    case "$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')" in
+        no|0|false|off|skip)
+            info "H5P bootstrap skipped (MOODLE_BOOTSTRAP_H5P=$mode)"
+            return 0
+            ;;
+    esac
 
     task_script=$(moodle_cli_script "scheduled_task.php" "$MOODLE_DIR" 2>/dev/null) || {
         warn "H5P bootstrap skipped: admin/cli/scheduled_task.php not found"
         return 0
     }
 
-    info "Bootstrapping H5P content types (first run)..."
-    if php "$task_script" --execute='\core\task\h5p_get_content_types_task' >> "$log_file" 2>&1; then
-        touch "$marker"
-        chown "${APP_USER}:${APP_GROUP}" "$marker" 2>/dev/null || true
-        info "H5P content types ready (Content bank Add button will work)"
-    else
+    _run_h5p_bootstrap_task() {
+        if php "$task_script" --execute='\core\task\h5p_get_content_types_task' >> "$log_file" 2>&1; then
+            touch "$marker"
+            chown "${APP_USER}:${APP_GROUP}" "$marker" 2>/dev/null || true
+            info "H5P content types ready (Content bank Add button will work)"
+            return 0
+        fi
         warn "H5P bootstrap failed — see $log_file (will retry on next container start)"
-    fi
+        return 1
+    }
+
+    case "$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')" in
+        sync|foreground|blocking|yes)
+            info "Bootstrapping H5P content types (sync, first run)..."
+            _run_h5p_bootstrap_task || true
+            ;;
+        *)
+            # Default: background — ~90s hub download must not block first HTTP.
+            info "Bootstrapping H5P content types in background (first run)..."
+            info "Content bank Add may be unavailable for ~1–2 min — progress: $log_file"
+            (
+                _run_h5p_bootstrap_task
+            ) >/dev/null 2>&1 &
+            disown 2>/dev/null || true
+            ;;
+    esac
 }
 
 # ============================================================================
@@ -1486,10 +1517,19 @@ fi
 # MOODLE_WWWROOT or a dynamic per-request detection block. We deliberately do NOT
 # rewrite config.php on subsequent container starts anymore.
 
-# Ensure composer autoloader is optimized for production (essential for volume-mounted code)
+# Composer classmap is already built in the image. Re-dump only when missing
+# (corrupt volume) or when MOODLE_OPTIMIZE_COMPOSER=yes forces it.
 if [[ -f "$MOODLE_DIR/composer.json" ]]; then
-    info "Optimizing Composer autoloader for production..."
-    composer dump-autoload --no-dev --classmap-authoritative --working-dir="$MOODLE_DIR" --quiet || warn "Failed to optimize composer autoloader"
+    local_optimize="${MOODLE_OPTIMIZE_COMPOSER:-auto}"
+    classmap="$MOODLE_DIR/vendor/composer/autoload_classmap.php"
+    if [[ "$local_optimize" == "yes" ]] || \
+       { [[ "$local_optimize" == "auto" ]] && [[ ! -s "$classmap" ]]; }; then
+        info "Optimizing Composer autoloader for production..."
+        composer dump-autoload --no-dev --classmap-authoritative --working-dir="$MOODLE_DIR" --quiet \
+            || warn "Failed to optimize composer autoloader"
+    else
+        debug "Skipping composer dump-autoload (classmap present; set MOODLE_OPTIMIZE_COMPOSER=yes to force)"
+    fi
 fi
 
 bootstrap_h5p_content_types

@@ -140,11 +140,11 @@ debug "Starting Moodle application setup..."
 /scripts/setup/moodle.sh
 debug "Moodle application setup completed with exit code: $?"
 
-# 6. Setup Load Balancer Configuration
-info "Setting up load balancer configuration..."
-debug "Starting load balancer setup..."
+# 6. Shared sessions dir (multi-replica). Heavy moodledata chmod is opt-in.
+info "Ensuring moodledata session directory..."
+debug "Starting load-balancer/session setup..."
 /scripts/setup/load-balancer.sh
-debug "Load balancer setup completed with exit code: $?"
+debug "Session setup completed with exit code: $?"
 
 # 7. Execute custom init scripts
 if [[ ! -f "$MOODLE_DATA_DIR/.absi_scripts_initialized" && -d "/docker-entrypoint-init.d" ]]; then

@@ -65,6 +65,11 @@ services:
       - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
       - MOODLE_SSLPROXY=${MOODLE_SSLPROXY}
 
+      # First-boot performance (see env.example)
+      - MOODLE_BOOTSTRAP_H5P=${MOODLE_BOOTSTRAP_H5P:-background}
+      - MOODLE_OPTIMIZE_COMPOSER=${MOODLE_OPTIMIZE_COMPOSER:-auto}
+      - MOODLE_FIX_DATA_PERMS=${MOODLE_FIX_DATA_PERMS:-no}
+
       # Upgrade behavior (see env.example for details)
       - MOODLE_AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE:-no}
       - MOODLE_BACKUP_DIR=${MOODLE_BACKUP_DIR:-/var/www/moodle-backups}

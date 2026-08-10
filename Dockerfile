@@ -166,20 +166,31 @@ RUN curl -fsSL "${MOODLE_DOWNLOAD_URL}" -o /tmp/moodle.tgz \
     && MOODLE_VERSION="${MOODLE_VERSION}" MOODLE_RELEASE_PREFIX="${MOODLE_RELEASE_PREFIX}" \
        bash /scripts/verify-moodle-layout.sh /opt/moodle-source
 
-# Composer: one pass with authoritative classmap (skip audit/platform check at build — slow).
+# Composer: pin security updates past Moodle lockfile.
+# - aws/aws-sdk-php: GHSA-27qh-8cxx-2cr5 (need >= 3.371.4)
+# - guzzlehttp/guzzle: CVE-2026-69246 (need >= 7.15.2)
+# - guzzlehttp/promises: must bump with guzzle (Moodle pins 2.3.0; guzzle 7.15 needs ^2.5.2)
+# - guzzlehttp/psr7: guzzle 7.15 needs ^2.13 (Moodle pins 2.8.0)
+# Without these bumps, `composer require` fails; do not mask with trailing || true.
 RUN cd /opt/moodle-source \
     && composer install --no-dev --no-interaction --no-progress --optimize-autoloader \
-    && composer require "aws/aws-sdk-php:^3.371.4" \
+    && composer require \
+           "aws/aws-sdk-php:^3.371.4" \
+           "guzzlehttp/guzzle:^7.15.2" \
+           "guzzlehttp/promises:^2.5.2" \
+           "guzzlehttp/psr7:^2.13" \
            --update-no-dev --no-interaction --no-progress \
            --update-with-all-dependencies \
            --optimize-autoloader \
            --classmap-authoritative \
-    && AWS_SDK_VER=$(php -r "require 'vendor/autoload.php'; echo Aws\Sdk::VERSION;") \
-    && echo "aws-sdk-php version in image: $AWS_SDK_VER" \
-    && php -r "exit(version_compare('$AWS_SDK_VER', '3.371.4', '<') ? 1 : 0);" \
+    && AWS_SDK_VER=$(composer show aws/aws-sdk-php --no-ansi 2>/dev/null | awk '/^versions/{print $NF; exit}') \
+    && GUZZLE_VER=$(composer show guzzlehttp/guzzle --no-ansi 2>/dev/null | awk '/^versions/{print $NF; exit}') \
+    && echo "aws/aws-sdk-php=$AWS_SDK_VER guzzlehttp/guzzle=$GUZZLE_VER" \
+    && php -r "exit(version_compare('${AWS_SDK_VER}', '3.371.4', '<') ? 1 : 0);" \
+    && php -r "exit(version_compare('${GUZZLE_VER}', '7.15.2', '<') ? 1 : 0);" \
     && composer clear-cache \
     && rm -rf /root/.composer/cache \
-    && find /opt/moodle-source/vendor -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true
+    && { find /opt/moodle-source/vendor -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true; }
 
 # ================================
 # Final stage

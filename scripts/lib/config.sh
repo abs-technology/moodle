@@ -118,6 +118,14 @@ export MOODLE_HOST="${MOODLE_HOST:-localhost}"
 export MOODLE_REVERSEPROXY="${MOODLE_REVERSEPROXY:-no}"
 export MOODLE_SSLPROXY="${MOODLE_SSLPROXY:-no}"
 
+# First-boot tuning
+# background|sync|no — H5P hub download (~1–2 min); default background so Apache starts sooner
+export MOODLE_BOOTSTRAP_H5P="${MOODLE_BOOTSTRAP_H5P:-background}"
+# auto|yes|no — re-run composer dump-autoload; auto skips when classmap already exists
+export MOODLE_OPTIMIZE_COMPOSER="${MOODLE_OPTIMIZE_COMPOSER:-auto}"
+# yes|no — recursive chown/chmod entire moodledata (slow on large volumes)
+export MOODLE_FIX_DATA_PERMS="${MOODLE_FIX_DATA_PERMS:-no}"
+
 # ============================================================================
 # SYSTEM PATHS
 # ============================================================================
