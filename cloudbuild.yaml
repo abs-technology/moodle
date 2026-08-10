@@ -4,12 +4,12 @@ substitutions:
   _AR_REGION:  asia-southeast1
   _AR_REPO:    moodle-marketplace
   _IMAGE:      moodle-standard
-  _BRANCH:     moodle-core-5-2-1-plus
-  _TAG:        5-2-1-plus
+  _BRANCH:     moodle-core-5-2-2
+  _TAG:        5-2-2
   # Must match versions.lock
-  _MOODLE_VERSION:       5.2.1+
-  _MOODLE_RELEASE_PREFIX: 5.2.1
-  _MOODLE_DOWNLOAD_URL:  https://download.moodle.org/download.php/direct/stable502/moodle-latest-502.tgz
+  _MOODLE_VERSION:       5.2.2
+  _MOODLE_RELEASE_PREFIX: 5.2.2
+  _MOODLE_DOWNLOAD_URL:  https://packaging.moodle.org/stable502/moodle-5.2.2.tgz
   _PHP_VERSION:          8.4
   # Multi-arch: amd64 (Marketplace VM) + arm64 (customer pull về máy Apple Silicon / ARM server).
   # Override single-arch: --substitutions=_PLATFORMS=linux/amd64

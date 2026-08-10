@@ -22,7 +22,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.2.1-plus-r1
+    image: abstechnology/moodle-standard:5.2.2
     container_name: abs-moodle
     ports:
       - "80:8080"

@@ -11,7 +11,7 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Moodle-5.2.1-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
+  <img src="https://img.shields.io/badge/Moodle-5.2.2-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
   <img src="https://img.shields.io/badge/PHP-8.4-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
   <img src="https://img.shields.io/badge/MariaDB-11.7.2-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
   <img src="https://img.shields.io/badge/License-GPL_v3-blue.svg?style=for-the-badge" alt="License"/>
@@ -29,8 +29,8 @@
 *Get your Moodle LMS running in under 2 minutes!*
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-1-plus/docker-compose.yml > docker-compose.yml
-curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-1-plus/env.example > .env
+curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/docker-compose.yml > docker-compose.yml
+curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/env.example > .env
 mkdir -p data/moodle data/moodledata
 chown -R 1000:1000 data/moodle data/moodledata
 docker compose up -d
@@ -120,7 +120,7 @@ docker compose up -d
 <img src="https://img.shields.io/badge/Production-Ready-success?style=for-the-badge" alt="Production Ready"/>
 
 **Latest Technology Stack**
-- 🚀 **Moodle 5.2.1** - Latest features
+- 🚀 **Moodle 5.2.2** - Latest features
 - 🐘 **PHP 8.4** - Performance boost
 - 🗄️ **MariaDB 11.7.2** - Optimized database
 - 🔒 **Security Hardened** - Non-root execution
@@ -238,7 +238,7 @@ docker compose up -d
 
 ## Supported Tags and Respective `Dockerfile` Links
 
-* [`5.2.1-plus`, `5.2.1`, `5.2`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
+* [`5.2.2`, `5.2`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
 
 **Subscribe to project updates by watching the [ABS Technology Moodle GitHub repo](https://github.com/abs-technology/moodle).**
 
@@ -264,7 +264,7 @@ $ docker pull abstechnology/moodle-standard:latest
 To use a specific version, you can pull a versioned tag:
 
 ```console
-$ docker pull abstechnology/moodle-standard:5.2.1-plus
+$ docker pull abstechnology/moodle-standard:5.2.2
 ```
 
 ## How to Use This Image
@@ -274,8 +274,8 @@ $ docker pull abstechnology/moodle-standard:5.2.1-plus
 The main folder of this repository contains a functional [`docker-compose.yml`](https://github.com/abs-technology/moodle/blob/main/docker-compose.yml) file. Run the application using it as shown below:
 
 ```console
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-1-plus/docker-compose.yml > docker-compose.yml
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-1-plus/env.example > .env
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/docker-compose.yml > docker-compose.yml
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/env.example > .env
 $ docker-compose up -d
 ```
 
@@ -321,7 +321,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-standard:5.2.1-plus
+  abstechnology/moodle-standard:5.2.2
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -389,7 +389,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.2.1-plus
+    image: abstechnology/moodle-standard:5.2.2
     container_name: abs-moodle
     ports:
       - "80:8080"

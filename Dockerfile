@@ -1,8 +1,8 @@
 FROM debian:12-slim AS base
 
-ARG MOODLE_VERSION=5.2.1+
-ARG MOODLE_RELEASE_PREFIX=5.2.1
-ARG MOODLE_DOWNLOAD_URL=https://download.moodle.org/download.php/direct/stable502/moodle-latest-502.tgz
+ARG MOODLE_VERSION=5.2.2
+ARG MOODLE_RELEASE_PREFIX=5.2.2
+ARG MOODLE_DOWNLOAD_URL=https://packaging.moodle.org/stable502/moodle-5.2.2.tgz
 ARG PHP_VERSION=8.4
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
