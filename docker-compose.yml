@@ -1,6 +1,6 @@
 services:
   mariadb:
-    image: mariadb:11.7.2
+    image: mariadb:11.8.9
     container_name: abs-mariadb
     restart: unless-stopped
     environment:
