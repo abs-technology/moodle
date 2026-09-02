@@ -238,7 +238,7 @@ docker compose up -d
 
 ## Supported Tags and Respective `Dockerfile` Links
 
-* [`5.2.2`, `5.2`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
+* [`5.2.2-r2`, `5.2.2`, `5.2`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
 
 **Subscribe to project updates by watching the [ABS Technology Moodle GitHub repo](https://github.com/abs-technology/moodle).**
 
@@ -264,7 +264,7 @@ $ docker pull abstechnology/moodle-standard:latest
 To use a specific version, you can pull a versioned tag:
 
 ```console
-$ docker pull abstechnology/moodle-standard:5.2.2
+$ docker pull abstechnology/moodle-standard:5.2.2-r2
 ```
 
 ## How to Use This Image
@@ -321,7 +321,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-standard:5.2.2
+  abstechnology/moodle-standard:5.2.2-r2
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -389,7 +389,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.2.2
+    image: abstechnology/moodle-standard:5.2.2-r2
     container_name: abs-moodle
     ports:
       - "80:8080"

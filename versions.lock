@@ -7,4 +7,4 @@ MOODLE_STABLE_BRANCH := stable502
 MOODLE_DOWNLOAD_URL := https://packaging.moodle.org/stable502/moodle-5.2.2.tgz
 MOODLE_LAYOUT := 5
 PHP_VERSION := 8.4
-DOCKER_TAG := 5.2.2
+DOCKER_TAG := 5.2.2-r2

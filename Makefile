@@ -22,18 +22,28 @@ else
     GATE_ARCH ?= linux/amd64
 endif
 
+# Pin BuildKit / SBOM (chỉ dùng nếu ATTESTATIONS=full)
+BUILDKIT_IMAGE ?= moby/buildkit:v0.32.2
+SBOM_SCANNER   ?= docker/buildkit-syft-scanner:latest
+# none = mặc định: 1 image cho Hub + Marketplace (không SBOM/provenance → hết cảnh báo Go)
+# full = bật attestation (Scout supply-chain); Marketplace Artifact Analysis sẽ flag Go/containerd
+ATTESTATIONS   ?= none
+
 export IMAGE TAG ORG PLATFORMS BUILD_ARGS BUILDER NO_CACHE GATE_ARCH
+export BUILDKIT_IMAGE SBOM_SCANNER ATTESTATIONS
 
 .DEFAULT_GOAL := help
 
 DATA_DIRS := data/moodle data/moodledata data/moodle-backups
 
-.PHONY: help build push scan policy fix login tag-latest up down remove logs shell
+.PHONY: help build push inspect-manifest scan policy cves-critical fix login tag-latest up down remove logs shell
 
 help: ## Lệnh có sẵn
 	@printf 'Image : %s\n' "$(IMG_FULL)"
-	@printf 'Push  : %s (Scout gate → multi-arch)\n\n' "$(PLATFORMS)"
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9._-]+:.*?## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@printf 'Push  : %s (Scout gate → multi-arch, ATTESTATIONS=%s)\n' "$(PLATFORMS)" "$(ATTESTATIONS)"
+	@printf 'Note  : 1 lần make push → 1 image dùng cho Hub + Marketplace\n'
+	@printf '       raw Critical OK nếu fixable C/H PASS — docs/SECURITY-EXCEPTIONS.md\n\n'
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9._-]+:.*?## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 build: ## Build local 1 arch (--no-cache, test nhanh)
 	@./scripts/verify-build-manifest.sh
@@ -44,15 +54,24 @@ build: ## Build local 1 arch (--no-cache, test nhanh)
 		--build-arg PHP_VERSION=$(PHP_VERSION) \
 		-t $(IMG_FULL) .
 
-push: ## Scout scan + policy gate → multi-arch push Docker Hub
+push: ## Scout gate + multi-arch push (1 image — Hub & Marketplace)
 	@./scripts/verify-build-manifest.sh
+	@docker buildx rm $(BUILDER) >/dev/null 2>&1 || true
 	@$(SCOUT) release
+	@printf '\nManifest (không nên có unknown/unknown attestation):\n'
+	@$(MAKE) --no-print-directory inspect-manifest
 
-scan: ## Scout quickview (CVE + policy tóm tắt)
+inspect-manifest: ## Xem manifest (attestation = unknown/unknown)
+	@docker buildx imagetools inspect $(IMG_FULL)
+
+scan: ## Scout quickview (CVE + policy tóm tắt; raw C ≠ release blocker)
 	@$(SCOUT) quickview
 
-policy: ## Scout policy gate (7 rules)
+policy: ## Scout release gate (fixable C/H; ignores copyleft)
 	@$(SCOUT) policy
+
+cves-critical: ## Liệt kê raw Critical CVEs (review; xem docs/SECURITY-EXCEPTIONS.md)
+	@docker scout cves $(IMG_FULL) --only-severity critical --details
 
 fix: ## Scout gợi ý fix CVE / base image
 	@$(SCOUT) recommendations

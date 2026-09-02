@@ -7,7 +7,6 @@ data/
 *.md
 LICENSE*
 docker-compose.yml
-cloudbuild.yaml
 Makefile
 terminals/
 agent-transcripts/
