@@ -38,10 +38,10 @@ Thumbs.db
 *.swo
 *~
 
-# Cursor local-only (keep .cursor/skills and .cursor/rules tracked)
-.cursor/**/*.log
-.cursor/debug.log
-.cursor/ai-tracking/
+# IDE / AI-editor local dirs — never track in this product repo
+.cursor/
+.vscode/
+.idea/
 agent-transcripts/
 
 # Temporary files
