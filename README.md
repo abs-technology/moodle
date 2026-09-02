@@ -12,8 +12,9 @@
 
 <p>
   <img src="https://img.shields.io/badge/Moodle-5.2.2-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
+  <img src="https://img.shields.io/badge/Image-5.2.2--r2-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Image Tag"/>
   <img src="https://img.shields.io/badge/PHP-8.4-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
-  <img src="https://img.shields.io/badge/MariaDB-11.7.2-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
+  <img src="https://img.shields.io/badge/MariaDB-11.8.9-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
   <img src="https://img.shields.io/badge/License-GPL_v3-blue.svg?style=for-the-badge" alt="License"/>
 </p>
 
@@ -29,12 +30,14 @@
 *Get your Moodle LMS running in under 2 minutes!*
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/docker-compose.yml > docker-compose.yml
-curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/env.example > .env
+curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/docker-compose.yml > docker-compose.yml
+curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/env.example > .env
 mkdir -p data/moodle data/moodledata
 chown -R 1000:1000 data/moodle data/moodledata
 docker compose up -d
 ```
+
+Current stack pin: **Moodle 5.2.2** · image **`abstechnology/moodle-standard:5.2.2-r2`** · **PHP 8.4** · compose MariaDB **11.8.9**. Version source of truth: [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock).
 
 <div align="center">
 
@@ -120,10 +123,10 @@ docker compose up -d
 <img src="https://img.shields.io/badge/Production-Ready-success?style=for-the-badge" alt="Production Ready"/>
 
 **Latest Technology Stack**
-- 🚀 **Moodle 5.2.2** - Latest features
+- 🚀 **Moodle 5.2.2** - Current stable pin (`5.2.2-r2` image)
 - 🐘 **PHP 8.4** - Performance boost
-- 🗄️ **MariaDB 11.7.2** - Optimized database
-- 🔒 **Security Hardened** - Non-root execution
+- 🗄️ **MariaDB 11.8.9** - Compose database pin
+- 🔒 **Security Hardened** - Non-root execution · Scout gate on push
 - ⚡ **OPcache Enabled** - 3x faster performance
 
 </td>
@@ -134,7 +137,7 @@ docker compose up -d
 
 **Built for High-Traffic**
 - 🌐 **Load Balancer** - Handle thousands of users
-- 🔧 **One-Command Deploy** - docker-compose up
+- 🔧 **One-Command Deploy** - `docker compose up`
 - 📱 **Mobile Optimized** - PWA support
 - 🌍 **Multi-Language** - 120+ languages
 - 📊 **Health Monitoring** - Built-in checks
@@ -240,6 +243,10 @@ docker compose up -d
 
 * [`5.2.2-r2`, `5.2.2`, `5.2`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
 
+Pinned in [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock): Moodle **5.2.2** from [packaging.moodle.org stable502](https://packaging.moodle.org/stable502/moodle-5.2.2.tgz), PHP **8.4**, Docker tag **`5.2.2-r2`**.
+
+Multi-arch Hub image (`linux/amd64` + `linux/arm64`) is built locally with `make push`. Default **`ATTESTATIONS=none`** (no provenance/SBOM attach) for Marketplace-safe publishes. See [`docs/SECURITY-EXCEPTIONS.md`](docs/SECURITY-EXCEPTIONS.md) and [`docs/RELEASE-NOTES-POLICY.md`](docs/RELEASE-NOTES-POLICY.md).
+
 **Subscribe to project updates by watching the [ABS Technology Moodle GitHub repo](https://github.com/abs-technology/moodle).**
 
 ## 🎯 **Trusted by Educational Institutions Worldwide**
@@ -274,9 +281,10 @@ $ docker pull abstechnology/moodle-standard:5.2.2-r2
 The main folder of this repository contains a functional [`docker-compose.yml`](https://github.com/abs-technology/moodle/blob/main/docker-compose.yml) file. Run the application using it as shown below:
 
 ```console
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/docker-compose.yml > docker-compose.yml
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/env.example > .env
-$ docker-compose up -d
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/docker-compose.yml > docker-compose.yml
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/env.example > .env
+$ mkdir -p data/moodle data/moodledata
+$ docker compose up -d
 ```
 
 ### Running Moodle with Docker Run
@@ -300,7 +308,7 @@ $ docker run -d --name mariadb \
   --env MARIADB_DATABASE=moodle_db \
   --network moodle-network \
   --volume mariadb_data:/var/lib/mysql \
-  mariadb:11.7.2
+  mariadb:11.8.9
 ```
 
 #### Step 3: Create Volumes for Moodle Persistence and Launch the Container
@@ -334,15 +342,15 @@ When you start the Moodle image, you can adjust the configuration of the instanc
 
 #### Moodle Configuration
 
-- `MOODLE_USERNAME`: Moodle admin username. Default: **absi_admin**
+- `MOODLE_USERNAME`: Moodle admin username. Default: **abs_admin**
 - `MOODLE_PASSWORD`: Moodle admin password. **Required**
 - `MOODLE_EMAIL`: Moodle admin email. **Required**
-- `MOODLE_SITE_NAME`: Moodle site name. Default: **Absi Technology Moodle LMS®**
+- `MOODLE_SITE_NAME`: Moodle site name. Default: **ABS Technology Moodle LMS®**
 - `MOODLE_SITE_FULLNAME`: Moodle site full name. Default: **Absi Technology Learning Management System**
-- `MOODLE_SITE_SHORTNAME`: Moodle site short name. Default: **ABSI-LMS**
+- `MOODLE_SITE_SHORTNAME`: Moodle site short name. Default: **ABS-LMS**
 - `MOODLE_CRON_MINUTES`: Moodle cron job interval in minutes. Default: **1**
-- `MOODLE_REVERSEPROXY`: Enable reverse proxy support. Default: **yes**
-- `MOODLE_SSLPROXY`: Enable SSL proxy support. Default: **yes**
+- `MOODLE_REVERSEPROXY`: Enable reverse proxy support. Default: **no** (see `env.example`)
+- `MOODLE_SSLPROXY`: Enable SSL proxy support. Default: **no** (set **yes** behind TLS-terminating LB)
 
 #### Database Configuration
 
@@ -367,8 +375,9 @@ When you start the Moodle image, you can adjust the configuration of the instanc
 ```yaml
 services:
   mariadb:
-    image: mariadb:11.7.2
+    image: mariadb:11.8.9
     container_name: abs-mariadb
+    restart: unless-stopped
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_USER=${MARIADB_USER}
@@ -391,6 +400,7 @@ services:
   moodle:
     image: abstechnology/moodle-standard:5.2.2-r2
     container_name: abs-moodle
+    restart: unless-stopped
     ports:
       - "80:8080"
       - "443:8443"
@@ -466,8 +476,9 @@ volumes:
 ### 🚀 **Performance & Scale**
 | Feature | Specification | Benefit |
 |---------|---------------|---------|
-| 🐘 **PHP Version** | 8.4 with OPcache | 40% faster than PHP 7.4 |
-| 🗄️ **Database** | MariaDB 11.7.2 | High-performance, MySQL-compatible |
+| 🐘 **PHP Version** | 8.4 with OPcache | Current Moodle 5.2 runtime |
+| 🗄️ **Database** | MariaDB 11.8.9 (compose) | High-performance, MySQL-compatible |
+| 📦 **Image tag** | `5.2.2-r2` | Marketplace-oriented pin (see `versions.lock`) |
 | 📁 **File Uploads** | Up to 2GB per file | Support large video/document uploads |
 | 🔄 **Cron Jobs** | Configurable (1-60 min) | Automated maintenance & notifications |
 
@@ -476,6 +487,8 @@ volumes:
 - ✅ **SSL/TLS ready** - HTTPS support out-of-the-box  
 - ✅ **Security headers** - OWASP recommended configurations
 - ✅ **Secure defaults** - Hardened PHP & Apache configurations
+- ✅ **Scout gate on `make push`** - Fixable Critical/High policy check
+- ✅ **Composer security pins** - AWS SDK / Guzzle / jmespath updates beyond Moodle lockfile
 
 ### 🌐 **Production Features**
 - 🔧 **Health Checks** - Built-in monitoring endpoints
@@ -508,6 +521,22 @@ Always use strong passwords for database and admin accounts. You can generate se
 $ openssl rand -base64 32
 ```
 
+Known Scout / Marketplace exceptions and attestation policy: [`docs/SECURITY-EXCEPTIONS.md`](docs/SECURITY-EXCEPTIONS.md).
+
+## Building & releasing (maintainers)
+
+Pins live in [`versions.lock`](versions.lock). Local build/push (no Cloud Build):
+
+```console
+$ ./scripts/git-hooks/install.sh   # strip banned AI attribution trailers
+$ make build                       # native arch smoke build
+$ make push                        # Scout gate + multi-arch Hub push
+$ make tag-latest                  # optional: retag latest
+$ make remove                      # wipe local compose data + volumes
+```
+
+Release notes are required for every new image tag — see [`docs/RELEASE-NOTES-POLICY.md`](docs/RELEASE-NOTES-POLICY.md) and [`AGENTS.md`](AGENTS.md).
+
 ## Maintenance
 
 ### Backing Up Your Container
@@ -538,7 +567,10 @@ We welcome contributions to improve this Docker image. Please submit issues and 
 
 - **Source Code**: [GitHub Repository](https://github.com/abs-technology/moodle)
 - **Issue Tracker**: [GitHub Issues](https://github.com/abs-technology/moodle/issues)
+- **Maintainer policies**: [`AGENTS.md`](AGENTS.md) · [`docs/RELEASE-NOTES-POLICY.md`](docs/RELEASE-NOTES-POLICY.md) · [`docs/NO-AGENT-ATTRIBUTION.md`](docs/NO-AGENT-ATTRIBUTION.md)
 - **Documentation**: [Moodle Official Documentation](https://docs.moodle.org/)
+
+Do not commit IDE folders such as `.cursor/` — they are gitignored.
 
 ## License
 
