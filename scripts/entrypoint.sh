@@ -9,28 +9,40 @@ set -o pipefail
 . /scripts/lib/filesystem.sh
 . /scripts/lib/service.sh
 . /scripts/lib/validations.sh
+. /scripts/lib/moodle_paths.sh
 
 # Load centralized configuration
 load_config
 
-echo -e "\033[1;32mWelcome to Absi Technology Moodle LMS\033[0m" 
-echo -e "     ___    __         \033[31m_\033[0m "
-echo -e "    /   |  / /_  _____\033[31m(_)\033[0m"
-echo -e "   / /| | / __ \/ ___\033[31m/ /\033[0m "
-echo -e "  / ___ |/ /_/ (__  )\033[31m /\033[0m  "
-echo -e " /_/  |_/_.___/____\033[31m/_/\033[0m   "
-                        
+echo -e "\033[1;32mWelcome to ABS Technology Moodle LMS\033[0m"                      
+echo -e "     ___    ____ _____      __    __  ________      __  ___                ____    "
+echo -e "    /   |  / __ ) ___/     / /   /  |/  / ___/     /  |/  /___  ____  ____/ / /__  "
+echo -e "   / /| | / __  \__ \     / /   / /|_/ /\__ \     / /|_/ / __ \/ __ \/ __  / / _ \ "
+echo -e "  / ___ |/ /_/ /__/ /    / /___/ /  / /___/ /    / /  / / /_/ / /_/ / /_/ / /  __/ "
+echo -e " /_/  |_/_____/____/    /_____/_/  /_//____/    /_/  /_/\____/\____/\__,_/_/\___/  "                                                       
+
+# Read version from build metadata (verified at Docker build time).
+_banner_release="unknown"
+if [[ -r /opt/moodle-source/.absi-build-metadata ]]; then
+    _banner_release=$(sed -n '3p' /opt/moodle-source/.absi-build-metadata)
+elif [[ -r /opt/moodle-source/public/version.php ]]; then
+    _banner_release=$(moodle_read_release /opt/moodle-source/public/version.php)
+fi
+[[ -z "$_banner_release" ]] && _banner_release="unknown"
+_banner_php=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.4")
+
 echo ""
 echo " ══════════════════════════════════════════════"
 echo "  🎓 ABSI TECHNOLOGY MOODLE LMS 🎓              "
-echo "     Version: 5.0.1+                           "
-echo "     PHP Version: 8.4                          "
+echo "     Version: ${_banner_release}"
+echo "     PHP Version: ${_banner_php}"
 echo "     Apache Version: 2.4                       "
 echo " ══════════════════════════════════════════════"
 echo "  📞 Support & Resources                        "
 echo "     Website: https://abs.education/            "
-echo "     Support: billnguyen@tiki.edu.vn            "
-echo "     Professional Services: https://abs.education/mod/page/view.php?id=159 "
+echo "     Support: billnguyen@absi.edu.vn            "
+echo "     On Docker Hub: https://hub.docker.com/r/abstechnology/moodle-standard "
+echo "     Google Marketplace: https://console.cloud.google.com/marketplace/browse?filter=partner:ABS%20Technology%20LLC                "
 echo " ══════════════════════════════════════════════"
 
 echo ""
@@ -128,11 +140,11 @@ debug "Starting Moodle application setup..."
 /scripts/setup/moodle.sh
 debug "Moodle application setup completed with exit code: $?"
 
-# 6. Setup Load Balancer Configuration
-info "Setting up load balancer configuration..."
-debug "Starting load balancer setup..."
+# 6. Shared sessions dir (multi-replica). Heavy moodledata chmod is opt-in.
+info "Ensuring moodledata session directory..."
+debug "Starting load-balancer/session setup..."
 /scripts/setup/load-balancer.sh
-debug "Load balancer setup completed with exit code: $?"
+debug "Session setup completed with exit code: $?"
 
 # 7. Execute custom init scripts
 if [[ ! -f "$MOODLE_DATA_DIR/.absi_scripts_initialized" && -d "/docker-entrypoint-init.d" ]]; then

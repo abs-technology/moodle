@@ -2,6 +2,7 @@ services:
   mariadb:
     image: mariadb:11.7.2
     container_name: abs-mariadb
+    restart: unless-stopped
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_USER=${MARIADB_USER}
@@ -22,8 +23,9 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:develop-5.0.2-plus
+    image: abstechnology/moodle-standard:5.2.2-r2
     container_name: abs-moodle
+    restart: unless-stopped
     ports:
       - "80:8080"
       - "443:8443"
@@ -64,10 +66,21 @@ services:
       # Proxy Configuration
       - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
       - MOODLE_SSLPROXY=${MOODLE_SSLPROXY}
-      
+
+      # First-boot performance (see env.example)
+      - MOODLE_BOOTSTRAP_H5P=${MOODLE_BOOTSTRAP_H5P:-background}
+      - MOODLE_OPTIMIZE_COMPOSER=${MOODLE_OPTIMIZE_COMPOSER:-auto}
+      - MOODLE_FIX_DATA_PERMS=${MOODLE_FIX_DATA_PERMS:-no}
+
+      # Upgrade behavior (see env.example for details)
+      - MOODLE_AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE:-no}
+      - MOODLE_BACKUP_DIR=${MOODLE_BACKUP_DIR:-/var/www/moodle-backups}
+      - MOODLE_UPGRADE_RETENTION=${MOODLE_UPGRADE_RETENTION:-5}
+
     volumes:
       - ./data/moodle:/var/www/html
       - ./data/moodledata:/var/www/moodledata
+      - ./data/moodle-backups:/var/www/moodle-backups
     depends_on:
       mariadb:
         condition: service_healthy

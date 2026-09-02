@@ -20,6 +20,18 @@ export MOODLE_DIR="${MOODLE_DIR:-/var/www/html}"
 export MOODLE_DATA_DIR="${MOODLE_DATA_DIR:-/var/www/moodledata}"
 export MOODLE_SOURCE_DIR="${MOODLE_SOURCE_DIR:-/opt/moodle-source}"
 
+# Upgrade-related paths and behavior
+# Backups are written to a dedicated volume to keep them outside moodledata
+# (and so they survive container restarts independently of the app data).
+export MOODLE_BACKUP_DIR="${MOODLE_BACKUP_DIR:-/var/www/moodle-backups}"
+# Number of upgrade snapshots to keep before pruning the oldest ones.
+export MOODLE_UPGRADE_RETENTION="${MOODLE_UPGRADE_RETENTION:-5}"
+# When `yes`, the entrypoint will also run Moodle's CLI database upgrade
+# automatically after the new code is in place. When unset/`no`, the entrypoint
+# only stages the new code and leaves a `.upgrade-pending` marker so an admin
+# can finish the upgrade through the web UI.
+export MOODLE_AUTO_DB_UPGRADE="${MOODLE_AUTO_DB_UPGRADE:-no}"
+
 # ============================================================================
 # PHP CONFIGURATION
 # ============================================================================
@@ -105,6 +117,14 @@ export MOODLE_CRON_MINUTES="${MOODLE_CRON_MINUTES:-1}"
 export MOODLE_HOST="${MOODLE_HOST:-localhost}"
 export MOODLE_REVERSEPROXY="${MOODLE_REVERSEPROXY:-no}"
 export MOODLE_SSLPROXY="${MOODLE_SSLPROXY:-no}"
+
+# First-boot tuning
+# background|sync|no — H5P hub download (~1–2 min); default background so Apache starts sooner
+export MOODLE_BOOTSTRAP_H5P="${MOODLE_BOOTSTRAP_H5P:-background}"
+# auto|yes|no — re-run composer dump-autoload; auto skips when classmap already exists
+export MOODLE_OPTIMIZE_COMPOSER="${MOODLE_OPTIMIZE_COMPOSER:-auto}"
+# yes|no — recursive chown/chmod entire moodledata (slow on large volumes)
+export MOODLE_FIX_DATA_PERMS="${MOODLE_FIX_DATA_PERMS:-no}"
 
 # ============================================================================
 # SYSTEM PATHS

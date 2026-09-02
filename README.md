@@ -11,7 +11,7 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Moodle-5.0.1-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
+  <img src="https://img.shields.io/badge/Moodle-5.2.2-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
   <img src="https://img.shields.io/badge/PHP-8.4-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
   <img src="https://img.shields.io/badge/MariaDB-11.7.2-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
   <img src="https://img.shields.io/badge/License-GPL_v3-blue.svg?style=for-the-badge" alt="License"/>
@@ -29,8 +29,8 @@
 *Get your Moodle LMS running in under 2 minutes!*
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/docker-compose.yml > docker-compose.yml
-curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/env.example > .env
+curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/docker-compose.yml > docker-compose.yml
+curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/env.example > .env
 mkdir -p data/moodle data/moodledata
 chown -R 1000:1000 data/moodle data/moodledata
 docker compose up -d
@@ -120,7 +120,7 @@ docker compose up -d
 <img src="https://img.shields.io/badge/Production-Ready-success?style=for-the-badge" alt="Production Ready"/>
 
 **Latest Technology Stack**
-- 🚀 **Moodle 5.0.1** - Latest features
+- 🚀 **Moodle 5.2.2** - Latest features
 - 🐘 **PHP 8.4** - Performance boost
 - 🗄️ **MariaDB 11.7.2** - Optimized database
 - 🔒 **Security Hardened** - Non-root execution
@@ -238,7 +238,7 @@ docker compose up -d
 
 ## Supported Tags and Respective `Dockerfile` Links
 
-* [`5.0.1`, `5.0`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
+* [`5.2.2-r2`, `5.2.2`, `5.2`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
 
 **Subscribe to project updates by watching the [ABS Technology Moodle GitHub repo](https://github.com/abs-technology/moodle).**
 
@@ -264,7 +264,7 @@ $ docker pull abstechnology/moodle-standard:latest
 To use a specific version, you can pull a versioned tag:
 
 ```console
-$ docker pull abstechnology/moodle-standard:5.0.1
+$ docker pull abstechnology/moodle-standard:5.2.2-r2
 ```
 
 ## How to Use This Image
@@ -274,8 +274,8 @@ $ docker pull abstechnology/moodle-standard:5.0.1
 The main folder of this repository contains a functional [`docker-compose.yml`](https://github.com/abs-technology/moodle/blob/main/docker-compose.yml) file. Run the application using it as shown below:
 
 ```console
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/docker-compose.yml > docker-compose.yml
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/env.example > .env
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/docker-compose.yml > docker-compose.yml
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/env.example > .env
 $ docker-compose up -d
 ```
 
@@ -321,7 +321,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-standard:5.0.1
+  abstechnology/moodle-standard:5.2.2-r2
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -365,46 +365,100 @@ When you start the Moodle image, you can adjust the configuration of the instanc
 ### Full Example
 
 ```yaml
-version: '3.8'
-
 services:
   mariadb:
     image: mariadb:11.7.2
+    container_name: abs-mariadb
     environment:
-      - MARIADB_ROOT_PASSWORD=YourStrongRootPassword
-      - MARIADB_USER=moodle_user
-      - MARIADB_PASSWORD=YourStrongPassword
-      - MARIADB_DATABASE=moodle_db
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_USER=${MARIADB_USER}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
+      - MARIADB_DATABASE=${MARIADB_DATABASE}
+    command:
+      - '--character-set-server=utf8mb4'
+      - '--collation-server=utf8mb4_unicode_ci'
+      - '--init-connect=SET NAMES utf8mb4'
     volumes:
       - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "root", "-p${MARIADB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.0.1
+    image: abstechnology/moodle-standard:5.2.2-r2
+    container_name: abs-moodle
     ports:
       - "80:8080"
       - "443:8443"
     environment:
-      - MOODLE_USERNAME=admin
-      - MOODLE_PASSWORD=YourAdminPassword
-      - MOODLE_EMAIL=admin@yourschool.edu
-      - MOODLE_SITE_NAME=Your School LMS
-      - MOODLE_DATABASE_HOST=mariadb
-      - MOODLE_DATABASE_USER=moodle_user
-      - MOODLE_DATABASE_PASSWORD=YourStrongPassword
-      - MOODLE_DATABASE_NAME=moodle_db
-      - PHP_MEMORY_LIMIT=1G
-      - PHP_POST_MAX_SIZE=5G
-      - PHP_UPLOAD_MAX_FILESIZE=5G
+      # Moodle Admin Configuration
+      - MOODLE_USERNAME=${MOODLE_USERNAME}
+      - MOODLE_PASSWORD=${MOODLE_PASSWORD}
+      - MOODLE_EMAIL=${MOODLE_EMAIL}
+      
+      # Moodle Site Configuration
+      - MOODLE_SITE_NAME=${MOODLE_SITE_NAME}
+      - MOODLE_SITE_FULLNAME=${MOODLE_SITE_FULLNAME}
+      - MOODLE_SITE_SHORTNAME=${MOODLE_SITE_SHORTNAME}
+      - MOODLE_CRON_MINUTES=${MOODLE_CRON_MINUTES}
+      
+      # Database Configuration
+      - MOODLE_DATABASE_TYPE=${MOODLE_DATABASE_TYPE}
+      - MOODLE_DATABASE_HOST=${MOODLE_DATABASE_HOST}
+      - MOODLE_DATABASE_PORT_NUMBER=${MOODLE_DATABASE_PORT_NUMBER}
+      - MOODLE_DATABASE_USER=${MARIADB_USER}
+      - MOODLE_DATABASE_PASSWORD=${MARIADB_PASSWORD}
+      - MOODLE_DATABASE_NAME=${MARIADB_DATABASE}
+      
+      # PHP Configuration Limits
+      - PHP_MEMORY_LIMIT=${PHP_MEMORY_LIMIT}
+      - PHP_MAX_INPUT_VARS=${PHP_MAX_INPUT_VARS}
+      - PHP_MAX_FILE_UPLOADS=${PHP_MAX_FILE_UPLOADS}
+      - PHP_POST_MAX_SIZE=${PHP_POST_MAX_SIZE}
+      - PHP_UPLOAD_MAX_FILESIZE=${PHP_UPLOAD_MAX_FILESIZE}
+      - PHP_MAX_EXECUTION_TIME=${PHP_MAX_EXECUTION_TIME}
+      
+      # MariaDB Connection Configuration
+      - MARIADB_HOST=${MOODLE_DATABASE_HOST}
+      - MARIADB_PORT_NUMBER=${MOODLE_DATABASE_PORT_NUMBER}
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
+      
+      # Proxy Configuration
+      - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
+      - MOODLE_SSLPROXY=${MOODLE_SSLPROXY}
+
+      # Upgrade behavior (see env.example for details)
+      - MOODLE_AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE:-no}
+      - MOODLE_BACKUP_DIR=${MOODLE_BACKUP_DIR:-/var/www/moodle-backups}
+      - MOODLE_UPGRADE_RETENTION=${MOODLE_UPGRADE_RETENTION:-5}
+
     volumes:
-      - ./data/moodle_data:/var/www/html
-      - ./data/moodledata_data:/var/www/moodledata
+      - ./data/moodle:/var/www/html
+      - ./data/moodledata:/var/www/moodledata
+      - ./data/moodle-backups:/var/www/moodle-backups
     depends_on:
-      - mariadb
+      mariadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "if [ \"$$MOODLE_SSLPROXY\" = \"yes\" ]; then curl -f -k https://localhost:8443/login/index.php; else curl -f http://localhost:8080/login/index.php; fi"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - moodle_network
+
+networks:
+  moodle_network:
+    driver: bridge
 
 volumes:
   mariadb_data:
-  moodle_data:
-  moodledata_data:
 ```
 
 ## ⭐ **Key Features & Specifications**

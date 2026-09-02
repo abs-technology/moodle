@@ -1,0 +1,12 @@
+# Giảm build context — không ảnh hưởng runtime
+.git
+.github
+.cursor
+data/
+.env
+*.md
+LICENSE*
+docker-compose.yml
+Makefile
+terminals/
+agent-transcripts/
