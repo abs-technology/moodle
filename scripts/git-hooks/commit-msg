@@ -17,6 +17,6 @@ if grep -E -qi \
   "$MSG_FILE"; then
   echo "ERROR: Commit message contains Cursor attribution/log trailers." >&2
   echo "Remove Co-authored-by/Made-with Cursor lines and retry." >&2
-  echo "See .cursor/skills/no-cursor-repo-leak/SKILL.md" >&2
+  echo "See docs/NO-AGENT-ATTRIBUTION.md" >&2
   exit 1
 fi

@@ -31,20 +31,16 @@ logs/
 ehthumbs.db
 Thumbs.db
 
-# IDE files
+# IDE / AI-editor — never track in this product repo
+.cursor/
 .vscode/
 .idea/
+agent-transcripts/
 *.swp
 *.swo
 *~
 
-# Cursor local-only (keep .cursor/skills and .cursor/rules tracked)
-.cursor/**/*.log
-.cursor/debug.log
-.cursor/ai-tracking/
-agent-transcripts/
-
 # Temporary files
 tmp/
 temp/
-*.tmp 
+*.tmp
