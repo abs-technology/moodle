@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Fail commit if Cursor attribution / checkpoint noise remains in the message.
+# Installed via scripts/git-hooks/install.sh → .git/hooks/commit-msg
+set -euo pipefail
+
+MSG_FILE="${1:-}"
+if [[ -z "$MSG_FILE" || ! -f "$MSG_FILE" ]]; then
+  exit 0
+fi
+
+if grep -E -qi \
+  -e 'cursoragent@cursor\.com' \
+  -e 'Co-authored-by:[[:space:]]*Cursor' \
+  -e 'Made-with:[[:space:]]*Cursor' \
+  -e 'Made with Cursor' \
+  -e '\[Cursor\][[:space:]]+Checkpoint' \
+  "$MSG_FILE"; then
+  echo "ERROR: Commit message contains Cursor attribution/log trailers." >&2
+  echo "Remove Co-authored-by/Made-with Cursor lines and retry." >&2
+  echo "See .cursor/skills/no-cursor-repo-leak/SKILL.md" >&2
+  exit 1
+fi
