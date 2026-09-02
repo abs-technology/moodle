@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Strip Cursor Agent attribution trailers from commit messages.
+# Installed via scripts/git-hooks/install.sh → .git/hooks/prepare-commit-msg
+set -euo pipefail
+
+MSG_FILE="${1:-}"
+if [[ -z "$MSG_FILE" || ! -f "$MSG_FILE" ]]; then
+  exit 0
+fi
+
+# macOS/BSD and GNU sed compatible strip
+tmp="$(mktemp)"
+# Remove common Cursor attribution / checkpoint noise lines
+grep -E -v \
+  -e '^[[:space:]]*Co-authored-by:[[:space:]]*Cursor[[:space:]]*<' \
+  -e 'cursoragent@cursor\.com' \
+  -e '^[[:space:]]*Made-with:[[:space:]]*Cursor' \
+  -e '^[[:space:]]*Made with Cursor' \
+  -e '^[[:space:]]*\[Cursor\][[:space:]]+Checkpoint' \
+  "$MSG_FILE" > "$tmp" || true
+mv "$tmp" "$MSG_FILE"

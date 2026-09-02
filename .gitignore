@@ -38,6 +38,12 @@ Thumbs.db
 *.swo
 *~
 
+# Cursor local-only (keep .cursor/skills and .cursor/rules tracked)
+.cursor/**/*.log
+.cursor/debug.log
+.cursor/ai-tracking/
+agent-transcripts/
+
 # Temporary files
 tmp/
 temp/
