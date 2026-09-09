@@ -37,7 +37,7 @@ chown -R 1000:1000 data/moodle data/moodledata
 docker compose up -d
 ```
 
-Current stack pin: **Moodle 5.2.2** · image **`abstechnology/moodle-standard:5.2.2-r2`** · **PHP 8.4** · compose MariaDB **11.8.9**. Version source of truth: [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock).
+Current stack pin: **Moodle 5.2.2** · image **`abstechnology/moodle-standard:5.2.2-r3`** · **PHP 8.4** · compose MariaDB **11.8.9**. Version source of truth: [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock).
 
 <div align="center">
 
@@ -123,7 +123,7 @@ Current stack pin: **Moodle 5.2.2** · image **`abstechnology/moodle-standard:5.
 <img src="https://img.shields.io/badge/Production-Ready-success?style=for-the-badge" alt="Production Ready"/>
 
 **Latest Technology Stack**
-- 🚀 **Moodle 5.2.2** - Current stable pin (`5.2.2-r2` image)
+- 🚀 **Moodle 5.2.2** - Current stable pin (`5.2.2-r3` image)
 - 🐘 **PHP 8.4** - Performance boost
 - 🗄️ **MariaDB 11.8.9** - Compose database pin
 - 🔒 **Security Hardened** - Non-root execution · Scout gate on push
@@ -241,9 +241,9 @@ Current stack pin: **Moodle 5.2.2** · image **`abstechnology/moodle-standard:5.
 
 ## Supported Tags and Respective `Dockerfile` Links
 
-* [`5.2.2-r2`, `5.2.2`, `5.2`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
+* [`5.2.2-r3`, `5.2.2`, `5.2`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
 
-Pinned in [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock): Moodle **5.2.2** from [packaging.moodle.org stable502](https://packaging.moodle.org/stable502/moodle-5.2.2.tgz), PHP **8.4**, Docker tag **`5.2.2-r2`**.
+Pinned in [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock): Moodle **5.2.2** from [packaging.moodle.org stable502](https://packaging.moodle.org/stable502/moodle-5.2.2.tgz), PHP **8.4**, Docker tag **`5.2.2-r3`**.
 
 Multi-arch Hub image (`linux/amd64` + `linux/arm64`) is built locally with `make push`. Default **`ATTESTATIONS=none`** (no provenance/SBOM attach) for Marketplace-safe publishes. See [`docs/SECURITY-EXCEPTIONS.md`](docs/SECURITY-EXCEPTIONS.md) and [`docs/RELEASE-NOTES-POLICY.md`](docs/RELEASE-NOTES-POLICY.md).
 
@@ -271,7 +271,7 @@ $ docker pull abstechnology/moodle-standard:latest
 To use a specific version, you can pull a versioned tag:
 
 ```console
-$ docker pull abstechnology/moodle-standard:5.2.2-r2
+$ docker pull abstechnology/moodle-standard:5.2.2-r3
 ```
 
 ## How to Use This Image
@@ -329,7 +329,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-standard:5.2.2-r2
+  abstechnology/moodle-standard:5.2.2-r3
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -398,7 +398,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.2.2-r2
+    image: abstechnology/moodle-standard:5.2.2-r3
     container_name: abs-moodle
     restart: unless-stopped
     ports:
@@ -478,7 +478,7 @@ volumes:
 |---------|---------------|---------|
 | 🐘 **PHP Version** | 8.4 with OPcache | Current Moodle 5.2 runtime |
 | 🗄️ **Database** | MariaDB 11.8.9 (compose) | High-performance, MySQL-compatible |
-| 📦 **Image tag** | `5.2.2-r2` | Marketplace-oriented pin (see `versions.lock`) |
+| 📦 **Image tag** | `5.2.2-r3` | Marketplace-oriented pin (see `versions.lock`) |
 | 📁 **File Uploads** | Up to 2GB per file | Support large video/document uploads |
 | 🔄 **Cron Jobs** | Configurable (1-60 min) | Automated maintenance & notifications |
 

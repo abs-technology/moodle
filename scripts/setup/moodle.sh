@@ -1095,17 +1095,61 @@ generate_moodle_config() {
     local config_file="$1"
     info "Generating config.php from environment (first-time setup only)..."
 
-    # Reverse proxy / SSL proxy lines: active when enabled, commented otherwise.
-    local rp_line sp_line
+    # Proxy + shared-session lines: already active when the operator asked for
+    # load balancing at install, commented out (ready to enable) otherwise.
+    # "LB mode" = at least one of the two proxy flags was requested at install.
+    local rp_line sp_line sess_line1 sess_line2 lb_mode='no'
+    local lb_on_hdr
+    if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}" || is_boolean_yes "${MOODLE_SSLPROXY:-no}"; then
+        lb_mode='yes (already enabled below)'
+        lb_on_hdr='// ----- [LB-ON] -- already enabled for this install ------------------'
+    else
+        lb_mode='no (blocks below are ready to enable)'
+        lb_on_hdr='// ----- [LB-ON] -- REMOVE the "//" from the lines below --------------'
+    fi
+
     if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}"; then
         rp_line='$CFG->reverseproxy = true;'
+        sess_line1='$CFG->session_handler_class = '"'"'\core\session\database'"'"';'
+        sess_line2='$CFG->session_database_acquire_lock_timeout = 120;'
     else
-        rp_line='// $CFG->reverseproxy = true;   // enable when behind a load balancer / reverse proxy (MOODLE_REVERSEPROXY=yes)'
+        rp_line='// $CFG->reverseproxy = true;'
+        sess_line1='// $CFG->session_handler_class = '"'"'\core\session\database'"'"';'
+        sess_line2='// $CFG->session_database_acquire_lock_timeout = 120;'
     fi
     if is_boolean_yes "${MOODLE_SSLPROXY:-no}"; then
         sp_line='$CFG->sslproxy = true;'
     else
-        sp_line='// $CFG->sslproxy = true;        // enable when TLS is terminated at the proxy (MOODLE_SSLPROXY=yes)'
+        sp_line='// $CFG->sslproxy = true;'
+    fi
+
+    # MoodleBot self-request override. It helps the Moodle 5.1 router self-check on
+    # a single node with a self-signed certificate, but it must be OFF behind a real
+    # load balancer, where TLS already terminates at the proxy.
+    local moodlebot_block
+    if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}" || is_boolean_yes "${MOODLE_SSLPROXY:-no}"; then
+        moodlebot_block=$(cat <<'MOODLEBOT'
+// ----- [LB-OFF] -- already disabled for this install ----------------
+// Single-node helper, switched off because this site runs behind a proxy.
+// Forcing sslproxy=false here would make Moodle build internal http:// URLs
+// and fail the router self-check.
+// if (!empty($_SERVER['HTTP_USER_AGENT']) && strpos($_SERVER['HTTP_USER_AGENT'], 'MoodleBot') !== false) {
+//     $CFG->sslproxy = false;
+// }
+// ----- [LB-OFF] end -------------------------------------------------
+MOODLEBOT
+)
+    else
+        moodlebot_block=$(cat <<'MOODLEBOT'
+// ----- [LB-OFF] -- ADD "//" to every line below ---------------------
+// Single-node helper: when Moodle calls itself (MoodleBot) it uses plain HTTP,
+// so the router self-check passes even with a self-signed certificate.
+if (!empty($_SERVER['HTTP_USER_AGENT']) && strpos($_SERVER['HTTP_USER_AGENT'], 'MoodleBot') !== false) {
+    $CFG->sslproxy = false;
+}
+// ----- [LB-OFF] end -------------------------------------------------
+MOODLEBOT
+)
     fi
 
     # Bootstrap path. Moodle 5.1+ keeps config.php at the project root and ships a
@@ -1127,6 +1171,21 @@ generate_moodle_config() {
 // IMPORTANT: This file is created only once. Subsequent container restarts and
 // automated upgrades will NOT modify it (it is preserved/restored as-is).
 // Tune it freely - it is yours from here on.
+//
+// ####################################################################
+// ENABLING LOAD BALANCING (2 or more Moodle nodes behind one balancer)
+//
+// There are exactly two kinds of marked blocks in this file:
+//
+//   [LB-ON]   -> REMOVE the leading "//" from the code lines in the block
+//   [LB-OFF]  -> ADD a leading "//" to the code lines in the block
+//
+// Search for "[LB-ON]" and "[LB-OFF]" to find every block. Nothing else
+// in this file needs to be touched.
+//
+// Outside this file you must also give every node the SAME shared
+// \$CFG->dataroot storage (NFS / EFS / Filestore).
+// ####################################################################
 
 unset(\$CFG);
 global \$CFG;
@@ -1156,6 +1215,8 @@ EOF
         cat >> "$config_file" <<EOF
 // ====================================================================
 // Site address (FIXED - from MOODLE_WWWROOT)
+// Already load-balancer friendly: every node returns the same site URL.
+// Nothing to change here.
 // ====================================================================
 \$CFG->wwwroot   = '${MOODLE_WWWROOT}';
 
@@ -1165,14 +1226,18 @@ EOF
         is_boolean_yes "${MOODLE_SSLPROXY:-no}" && sslproxy_bool='true'
         cat >> "$config_file" <<EOF
 // ====================================================================
-// Site address (DYNAMIC detection - MOODLE_WWWROOT not set)
-// Scheme + host are derived per request. For a load-balanced production site
-// it is strongly recommended to use a FIXED site URL instead: comment out the
-// dynamic block below and uncomment the line here with your real domain.
-//
-//   \$CFG->wwwroot = 'https://domain';   // <-- thay 'domain' bằng tên miền thật
-//
+// Site address
 // ====================================================================
+
+// ----- [LB-ON] -- REMOVE the "//" from the next line ----------------
+// Every node must return the exact same site URL, so hard-code it here.
+// \$CFG->wwwroot = 'https://your-domain.com';   // <-- đổi thành tên miền thật
+// ----- [LB-ON] end --------------------------------------------------
+
+// ----- [LB-OFF] -- ADD "//" to every line below ---------------------
+// Single-node / local development only: the site URL is guessed from each
+// incoming request. Behind a balancer different nodes (and health checks)
+// produce different URLs, which breaks logins, links and CSS.
 \$__absi_sslproxy = ${sslproxy_bool};
 if (!empty(\$_SERVER['HTTP_HOST'])) {
     if (\$__absi_sslproxy) {
@@ -1185,6 +1250,7 @@ if (!empty(\$_SERVER['HTTP_HOST'])) {
     \$CFG->wwwroot = \$__absi_sslproxy ? 'https://localhost' : 'http://localhost';
 }
 unset(\$__absi_sslproxy, \$__absi_scheme);
+// ----- [LB-OFF] end -------------------------------------------------
 
 EOF
     fi
@@ -1200,11 +1266,21 @@ EOF
 
 // ====================================================================
 // Load balancing / reverse proxy
-// Enabled automatically when MOODLE_REVERSEPROXY / MOODLE_SSLPROXY are set to
-// "yes" at first start. Otherwise left commented so you can turn them on later.
+// Load balancing at install time: ${lb_mode}
 // ====================================================================
+
+${lb_on_hdr}
 ${rp_line}
 ${sp_line}
+${sess_line1}
+${sess_line2}
+//
+// reverseproxy : trust the X-Forwarded-* headers sent by the balancer.
+// sslproxy     : the balancer serves https and talks http to this container.
+//                Leave it off if each node terminates its own TLS.
+// session_*    : store sessions in the shared database, otherwise users are
+//                logged out every time the balancer moves them to another node.
+// ----- [LB-ON] end --------------------------------------------------
 
 // ====================================================================
 // Moodle 5.1+ compatibility (router + internal cURL self-checks)
@@ -1215,16 +1291,13 @@ ${sp_line}
 \$CFG->router_rewrite_applied = true;
 
 // Allow Moodle's internal self-requests (site checks) to localhost + current host.
+// Works as-is when load balancing; no change needed.
 \$CFG->curlsecurityallowedhosts = 'localhost,127.0.0.1';
 if (!empty(\$_SERVER['HTTP_HOST'])) {
     \$CFG->curlsecurityallowedhosts .= ',' . \$_SERVER['HTTP_HOST'];
 }
 
-// When Moodle calls itself (MoodleBot), use plain HTTP internally so the router
-// self-check passes even behind a self-signed certificate.
-if (!empty(\$_SERVER['HTTP_USER_AGENT']) && strpos(\$_SERVER['HTTP_USER_AGENT'], 'MoodleBot') !== false) {
-    \$CFG->sslproxy = false;
-}
+${moodlebot_block}
 
 ${setup_require}
 

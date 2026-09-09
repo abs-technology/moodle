@@ -23,7 +23,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.2.2-r2
+    image: abstechnology/moodle-standard:5.2.2-r3
     container_name: abs-moodle
     restart: unless-stopped
     ports:
