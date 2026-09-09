@@ -122,7 +122,7 @@ You must:
 To view all licenses of included packages:
 
 ```bash
-docker run --rm abstechnology/moodle-standard:5.2.2-r3 \
+docker run --rm abstechnology/moodle-standard:5.2.2-r4 \
   bash -c "cd /opt/moodle-source && composer licenses"
 ```
 
