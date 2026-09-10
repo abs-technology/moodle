@@ -1,18 +1,23 @@
 # Moodle behind Traefik, TLS terminated at the proxy.
 #
-# Traefik forwards plain http to the container on 8080, so Moodle needs all
-# three of MOODLE_WWWROOT, MOODLE_REVERSEPROXY and MOODLE_SSLPROXY. Enabling
-# only one of the two flags makes Moodle answer 303 See Other to every request.
+# Traefik forwards plain http to the container on 8080 while keeping the original
+# Host header, so Moodle needs MOODLE_WWWROOT + MOODLE_SSLPROXY=yes and
+# MOODLE_REVERSEPROXY=no. Omitting MOODLE_SSLPROXY makes every request answer 303
+# See Other; enabling MOODLE_REVERSEPROXY makes it fail with "reverseproxyabused".
 #
-# This file serves TLS from a certificate you already own, placed in ./certs
-# and wired up by dynamic/tls.yml. For Let's Encrypt, add the override:
+# This file serves TLS from a certificate you already own, placed in ./certs and
+# wired up by dynamic/tls.yml (copied from dynamic/tls.yml.example). For Let's
+# Encrypt, leave that copy unmade and add the override:
 #
 #   docker compose -f docker-compose.yml -f docker-compose.letsencrypt.yml up -d
 #
 # See README.md in this directory.
 services:
   traefik:
-    image: traefik:v3.3
+    # Keep this at v3.6.1 or newer: earlier images talk Docker API 1.24, which
+    # Docker Engine 29 refuses, so the docker provider finds no containers and
+    # Traefik answers 404 for everything.
+    image: traefik:v3.7.13
     container_name: abs-traefik
     restart: unless-stopped
     command:

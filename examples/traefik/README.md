@@ -19,6 +19,7 @@ directly." Only turn it on if you also set `passHostHeader: false`. See
 
 ```bash
 cp .env.example .env          # set MOODLE_DOMAIN
+cp dynamic/tls.yml.example dynamic/tls.yml
 mkdir -p certs
 cp /path/fullchain.pem certs/cert.pem
 cp /path/privkey.pem  certs/key.pem
@@ -26,7 +27,9 @@ docker compose up -d
 ```
 
 `dynamic/tls.yml` registers the pair as Traefik's default certificate, so it is
-served for whatever host you configured.
+served for whatever host you configured. It ships as `.example` because Traefik
+logs `failed to find any PEM data in certificate input` when the file is active
+but `certs/` is empty, which is the normal state under Option B.
 
 ## Option B — Let's Encrypt
 
@@ -37,6 +40,10 @@ challenge is answered on port 80.
 cp .env.example .env          # set MOODLE_DOMAIN and ACME_EMAIL
 docker compose -f docker-compose.yml -f docker-compose.letsencrypt.yml up -d
 ```
+
+`ACME_EMAIL` needs a real public TLD. Let's Encrypt rejects account
+registration with `contact email has invalid domain` for reserved suffixes such
+as `.test` or `.local`.
 
 While testing, uncomment the `caserver` line in
 `docker-compose.letsencrypt.yml` to use the staging CA — the production
