@@ -1099,13 +1099,11 @@ generate_moodle_config() {
     # load balancing at install, commented out (ready to enable) otherwise.
     # "LB mode" = at least one of the two proxy flags was requested at install.
     local rp_line sp_line sess_line1 sess_line2 lb_mode='no'
-    local lb_on_hdr
+    local LB_DOC_URL='https://github.com/abs-technology/moodle/blob/main/docs/LOAD-BALANCING.md'
     if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}" || is_boolean_yes "${MOODLE_SSLPROXY:-no}"; then
-        lb_mode='yes (already enabled below)'
-        lb_on_hdr='// ----- [LB-ON] 2/2 -- already enabled for this install ---------------'
+        lb_mode='yes'
     else
-        lb_mode='no (blocks below are ready to enable)'
-        lb_on_hdr='// ----- [LB-ON] 2/2 -- REMOVE the "//" from the lines below -----------'
+        lb_mode='no'
     fi
 
     if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}"; then
@@ -1136,36 +1134,17 @@ generate_moodle_config() {
     cat > "$config_file" <<EOF
 <?php  // Moodle configuration file
 //
-// Generated automatically on FIRST container start from environment variables.
-// Generated at: $(date -Iseconds)
+// Generated on first container start ($(date -Iseconds)) and never rewritten
+// afterwards, not even by automated upgrades. Tune it freely.
 //
-// IMPORTANT: This file is created only once. Subsequent container restarts and
-// automated upgrades will NOT modify it (it is preserved/restored as-is).
-// Tune it freely - it is yours from here on.
-//
-// ####################################################################
-// ENABLING LOAD BALANCING (2 or more Moodle nodes behind one balancer)
-//
-// Search for "[LB-ON]". There are two such blocks: remove the leading
-// "//" from the code lines inside them. Nothing needs to be commented
-// out - the single-node defaults switch themselves off on their own.
-//
-// Behind a proxy that terminates TLS (Traefik, Nginx, CloudFlare, a
-// cloud load balancer) you must enable BOTH reverseproxy AND sslproxy.
-// Enabling only one of them makes Moodle answer every request with
-// "303 See Other" pointing back at wwwroot. See TROUBLESHOOTING below.
-//
-// Outside this file every node also needs the SAME shared
-// \$CFG->dataroot storage (NFS / EFS / Filestore).
-// ####################################################################
+// Load balancing: uncomment the two [LB-ON] blocks, nothing has to be
+// commented out. Guide: ${LB_DOC_URL}
 
 unset(\$CFG);
 global \$CFG;
 \$CFG = new stdClass();
 
-// ====================================================================
-// Database connection
-// ====================================================================
+// ---- Database ------------------------------------------------------
 \$CFG->dbtype    = '${MOODLE_DATABASE_TYPE}';
 \$CFG->dblibrary = 'native';
 \$CFG->dbhost    = '${MOODLE_DATABASE_HOST}';
@@ -1194,17 +1173,11 @@ EOF
     fi
 
     cat >> "$config_file" <<EOF
-// ====================================================================
-// Site address
-// ====================================================================
-
-// ----- [LB-ON] 1/2 -- REMOVE the "//" from the next line ------------
-// Every node must return the exact same site URL, so hard-code it here.
+// ---- Site address ---------------------------------------------------
+// [LB-ON] 1/2 -- every node must return the same URL.
 ${wwwroot_line}
-// ----- [LB-ON] end --------------------------------------------------
 
-// Single-node fallback: guesses the site URL from each incoming request.
-// It disables itself as soon as wwwroot is set above, so leave it alone.
+// Single-node fallback, skipped once wwwroot is set above.
 if (empty(\$CFG->wwwroot)) {
     \$__absi_sslproxy = ${sslproxy_bool};
     if (!empty(\$_SERVER['HTTP_HOST'])) {
@@ -1224,67 +1197,28 @@ EOF
 
     # --- Storage, admin dir, permissions, LB + Moodle 5.x compat, tail -----
     cat >> "$config_file" <<EOF
-// ====================================================================
-// File storage
-// ====================================================================
+// ---- File storage ---------------------------------------------------
 \$CFG->dataroot  = '${MOODLE_DATA_DIR}';
 \$CFG->admin     = 'admin';
 \$CFG->directorypermissions = 02777;
 
-// ====================================================================
-// Load balancing / reverse proxy
-// Load balancing at install time: ${lb_mode}
-// ====================================================================
-
-${lb_on_hdr}
+// ---- Load balancing (enabled at install: ${lb_mode}) -----------------
+// [LB-ON] 2/2 -- a TLS-terminating proxy (Traefik, Nginx, CloudFlare)
+// needs BOTH reverseproxy and sslproxy, or Moodle 303-redirects everything.
 ${rp_line}
 ${sp_line}
 ${sess_line1}
 ${sess_line2}
-//
-// reverseproxy : trust the X-Forwarded-* headers sent by the balancer.
-//                Required for ANY proxy in front of Moodle.
-// sslproxy     : the proxy serves https and forwards plain http to this
-//                container. Required for Traefik / Nginx / CloudFlare / cloud
-//                load balancers. Only leave it off if every node terminates
-//                its own TLS and Moodle itself receives https.
-// session_*    : store sessions in the shared database, otherwise users are
-//                logged out every time the balancer moves them to another node.
-// ----- [LB-ON] end --------------------------------------------------
 
-// --------------------------------------------------------------------
-// TROUBLESHOOTING - Moodle answers "303 See Other" to every request
-//
-// The redirect comes from initialise_fullme() in lib/setuplib.php and means
-// the request does not match wwwroot. There are only two causes:
-//
-//   1. reverseproxy is off and the request arrives on a host that is not the
-//      wwwroot host (a health check on localhost, or the balancer's own IP).
-//   2. sslproxy is off while wwwroot is https and the proxy forwards plain
-//      http. This is the usual Traefik / Nginx mistake: enable BOTH flags.
-//
-// Enabling only reverseproxy silences cause 1 but not cause 2.
-// --------------------------------------------------------------------
-
-// ====================================================================
-// Moodle 5.1+ compatibility (router + internal cURL self-checks)
-// Baked in once so the "Router correctly serves..." admin check passes without
-// rewriting config.php on every boot.
-// ====================================================================
+// ---- Moodle 5.1+ router self-checks ---------------------------------
 \$CFG->routerconfigured = true;
 \$CFG->router_rewrite_applied = true;
-
-// Allow Moodle's internal self-requests (site checks) to localhost + current host.
-// Works as-is when load balancing; no change needed.
 \$CFG->curlsecurityallowedhosts = 'localhost,127.0.0.1';
 if (!empty(\$_SERVER['HTTP_HOST'])) {
     \$CFG->curlsecurityallowedhosts .= ',' . \$_SERVER['HTTP_HOST'];
 }
 
-// Single-node helper: when Moodle calls itself (MoodleBot) it uses plain HTTP,
-// so the router self-check passes even with a self-signed certificate. It
-// disables itself once reverseproxy is on, because forcing sslproxy off behind
-// a balancer would make Moodle build internal http:// URLs and 303-redirect.
+// Lets the self-check pass on a self-signed cert. Skipped once reverseproxy is on.
 if (empty(\$CFG->reverseproxy)
         && !empty(\$_SERVER['HTTP_USER_AGENT'])
         && strpos(\$_SERVER['HTTP_USER_AGENT'], 'MoodleBot') !== false) {
@@ -1293,8 +1227,7 @@ if (empty(\$CFG->reverseproxy)
 
 ${setup_require}
 
-// There is no php closing tag in this file,
-// it is intentional because it prevents trailing whitespace problems!
+// No closing php tag on purpose: it prevents trailing whitespace problems.
 EOF
 
     chown "${APP_USER}:${APP_GROUP}" "$config_file" 2>/dev/null || true

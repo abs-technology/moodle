@@ -352,6 +352,10 @@ When you start the Moodle image, you can adjust the configuration of the instanc
 - `MOODLE_REVERSEPROXY`: Enable reverse proxy support. Default: **no** (see `env.example`)
 - `MOODLE_SSLPROXY`: Enable SSL proxy support. Default: **no** (set **yes** behind TLS-terminating LB)
 
+Behind Traefik, Nginx, CloudFlare or a cloud load balancer, set **both** to `yes`
+— enabling only one makes Moodle answer every request with `303 See Other`. See
+[docs/LOAD-BALANCING.md](docs/LOAD-BALANCING.md).
+
 #### Database Configuration
 
 - `MOODLE_DATABASE_TYPE`: Database type. Default: **mariadb**
