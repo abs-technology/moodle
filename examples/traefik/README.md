@@ -15,6 +15,48 @@ with HTTP 500 "Reverse proxy enabled so the server cannot be accessed
 directly." Only turn it on if you also set `passHostHeader: false`. See
 [../../docs/LOAD-BALANCING.md](../../docs/LOAD-BALANCING.md).
 
+## Directory layout
+
+Copy this whole directory to the host and run it from there:
+
+```
+traefik/                        # any name; see the note on project names below
+├── docker-compose.yml          # Traefik + MariaDB + Moodle
+├── docker-compose.letsencrypt.yml   # Option B override
+├── .env                        # you create this; chmod 600
+├── .env.example
+├── certs/                      # Option A only: cert.pem + key.pem
+└── dynamic/
+    └── tls.yml.example         # Option A only: copy to tls.yml
+```
+
+Under Option B both `certs/` and `dynamic/` stay empty, and Traefik keeps the
+certificate it obtained in a volume instead.
+
+Everything else lives in named volumes rather than bind mounts, so the host
+directory holds only configuration:
+
+| Volume | Mounted at | Holds |
+|---|---|---|
+| `<project>_moodle_code` | `/var/www/html` | Moodle code and `config.php` |
+| `<project>_moodle_data` | `/var/www/moodledata` | uploads, caches, sessions |
+| `<project>_mariadb_data` | `/var/lib/mysql` | the database |
+| `<project>_traefik_acme` | `/acme` | `acme.json`, the Let's Encrypt account and certificate |
+
+`<project>` is the compose project name, which defaults to the directory name.
+Deleting `<project>_traefik_acme` makes Traefik request a fresh certificate on
+the next start, so avoid it on shared test domains that rate-limit quickly.
+Because the code lives in a volume, read `config.php` through the container:
+
+```bash
+docker exec abs-moodle cat /var/www/html/config.php
+```
+
+The container names are fixed (`abs-traefik`, `abs-moodle`, `abs-mariadb`) and
+Traefik binds ports 80 and 443, so only one stack from this example can run per
+host. Running a second one — the root `docker-compose.yml`, for instance —
+requires stopping this one first, even from a differently named directory.
+
 ## Option A — certificate you already own
 
 ```bash
