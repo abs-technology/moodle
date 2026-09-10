@@ -5,9 +5,9 @@
 #   certs/cert.pem   full chain (leaf first, then intermediates)
 #   certs/key.pem    private key, no passphrase
 #
-# Leave it as .example when using the Let's Encrypt override: Traefik obtains
-# and renews the certificate itself, and an active tls.yml pointing at absent
-# files makes it log "failed to find any PEM data in certificate input".
+# Leave it as .example while TLS_CERTRESOLVER=le: Traefik obtains and renews the
+# certificate itself, and an active tls.yml pointing at absent files makes it log
+# "failed to find any PEM data in certificate input".
 tls:
   stores:
     default:

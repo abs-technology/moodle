@@ -94,9 +94,61 @@ cp /path/fullchain.pem certs/cert.pem
 cp /path/privkey.pem  certs/key.pem
 ```
 
+`cert.pem` has to be the full chain, leaf first and then the intermediates. A
+leaf-only file usually still passes in desktop browsers, which fetch the missing
+issuer themselves, and then fails in mobile apps and anything that validates
+strictly. The key must have no passphrase, because Traefik cannot be prompted
+for one at startup. `MOODLE_DOMAIN` has to appear in the certificate's CN or
+SAN: it is both Traefik's routing rule and Moodle's `$CFG->wwwroot`, so a
+mismatch breaks TLS and the site address at the same time.
+
+Renewal is yours to handle here. Traefik watches the `dynamic/` directory but
+not reliably the contents of the certificate files that directory points at, so
+restart it after replacing the pair:
+
+```bash
+docker compose restart traefik
+```
+
 `tls.yml` ships as `.example` because Traefik logs `failed to find any PEM data
 in certificate input` when the file is active but `certs/` is empty, which is
 the normal state under Let's Encrypt.
+
+### Switching an already running stack
+
+From Let's Encrypt to your own certificate:
+
+```bash
+sed -i 's/^TLS_CERTRESOLVER=.*/TLS_CERTRESOLVER=/' .env
+cp dynamic/tls.yml.example dynamic/tls.yml
+mkdir -p certs
+cp /path/fullchain.pem certs/cert.pem
+cp /path/privkey.pem  certs/key.pem
+docker compose up -d
+```
+
+And back again:
+
+```bash
+sed -i 's/^TLS_CERTRESOLVER=.*/TLS_CERTRESOLVER=le/' .env
+rm -f dynamic/tls.yml certs/cert.pem certs/key.pem
+docker compose up -d
+```
+
+`up -d` recreates only the Moodle container, because the certificate source
+lives in its labels; Traefik picks up the `dynamic/` change on its own. Neither
+direction touches the database or `data/`, and the Let's Encrypt certificate
+stays in `<project>_traefik_acme`, so going back does not order a new one.
+
+Confirm which certificate is live:
+
+```bash
+echo | openssl s_client -servername "$MOODLE_DOMAIN" -connect "$MOODLE_DOMAIN:443" 2>/dev/null \
+  | openssl x509 -noout -issuer -subject -dates
+```
+
+`issuer=C=US, O=Let's Encrypt, ...` means ACME is in use. Your own certificate
+shows its own issuer, and `curl` without `-k` rejects it while it is self-signed.
 
 ## Health checks
 
