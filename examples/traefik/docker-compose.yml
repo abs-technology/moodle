@@ -28,6 +28,13 @@ services:
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
+      # HTTP/3 over QUIC on UDP 443, advertised through the alt-svc header.
+      # Clients that do not speak it keep negotiating HTTP/2, so this is purely
+      # additive — as long as UDP 443 really reaches this host. A firewall that
+      # silently drops it makes browsers wait for a QUIC timeout on the first
+      # request before falling back, so set TRAEFIK_HTTP3=false when UDP cannot
+      # be opened. Only TLS routers can serve HTTP/3, which is all of them here.
+      - --entrypoints.websecure.http3=${TRAEFIK_HTTP3:-true}
       # Everything is served over https; plain http only redirects.
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
@@ -43,7 +50,9 @@ services:
       - --certificatesresolvers.le.acme.caserver=${ACME_CASERVER:-https://acme-v02.api.letsencrypt.org/directory}
     ports:
       - "80:80"
-      - "443:443"
+      - "443:443/tcp"
+      # Docker publishes TCP only unless asked, and QUIC is UDP on the same port.
+      - "443:443/udp"
     volumes:
       # Read-only socket: Traefik only needs to discover containers.
       - /var/run/docker.sock:/var/run/docker.sock:ro

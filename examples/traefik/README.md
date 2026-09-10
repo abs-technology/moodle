@@ -150,6 +150,57 @@ echo | openssl s_client -servername "$MOODLE_DOMAIN" -connect "$MOODLE_DOMAIN:44
 `issuer=C=US, O=Let's Encrypt, ...` means ACME is in use. Your own certificate
 shows its own issuer, and `curl` without `-k` rejects it while it is self-signed.
 
+## HTTP/3 (QUIC)
+
+Enabled by default. Traefik keeps listening on TCP 443 and additionally serves
+QUIC on **UDP 443**, advertising it through the `alt-svc` response header:
+
+```
+alt-svc: h3=":443"; ma=2592000
+```
+
+Clients decide for themselves. A browser or app that speaks HTTP/3 upgrades on
+its next request; everything else negotiates HTTP/2 exactly as before, so
+enabling this takes nothing away. Only routers with TLS can serve HTTP/3, which
+is every router in this stack.
+
+Two things are required beyond the defaults in `docker-compose.yml`, and both
+are already set there: the entrypoint flag, and publishing the UDP port, which
+Docker does not do implicitly.
+
+```yaml
+- --entrypoints.websecure.http3=${TRAEFIK_HTTP3:-true}
+ports:
+  - "443:443/tcp"
+  - "443:443/udp"
+```
+
+**Open UDP 443 in every firewall in front of this host.** Host firewalls, cloud
+security groups and NAT rules commonly allow TCP 443 only. If UDP is dropped
+silently rather than rejected, browsers see the `alt-svc` promise, attempt QUIC,
+and wait for a timeout before falling back — slower than never advertising it.
+Set `TRAEFIK_HTTP3=false` in `.env` and `docker compose up -d` when you cannot
+open UDP.
+
+If the public port differs from 443 — behind a port-mapping NAT, for instance —
+add the advertised port so `alt-svc` names the port clients can actually reach:
+
+```yaml
+- --entrypoints.websecure.http3.advertisedport=8443
+```
+
+Verify it, with a client that actually supports HTTP/3 — the curl shipped with
+macOS does not:
+
+```bash
+curl -sI https://$MOODLE_DOMAIN/ | grep -i alt-svc     # h3=":443"; ma=2592000
+docker run --rm ymuski/curl-http3 curl -sS --http3-only -o /dev/null \
+  -w 'HTTP/%{http_version} %{http_code}\n' https://$MOODLE_DOMAIN/
+```
+
+The second command prints `HTTP/3 303` when QUIC works end to end. `QUIC:
+connection to ... refused` means UDP 443 is not reaching Traefik.
+
 ## Health checks
 
 Traefik probes `/readyz`, not `/login/index.php`:
