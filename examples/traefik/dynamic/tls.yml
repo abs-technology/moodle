@@ -1,0 +1,17 @@
+# Traefik file provider: serve TLS from a certificate you already own.
+#
+# Put the PEM-encoded pair in ../certs before starting:
+#   certs/cert.pem   full chain (leaf first, then intermediates)
+#   certs/key.pem    private key, no passphrase
+#
+# Not used by the Let's Encrypt override, which lets Traefik obtain and renew
+# the certificate itself.
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/traefik/certs/cert.pem
+        keyFile: /etc/traefik/certs/key.pem
+  certificates:
+    - certFile: /etc/traefik/certs/cert.pem
+      keyFile: /etc/traefik/certs/key.pem

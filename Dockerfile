@@ -115,6 +115,7 @@ RUN groupadd -g $APP_GID $APP_GROUP 2>/dev/null || true \
 RUN mkdir -p /var/www/html \
            /var/www/moodledata \
            /var/www/moodle-backups \
+           /var/www/moodlelocalcache \
            /var/log/apache2 \
            /var/run/apache2 \
            /var/run/php \
@@ -224,6 +225,12 @@ COPY config/apache/sites/000-default.conf /etc/apache2/sites-available/000-defau
 COPY config/apache/sites/000-default-ssl.conf /etc/apache2/sites-available/000-default-ssl.conf
 COPY config/apache/conf/other-vhosts-access-log.conf /etc/apache2/conf-available/other-vhosts-access-log.conf
 COPY config/apache/conf/security2.conf /etc/apache2/conf-available/security2.conf
+
+# Health probes, served from outside the Moodle tree so they never go through
+# Moodle's wwwroot check. See config/apache/sites/000-default.conf.
+COPY --chown=$APP_USER:$APP_GROUP config/health/ /var/www/health/
+RUN chmod 0644 /var/www/health/*.php
+
 RUN a2ensite 000-default.conf \
     && a2ensite 000-default-ssl.conf \
     && a2enconf other-vhosts-access-log \
@@ -268,11 +275,24 @@ RUN ln -sf /dev/stdout /var/log/apache2/access.log \
     && ln -sf /dev/stdout /var/log/apache2/other_vhosts_access.log \
     && ln -sf /dev/stdout /var/log/php${PHP_VERSION}-fpm.log
 
-# Ensure permissions for data and log directories
-RUN chown -R $APP_USER:$APP_GROUP /var/www/moodledata \
+# Ensure permissions for data and log directories.
+# /var/www/html must belong to the app user even though the Moodle tree is
+# unpacked at runtime: a fresh named volume inherits the ownership of the
+# directory it shadows, and the entrypoint runs unprivileged, so leaving it
+# root-owned makes `moodle_code:/var/www/html` fail with
+# "chown: changing ownership of '/var/www/html': Operation not permitted".
+# Drop Debian's default index.html: DocumentRoot is /var/www/html/public, so the
+# file is never served, it lands as cruft in the Moodle root, and being
+# root-owned it makes the entrypoint's chown fail on a fresh named volume.
+RUN rm -f /var/www/html/index.html \
+    && chown -R $APP_USER:$APP_GROUP /var/www/html \
+    && chmod 775 /var/www/html \
+    && chown -R $APP_USER:$APP_GROUP /var/www/moodledata \
     && chmod -R 775 /var/www/moodledata \
     && chown -R $APP_USER:$APP_GROUP /var/www/moodle-backups \
     && chmod -R 775 /var/www/moodle-backups \
+    && chown -R $APP_USER:$APP_GROUP /var/www/moodlelocalcache \
+    && chmod -R 775 /var/www/moodlelocalcache \
     && chown -R $APP_USER:$APP_GROUP /var/run/php \
     && chmod -R 775 /var/run/php \
     && chown -R $APP_USER:$APP_GROUP /scripts \
@@ -289,6 +309,12 @@ WORKDIR /var/www/html
 USER $APP_USER:$APP_GROUP
 
 EXPOSE 8080 8443
+
+# Liveness only: /healthz bypasses Moodle, so it answers 200 no matter what
+# $CFG->wwwroot is set to. Load balancers should probe /readyz instead, which
+# also verifies the database and drains nodes in maintenance mode.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=5 \
+    CMD curl -fsS -o /dev/null http://localhost:8080/healthz || exit 1
 
 # Entrypoint for container
 ENTRYPOINT ["/scripts/entrypoint.sh"]

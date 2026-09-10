@@ -23,7 +23,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.2.2-r4
+    image: abstechnology/moodle-standard:5.2.2-r5
     container_name: abs-moodle
     restart: unless-stopped
     ports:
@@ -63,9 +63,13 @@ services:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_PASSWORD=${MARIADB_PASSWORD}
       
-      # Proxy Configuration
-      - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
+      # Proxy / load balancer — see docs/LOAD-BALANCING.md. Behind Traefik, GCP
+      # or AWS set MOODLE_WWWROOT + MOODLE_SSLPROXY=yes and leave
+      # MOODLE_REVERSEPROXY=no (they forward the original Host header).
+      - MOODLE_WWWROOT=${MOODLE_WWWROOT:-}
       - MOODLE_SSLPROXY=${MOODLE_SSLPROXY}
+      - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
+      - MOODLE_CLUSTER=${MOODLE_CLUSTER:-no}
 
       # First-boot performance (see env.example)
       - MOODLE_BOOTSTRAP_H5P=${MOODLE_BOOTSTRAP_H5P:-background}
@@ -84,12 +88,15 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
+    # /healthz bypasses Moodle, so it stays 200 regardless of MOODLE_WWWROOT,
+    # MOODLE_SSLPROXY or which node the request lands on. Use /readyz on the
+    # load balancer when unhealthy nodes should be drained instead.
     healthcheck:
-      test: ["CMD", "sh", "-c", "if [ \"$$MOODLE_SSLPROXY\" = \"yes\" ]; then curl -f -k https://localhost:8443/login/index.php; else curl -f http://localhost:8080/login/index.php; fi"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s
     networks:
       - moodle_network
 

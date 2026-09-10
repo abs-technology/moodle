@@ -9,6 +9,14 @@ data/moodledata/*
 # Environment file with sensitive information
 .env
 
+# Credentials — SSH keys, TLS keys, certificates
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
+
 # Docker volumes data
 volumes/
 

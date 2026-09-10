@@ -37,7 +37,7 @@ chown -R 1000:1000 data/moodle data/moodledata
 docker compose up -d
 ```
 
-Current stack pin: **Moodle 5.2.2** · image **`abstechnology/moodle-standard:5.2.2-r4`** · **PHP 8.4** · compose MariaDB **11.8.9**. Version source of truth: [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock).
+Current stack pin: **Moodle 5.2.2** · image **`abstechnology/moodle-standard:5.2.2-r5`** · **PHP 8.4** · compose MariaDB **11.8.9**. Version source of truth: [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock).
 
 <div align="center">
 
@@ -123,7 +123,7 @@ Current stack pin: **Moodle 5.2.2** · image **`abstechnology/moodle-standard:5.
 <img src="https://img.shields.io/badge/Production-Ready-success?style=for-the-badge" alt="Production Ready"/>
 
 **Latest Technology Stack**
-- 🚀 **Moodle 5.2.2** - Current stable pin (`5.2.2-r4` image)
+- 🚀 **Moodle 5.2.2** - Current stable pin (`5.2.2-r5` image)
 - 🐘 **PHP 8.4** - Performance boost
 - 🗄️ **MariaDB 11.8.9** - Compose database pin
 - 🔒 **Security Hardened** - Non-root execution · Scout gate on push
@@ -241,9 +241,9 @@ Current stack pin: **Moodle 5.2.2** · image **`abstechnology/moodle-standard:5.
 
 ## Supported Tags and Respective `Dockerfile` Links
 
-* [`5.2.2-r4`, `5.2.2`, `5.2`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
+* [`5.2.2-r5`, `5.2.2`, `5.2`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
 
-Pinned in [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock): Moodle **5.2.2** from [packaging.moodle.org stable502](https://packaging.moodle.org/stable502/moodle-5.2.2.tgz), PHP **8.4**, Docker tag **`5.2.2-r4`**.
+Pinned in [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock): Moodle **5.2.2** from [packaging.moodle.org stable502](https://packaging.moodle.org/stable502/moodle-5.2.2.tgz), PHP **8.4**, Docker tag **`5.2.2-r5`**.
 
 Multi-arch Hub image (`linux/amd64` + `linux/arm64`) is built locally with `make push`. Default **`ATTESTATIONS=none`** (no provenance/SBOM attach) for Marketplace-safe publishes. See [`docs/SECURITY-EXCEPTIONS.md`](docs/SECURITY-EXCEPTIONS.md) and [`docs/RELEASE-NOTES-POLICY.md`](docs/RELEASE-NOTES-POLICY.md).
 
@@ -271,7 +271,7 @@ $ docker pull abstechnology/moodle-standard:latest
 To use a specific version, you can pull a versioned tag:
 
 ```console
-$ docker pull abstechnology/moodle-standard:5.2.2-r4
+$ docker pull abstechnology/moodle-standard:5.2.2-r5
 ```
 
 ## How to Use This Image
@@ -329,7 +329,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-standard:5.2.2-r4
+  abstechnology/moodle-standard:5.2.2-r5
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -349,12 +349,15 @@ When you start the Moodle image, you can adjust the configuration of the instanc
 - `MOODLE_SITE_FULLNAME`: Moodle site full name. Default: **Absi Technology Learning Management System**
 - `MOODLE_SITE_SHORTNAME`: Moodle site short name. Default: **ABS-LMS**
 - `MOODLE_CRON_MINUTES`: Moodle cron job interval in minutes. Default: **1**
-- `MOODLE_REVERSEPROXY`: Enable reverse proxy support. Default: **no** (see `env.example`)
-- `MOODLE_SSLPROXY`: Enable SSL proxy support. Default: **no** (set **yes** behind TLS-terminating LB)
+- `MOODLE_WWWROOT`: Public site URL, identical on every node. Default: **empty** (guessed per request)
+- `MOODLE_SSLPROXY`: Proxy terminates TLS and forwards http. Default: **no** (set **yes** behind Traefik/Nginx/CloudFlare/GCP/AWS)
+- `MOODLE_REVERSEPROXY`: Only for proxies that rewrite the `Host` header. Default: **no** — keep it **no** for Traefik, AWS ALB and GCP
+- `MOODLE_CLUSTER`: Shared DB sessions + node-local cache for 2+ nodes. Default: **no**
 
-Behind Traefik, Nginx, CloudFlare or a cloud load balancer, set **both** to `yes`
-— enabling only one makes Moodle answer every request with `303 See Other`. See
-[docs/LOAD-BALANCING.md](docs/LOAD-BALANCING.md).
+Behind a TLS-terminating proxy set `MOODLE_WWWROOT` and `MOODLE_SSLPROXY=yes`,
+and leave `MOODLE_REVERSEPROXY=no`: Moodle 5.x rejects `reverseproxy` when the
+proxy forwards the original `Host`. Load balancers must probe `/readyz`, never
+`/login/index.php`. Full guide: [docs/LOAD-BALANCING.md](docs/LOAD-BALANCING.md).
 
 #### Database Configuration
 
@@ -402,7 +405,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.2.2-r4
+    image: abstechnology/moodle-standard:5.2.2-r5
     container_name: abs-moodle
     restart: unless-stopped
     ports:
@@ -442,9 +445,11 @@ services:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_PASSWORD=${MARIADB_PASSWORD}
       
-      # Proxy Configuration
-      - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
+      # Proxy Configuration (see docs/LOAD-BALANCING.md)
+      - MOODLE_WWWROOT=${MOODLE_WWWROOT:-}
       - MOODLE_SSLPROXY=${MOODLE_SSLPROXY}
+      - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
+      - MOODLE_CLUSTER=${MOODLE_CLUSTER:-no}
 
       # Upgrade behavior (see env.example for details)
       - MOODLE_AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE:-no}
@@ -459,7 +464,7 @@ services:
       mariadb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "sh", "-c", "if [ \"$$MOODLE_SSLPROXY\" = \"yes\" ]; then curl -f -k https://localhost:8443/login/index.php; else curl -f http://localhost:8080/login/index.php; fi"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -482,7 +487,7 @@ volumes:
 |---------|---------------|---------|
 | 🐘 **PHP Version** | 8.4 with OPcache | Current Moodle 5.2 runtime |
 | 🗄️ **Database** | MariaDB 11.8.9 (compose) | High-performance, MySQL-compatible |
-| 📦 **Image tag** | `5.2.2-r4` | Marketplace-oriented pin (see `versions.lock`) |
+| 📦 **Image tag** | `5.2.2-r5` | Marketplace-oriented pin (see `versions.lock`) |
 | 📁 **File Uploads** | Up to 2GB per file | Support large video/document uploads |
 | 🔄 **Cron Jobs** | Configurable (1-60 min) | Automated maintenance & notifications |
 

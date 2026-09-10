@@ -1,0 +1,131 @@
+# Moodle behind Traefik, TLS terminated at the proxy.
+#
+# Traefik forwards plain http to the container on 8080, so Moodle needs all
+# three of MOODLE_WWWROOT, MOODLE_REVERSEPROXY and MOODLE_SSLPROXY. Enabling
+# only one of the two flags makes Moodle answer 303 See Other to every request.
+#
+# This file serves TLS from a certificate you already own, placed in ./certs
+# and wired up by dynamic/tls.yml. For Let's Encrypt, add the override:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.letsencrypt.yml up -d
+#
+# See README.md in this directory.
+services:
+  traefik:
+    image: traefik:v3.3
+    container_name: abs-traefik
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # Everything is served over https; plain http only redirects.
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --log.level=INFO
+      - --accesslog=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Read-only socket: Traefik only needs to discover containers.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
+      - ./certs:/etc/traefik/certs:ro
+    networks:
+      - moodle_network
+
+  mariadb:
+    image: mariadb:11.8.9
+    container_name: abs-mariadb
+    restart: unless-stopped
+    environment:
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_USER=${MARIADB_USER}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
+      - MARIADB_DATABASE=${MARIADB_DATABASE}
+    command:
+      - '--character-set-server=utf8mb4'
+      - '--collation-server=utf8mb4_unicode_ci'
+      - '--init-connect=SET NAMES utf8mb4'
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "root", "-p${MARIADB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - moodle_network
+
+  moodle:
+    image: abstechnology/moodle-standard:5.2.2-r5
+    container_name: abs-moodle
+    restart: unless-stopped
+    # No published ports: Traefik is the only way in.
+    environment:
+      - MOODLE_USERNAME=${MOODLE_USERNAME}
+      - MOODLE_PASSWORD=${MOODLE_PASSWORD}
+      - MOODLE_EMAIL=${MOODLE_EMAIL}
+      - MOODLE_SITE_NAME=${MOODLE_SITE_NAME}
+
+      - MOODLE_DATABASE_TYPE=mariadb
+      - MOODLE_DATABASE_HOST=mariadb
+      - MOODLE_DATABASE_PORT_NUMBER=3306
+      - MOODLE_DATABASE_USER=${MARIADB_USER}
+      - MOODLE_DATABASE_PASSWORD=${MARIADB_PASSWORD}
+      - MOODLE_DATABASE_NAME=${MARIADB_DATABASE}
+
+      # The entrypoint waits for the database and provisions the schema as root,
+      # so it needs the admin credentials too — not just the Moodle user.
+      - MARIADB_HOST=mariadb
+      - MARIADB_PORT_NUMBER=3306
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
+
+      # Traefik terminates TLS, so sslproxy is on. reverseproxy stays OFF because
+      # Traefik forwards the original Host header (passHostHeader defaults to
+      # true) and Moodle rejects that combination with "reverseproxyabused".
+      - MOODLE_WWWROOT=https://${MOODLE_DOMAIN}
+      - MOODLE_SSLPROXY=yes
+      - MOODLE_REVERSEPROXY=no
+      # Set to yes once you run more than one Moodle node.
+      - MOODLE_CLUSTER=no
+    volumes:
+      - moodle_code:/var/www/html
+      - moodle_data:/var/www/moodledata
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.moodle.rule=Host(`${MOODLE_DOMAIN}`)
+      - traefik.http.routers.moodle.entrypoints=websecure
+      - traefik.http.routers.moodle.tls=true
+      # Moodle listens on 8080 for plain http; Traefik holds the TLS side.
+      - traefik.http.services.moodle.loadbalancer.server.port=8080
+      # Probe the endpoint that bypasses Moodle's wwwroot check, so Traefik
+      # never sees the 303 that /login/index.php returns for a non-wwwroot host.
+      - traefik.http.services.moodle.loadbalancer.healthcheck.path=/readyz
+      - traefik.http.services.moodle.loadbalancer.healthcheck.interval=15s
+      - traefik.http.services.moodle.loadbalancer.healthcheck.timeout=5s
+    networks:
+      - moodle_network
+
+networks:
+  moodle_network:
+    driver: bridge
+
+volumes:
+  mariadb_data:
+  moodle_code:
+  moodle_data:

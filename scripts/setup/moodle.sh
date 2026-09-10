@@ -1098,28 +1098,42 @@ generate_moodle_config() {
     # Proxy + shared-session lines: already active when the operator asked for
     # load balancing at install, commented out (ready to enable) otherwise.
     # "LB mode" = at least one of the two proxy flags was requested at install.
-    local rp_line sp_line sess_line1 sess_line2 lb_mode='no'
+    local rp_line sp_line sess_line1 sess_line2 cache_line lb_mode
     local LB_DOC_URL='https://github.com/abs-technology/moodle/blob/main/docs/LOAD-BALANCING.md'
-    if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}" || is_boolean_yes "${MOODLE_SSLPROXY:-no}"; then
-        lb_mode='yes'
-    else
-        lb_mode='no'
-    fi
 
-    if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}"; then
-        rp_line='$CFG->reverseproxy = true;'
-        sess_line1='$CFG->session_handler_class = '"'"'\core\session\database'"'"';'
-        sess_line2='$CFG->session_database_acquire_lock_timeout = 120;'
-    else
-        rp_line='// $CFG->reverseproxy = true;'
-        sess_line1='// $CFG->session_handler_class = '"'"'\core\session\database'"'"';'
-        sess_line2='// $CFG->session_database_acquire_lock_timeout = 120;'
-    fi
+    # sslproxy: the proxy terminates TLS and forwards plain http to us.
     if is_boolean_yes "${MOODLE_SSLPROXY:-no}"; then
         sp_line='$CFG->sslproxy = true;'
     else
         sp_line='// $CFG->sslproxy = true;'
     fi
+
+    # reverseproxy is NOT "there is a proxy in front of me". Moodle 5.x aborts
+    # with "reverseproxyabused" (lib/setuplib.php) whenever reverseproxy is on
+    # and the request Host equals the wwwroot host, because it expects the proxy
+    # to rewrite Host to this node's internal name. Traefik, AWS ALB and GCP all
+    # forward the original Host, so they need this OFF.
+    if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}"; then
+        rp_line='$CFG->reverseproxy = true;'
+    else
+        rp_line='// $CFG->reverseproxy = true;'
+    fi
+
+    # Cluster settings, independent of how the proxy handles Host:
+    #  - sessions must be shared or users get logged out when moved to a node
+    #  - localcachedir must NOT live on shared dataroot; Moodle documents it as
+    #    "not shared by cluster nodes" yet defaults it to $CFG->dataroot/localcache
+    if is_boolean_yes "${MOODLE_CLUSTER:-no}"; then
+        sess_line1='$CFG->session_handler_class = '"'"'\core\session\database'"'"';'
+        sess_line2='$CFG->session_database_acquire_lock_timeout = 120;'
+        cache_line="\$CFG->localcachedir = '${MOODLE_LOCALCACHE_DIR}';"
+    else
+        sess_line1='// $CFG->session_handler_class = '"'"'\core\session\database'"'"';'
+        sess_line2='// $CFG->session_database_acquire_lock_timeout = 120;'
+        cache_line="// \$CFG->localcachedir = '${MOODLE_LOCALCACHE_DIR}';"
+    fi
+
+    lb_mode="sslproxy=${MOODLE_SSLPROXY:-no} reverseproxy=${MOODLE_REVERSEPROXY:-no} cluster=${MOODLE_CLUSTER:-no}"
 
     # Bootstrap path. Moodle 5.1+ keeps config.php at the project root and ships a
     # root-level lib/setup.php shim that delegates into public/, so the standard
@@ -1202,13 +1216,25 @@ EOF
 \$CFG->admin     = 'admin';
 \$CFG->directorypermissions = 02777;
 
-// ---- Load balancing (enabled at install: ${lb_mode}) -----------------
-// [LB-ON] 2/2 -- a TLS-terminating proxy (Traefik, Nginx, CloudFlare)
-// needs BOTH reverseproxy and sslproxy, or Moodle 303-redirects everything.
-${rp_line}
+// ---- Proxy / load balancer (at install: ${lb_mode}) --
+// [LB-ON] 2/2 -- guide: ${LB_DOC_URL}
+//
+// sslproxy      the proxy terminates TLS and forwards plain http to this
+//               container. Traefik, Nginx, CloudFlare, GCP and AWS all do this.
+// reverseproxy  ONLY when the proxy rewrites Host to this node's internal name
+//               (Traefik passHostHeader=false, nginx proxy_set_header Host
+//               <backend>). Leave it OFF when the proxy forwards the original
+//               Host, which is the default for Traefik, AWS ALB and GCP —
+//               otherwise Moodle aborts every request with "reverseproxyabused".
+// session_*     shared sessions, required as soon as there are 2+ nodes.
+// localcachedir keeps the local cache off shared dataroot storage.
+//
+// Balancers must probe /readyz, never /login/index.php.
 ${sp_line}
+${rp_line}
 ${sess_line1}
 ${sess_line2}
+${cache_line}
 
 // ---- Moodle 5.1+ router self-checks ---------------------------------
 \$CFG->routerconfigured = true;
@@ -1218,8 +1244,11 @@ if (!empty(\$_SERVER['HTTP_HOST'])) {
     \$CFG->curlsecurityallowedhosts .= ',' . \$_SERVER['HTTP_HOST'];
 }
 
-// Lets the self-check pass on a self-signed cert. Skipped once reverseproxy is on.
-if (empty(\$CFG->reverseproxy)
+// Lets the router self-check pass on the baked-in self-signed certificate. Only
+// applies while the site still answers on localhost: with a real domain in
+// wwwroot the proxy owns TLS, and forcing sslproxy off here would make Moodle
+// build http:// URLs and 303-redirect its own self-requests.
+if (strpos(\$CFG->wwwroot, '//localhost') !== false
         && !empty(\$_SERVER['HTTP_USER_AGENT'])
         && strpos(\$_SERVER['HTTP_USER_AGENT'], 'MoodleBot') !== false) {
     \$CFG->sslproxy = false;

@@ -19,6 +19,11 @@ export APP_GID="${APP_GID:-1000}"
 export MOODLE_DIR="${MOODLE_DIR:-/var/www/html}"
 export MOODLE_DATA_DIR="${MOODLE_DATA_DIR:-/var/www/moodledata}"
 export MOODLE_SOURCE_DIR="${MOODLE_SOURCE_DIR:-/opt/moodle-source}"
+# Moodle's local cache must NOT be shared between cluster nodes, so it lives on
+# container-local disk rather than under MOODLE_DATA_DIR (which becomes NFS/EFS
+# in a load-balanced deployment). Only referenced when the site runs behind a
+# proxy; see docs/LOAD-BALANCING.md.
+export MOODLE_LOCALCACHE_DIR="${MOODLE_LOCALCACHE_DIR:-/var/www/moodlelocalcache}"
 
 # Upgrade-related paths and behavior
 # Backups are written to a dedicated volume to keep them outside moodledata
@@ -117,6 +122,9 @@ export MOODLE_CRON_MINUTES="${MOODLE_CRON_MINUTES:-1}"
 export MOODLE_HOST="${MOODLE_HOST:-localhost}"
 export MOODLE_REVERSEPROXY="${MOODLE_REVERSEPROXY:-no}"
 export MOODLE_SSLPROXY="${MOODLE_SSLPROXY:-no}"
+# yes when two or more Moodle nodes share one database and one dataroot: turns on
+# shared database sessions and moves the local cache off the shared mount.
+export MOODLE_CLUSTER="${MOODLE_CLUSTER:-no}"
 
 # First-boot tuning
 # background|sync|no — H5P hub download (~1–2 min); default background so Apache starts sooner
