@@ -5,11 +5,12 @@
 # MOODLE_REVERSEPROXY=no. Omitting MOODLE_SSLPROXY makes every request answer 303
 # See Other; enabling MOODLE_REVERSEPROXY makes it fail with "reverseproxyabused".
 #
-# This file serves TLS from a certificate you already own, placed in ./certs and
-# wired up by dynamic/tls.yml (copied from dynamic/tls.yml.example). For Let's
-# Encrypt, leave that copy unmade and add the override:
+# One file for both certificate sources, selected by TLS_CERTRESOLVER in .env:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.letsencrypt.yml up -d
+#   TLS_CERTRESOLVER=le   Traefik obtains and renews from Let's Encrypt (default)
+#   TLS_CERTRESOLVER=     Traefik serves ./certs via dynamic/tls.yml instead
+#
+# Either way the command is: docker compose up -d
 #
 # See README.md in this directory.
 services:
@@ -32,6 +33,14 @@ services:
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --log.level=INFO
       - --accesslog=true
+      # ACME over HTTP-01. Declaring the resolver costs nothing when no router
+      # references it: Traefik only contacts the CA to satisfy a certificate
+      # request, so with TLS_CERTRESOLVER empty it never reaches out.
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/acme/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.le.acme.caserver=${ACME_CASERVER:-https://acme-v02.api.letsencrypt.org/directory}
     ports:
       - "80:80"
       - "443:443"
@@ -40,6 +49,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./dynamic:/etc/traefik/dynamic:ro
       - ./certs:/etc/traefik/certs:ro
+      - traefik_acme:/acme
     networks:
       - moodle_network
 
@@ -120,6 +130,10 @@ services:
       - traefik.http.routers.moodle.rule=Host(`${MOODLE_DOMAIN}`)
       - traefik.http.routers.moodle.entrypoints=websecure
       - traefik.http.routers.moodle.tls=true
+      # Empty means "use the default certificate", i.e. the one dynamic/tls.yml
+      # registers from ./certs. The single-dash default keeps an explicitly empty
+      # value empty instead of falling back to le.
+      - traefik.http.routers.moodle.tls.certresolver=${TLS_CERTRESOLVER-le}
       # Moodle listens on 8080 for plain http; Traefik holds the TLS side.
       - traefik.http.services.moodle.loadbalancer.server.port=8080
       # Probe the endpoint that bypasses Moodle's wwwroot check, so Traefik
@@ -136,3 +150,4 @@ networks:
 
 volumes:
   mariadb_data:
+  traefik_acme:

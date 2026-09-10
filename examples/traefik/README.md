@@ -21,27 +21,25 @@ Copy this whole directory to the host and run it from there:
 
 ```
 traefik/                        # any name; see the note on project names below
-├── docker-compose.yml          # Traefik + MariaDB + Moodle
-├── docker-compose.letsencrypt.yml   # Option B override
+├── docker-compose.yml          # Traefik + MariaDB + Moodle, the only compose file
 ├── .env                        # you create this; chmod 600
 ├── .env.example
-├── certs/                      # Option A only: cert.pem + key.pem
+├── certs/                      # own certificate only: cert.pem + key.pem
 ├── dynamic/
-│   └── tls.yml.example         # Option A only: copy to tls.yml
+│   └── tls.yml.example         # own certificate only: copy to tls.yml
 └── data/                       # created before the first start, uid 1000
     ├── moodle/                 # /var/www/html — code and config.php
     ├── moodledata/             # /var/www/moodledata — uploads, caches, sessions
     └── moodle-backups/         # /var/www/moodle-backups — pre-upgrade snapshots
 ```
 
-Under Option B both `certs/` and `dynamic/` stay empty, and Traefik keeps the
-certificate it obtained in a volume instead.
+With Let's Encrypt both `certs/` and `dynamic/` stay empty, and Traefik keeps
+the certificate it obtained in a volume instead.
 
 `data/` is bind-mounted, the same layout the root `docker-compose.yml` uses, so
 `config.php` and `moodledata` stay readable on the host. It has to exist and
 belong to uid 1000 before the first start — the container runs unprivileged as
-`absiuser` and cannot chown a directory it does not own. Both options below
-begin with that step.
+`absiuser` and cannot chown a directory it does not own.
 
 Only two things stay in named volumes, prefixed with the compose project name,
 which defaults to the directory name:
@@ -59,43 +57,46 @@ Traefik binds ports 80 and 443, so only one stack from this example can run per
 host. Running a second one — the root `docker-compose.yml`, for instance —
 requires stopping this one first, even from a differently named directory.
 
-## Option A — certificate you already own
+## Starting it
 
 ```bash
 cp .env.example .env          # set MOODLE_DOMAIN
-mkdir -p data/moodle data/moodledata data/moodle-backups certs
+mkdir -p data/moodle data/moodledata data/moodle-backups
 sudo chown -R 1000:1000 data
-cp dynamic/tls.yml.example dynamic/tls.yml
-cp /path/fullchain.pem certs/cert.pem
-cp /path/privkey.pem  certs/key.pem
 docker compose up -d
 ```
 
-`dynamic/tls.yml` registers the pair as Traefik's default certificate, so it is
-served for whatever host you configured. It ships as `.example` because Traefik
-logs `failed to find any PEM data in certificate input` when the file is active
-but `certs/` is empty, which is the normal state under Option B.
+That is the whole command for either certificate source. `TLS_CERTRESOLVER` in
+`.env` decides which one, so there is no second compose file and no `-f`.
 
-## Option B — Let's Encrypt
+## Where the certificate comes from
+
+### `TLS_CERTRESOLVER=le` — Let's Encrypt (the default)
 
 `MOODLE_DOMAIN` must resolve publicly to this host, because the HTTP-01
-challenge is answered on port 80.
+challenge is answered on port 80. `ACME_EMAIL` needs a real public TLD: Let's
+Encrypt rejects reserved suffixes such as `.test` with `contact email has
+invalid domain`.
+
+While testing, set `ACME_CASERVER` to the staging endpoint. It issues untrusted
+certificates but does not consume the production rate limit, which shared test
+domains such as `nip.io` exhaust quickly.
+
+### `TLS_CERTRESOLVER=` — a certificate you already own
+
+Leave the value empty and Traefik never contacts a CA. Instead it serves the
+default certificate registered by the file provider:
 
 ```bash
-cp .env.example .env          # set MOODLE_DOMAIN and ACME_EMAIL
-mkdir -p data/moodle data/moodledata data/moodle-backups
-sudo chown -R 1000:1000 data
-docker compose -f docker-compose.yml -f docker-compose.letsencrypt.yml up -d
+cp dynamic/tls.yml.example dynamic/tls.yml
+mkdir -p certs
+cp /path/fullchain.pem certs/cert.pem
+cp /path/privkey.pem  certs/key.pem
 ```
 
-`ACME_EMAIL` needs a real public TLD. Let's Encrypt rejects account
-registration with `contact email has invalid domain` for reserved suffixes such
-as `.test` or `.local`.
-
-While testing, uncomment the `caserver` line in
-`docker-compose.letsencrypt.yml` to use the staging CA — the production
-endpoint rate-limits per registered domain, which shared test domains such as
-`nip.io` exhaust quickly.
+`tls.yml` ships as `.example` because Traefik logs `failed to find any PEM data
+in certificate input` when the file is active but `certs/` is empty, which is
+the normal state under Let's Encrypt.
 
 ## Health checks
 
