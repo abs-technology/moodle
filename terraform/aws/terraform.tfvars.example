@@ -1,0 +1,27 @@
+# Copy to terraform.tfvars and fill in. Never commit the real file.
+
+acme_email = "admin@example.com"
+
+# region = "ap-southeast-1"
+
+# Credential của IAM user.
+access_key = "AKIA..."
+secret_key = "..."
+
+# Dùng thay cho access_key/secret_key nếu bạn đã có profile trong ~/.aws/credentials.
+# profile = "absi-moodle"
+
+# Dựng trong Local Zone. Zone group phải được opt-in trước, và Local Zone không có
+# họ t3 nên phải đổi instance_type sang c7i/m7i/r7i.
+# availability_zone = "ap-southeast-1-han-1a"
+# instance_type     = "m7i.large"
+
+# SSH dự phòng khi SSM không dùng được (ví dụ trong Local Zone). Terraform sinh
+# break-glass.pem và chỉ mở port 22 cho CIDR này. Để trống thì chỉ vào bằng SSM.
+# ssh_allowed_cidr = "1.2.3.4/32"
+
+# Leave unset to get moodle.<elastic-ip>.nip.io and a real certificate with no DNS work.
+# moodle_domain = "lms.example.com"
+
+# Untrusted certificate, but no Let's Encrypt rate limit while testing.
+# acme_staging = true

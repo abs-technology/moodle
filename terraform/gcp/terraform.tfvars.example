@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars and fill in. Never commit the real file.
+
+project_id = "my-gcp-project"
+acme_email = "admin@example.com"
+
+# region = "asia-southeast1"
+# zone   = "asia-southeast1-a"
+
+# JSON key của service account. Để trống thì dùng application-default credentials.
+# credentials = "/path/to/sa-key.json"
+
+# Leave unset to get moodle.<static-ip>.nip.io and a real certificate with no DNS work.
+# moodle_domain = "lms.example.com"
+
+# Untrusted certificate, but no Let's Encrypt rate limit while testing.
+# acme_staging = true

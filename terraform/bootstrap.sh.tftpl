@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Installs Docker and starts Moodle from the published image. Nothing is cloned
+# or built here: the compose file and .env arrive as instance metadata.
+set -euo pipefail
+exec >>/var/log/absi-moodle-bootstrap.log 2>&1
+echo "=== bootstrap $(date -Is) ==="
+
+# GCP re-runs startup scripts on every boot.
+if [ -f /opt/moodle/.bootstrapped ]; then
+  echo "already bootstrapped"
+  exit 0
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq ca-certificates curl gnupg
+
+${extra_bootstrap}
+
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg |
+  gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+
+codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+# Fall back when Docker has not published a suite for this release yet.
+curl -fsI "https://download.docker.com/linux/debian/dists/$codename/Release" >/dev/null 2>&1 ||
+  codename=bookworm
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $codename stable" \
+  >/etc/apt/sources.list.d/docker.list
+
+apt-get update -qq
+apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
+systemctl enable --now docker
+
+# uid 1000 is the unprivileged user inside the image; it cannot chown these.
+install -d -o 1000 -g 1000 \
+  /opt/moodle/data/moodle /opt/moodle/data/moodledata /opt/moodle/data/moodle-backups
+
+# Traefik mounts both read-only; empty is fine, missing is not.
+install -d /opt/moodle/dynamic /opt/moodle/certs
+
+cat >/opt/moodle/docker-compose.yml <<'ABSI_EOF_COMPOSE'
+${compose_file}
+ABSI_EOF_COMPOSE
+
+touch /opt/moodle/.env
+chmod 600 /opt/moodle/.env
+cat >/opt/moodle/.env <<'ABSI_EOF_ENV'
+${env_file}
+ABSI_EOF_ENV
+
+cd /opt/moodle
+docker compose up -d
+touch /opt/moodle/.bootstrapped
+echo "=== bootstrap done $(date -Is) ==="

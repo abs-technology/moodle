@@ -36,7 +36,18 @@ export BUILDKIT_IMAGE SBOM_SCANNER ATTESTATIONS
 
 DATA_DIRS := data/moodle data/moodledata data/moodle-backups
 
-.PHONY: help build push inspect-manifest scan policy cves-critical fix login tag-latest up down remove logs shell
+TF ?= terraform
+
+# terraform.tfvars carries project_id / acme_email và không được commit.
+define tf_require_tfvars
+	@test -f terraform/$(1)/terraform.tfvars || { \
+		printf 'Thiếu terraform/%s/terraform.tfvars\n' '$(1)'; \
+		printf '  cp terraform/%s/terraform.tfvars.example terraform/%s/terraform.tfvars\n' '$(1)' '$(1)'; \
+		exit 1; }
+endef
+
+.PHONY: help build push inspect-manifest scan policy cves-critical fix login tag-latest up down remove logs shell \
+	gcp gcp-destroy gcp-ssh aws aws-destroy aws-ssh
 
 help: ## Lệnh có sẵn
 	@printf 'Image : %s\n' "$(IMG_FULL)"
@@ -105,3 +116,28 @@ logs: ## Xem log moodle
 
 shell: ## Vào shell container moodle
 	@docker compose exec moodle bash
+
+# VPC mới, không mở 22 ra internet, VM chỉ pull image từ Docker Hub — xem terraform/README.md
+gcp: ## Terraform: VPC mới + VM Debian 13 trên GCP + deploy Moodle
+	$(call tf_require_tfvars,gcp)
+	@$(TF) -chdir=terraform/gcp init -input=false -upgrade
+	@$(TF) -chdir=terraform/gcp apply
+
+gcp-ssh: ## SSH vào VM GCP qua IAP tunnel
+	@eval "$$($(TF) -chdir=terraform/gcp output -raw ssh_command)"
+
+gcp-destroy: ## Xoá hạ tầng GCP (mất toàn bộ data Moodle)
+	$(call tf_require_tfvars,gcp)
+	@$(TF) -chdir=terraform/gcp destroy
+
+aws: ## Terraform: VPC mới + VM Debian 13 trên AWS + deploy Moodle
+	$(call tf_require_tfvars,aws)
+	@$(TF) -chdir=terraform/aws init -input=false -upgrade
+	@$(TF) -chdir=terraform/aws apply
+
+aws-ssh: ## SSH vào VM AWS qua SSM Session Manager
+	@eval "$$($(TF) -chdir=terraform/aws output -raw ssh_command)"
+
+aws-destroy: ## Xoá hạ tầng AWS (mất toàn bộ data Moodle)
+	$(call tf_require_tfvars,aws)
+	@$(TF) -chdir=terraform/aws destroy

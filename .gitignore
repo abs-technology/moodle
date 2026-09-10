@@ -20,6 +20,14 @@ examples/*/data/
 *.pfx
 id_rsa*
 
+# Terraform — state holds the generated Moodle/MariaDB passwords in plaintext.
+# .terraform.lock.hcl is intentionally tracked.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform/*/terraform.tfvars
+
 # Docker volumes data
 volumes/
 
