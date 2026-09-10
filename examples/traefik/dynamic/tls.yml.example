@@ -1,13 +1,11 @@
-# Traefik file provider: serve TLS from a certificate you already own.
+# Serve TLS from a certificate you already own.
 #
-# Copy this file to tls.yml — Traefik ignores the .example suffix — and put the
-# PEM-encoded pair in ../certs before starting:
-#   certs/cert.pem   full chain (leaf first, then intermediates)
+# Copy to tls.yml and put the pair in ../certs:
+#   certs/cert.pem   full chain, leaf first
 #   certs/key.pem    private key, no passphrase
 #
-# Leave it as .example while TLS_CERTRESOLVER=le: Traefik obtains and renews the
-# certificate itself, and an active tls.yml pointing at absent files makes it log
-# "failed to find any PEM data in certificate input".
+# Leave it as .example while TLS_CERTRESOLVER=le, or Traefik logs
+# "failed to find any PEM data in certificate input" on every reload.
 tls:
   stores:
     default:

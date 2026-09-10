@@ -1,23 +1,9 @@
 # Moodle behind Traefik, TLS terminated at the proxy.
-#
-# Traefik forwards plain http to the container on 8080 while keeping the original
-# Host header, so Moodle needs MOODLE_WWWROOT + MOODLE_SSLPROXY=yes and
-# MOODLE_REVERSEPROXY=no. Omitting MOODLE_SSLPROXY makes every request answer 303
-# See Other; enabling MOODLE_REVERSEPROXY makes it fail with "reverseproxyabused".
-#
-# One file for both certificate sources, selected by TLS_CERTRESOLVER in .env:
-#
-#   TLS_CERTRESOLVER=le   Traefik obtains and renews from Let's Encrypt (default)
-#   TLS_CERTRESOLVER=     Traefik serves ./certs via dynamic/tls.yml instead
-#
-# Either way the command is: docker compose up -d
-#
-# See README.md in this directory.
+# TLS_CERTRESOLVER in .env picks Let's Encrypt (le) or your own cert (empty).
+# See README.md.
 services:
   traefik:
-    # Keep this at v3.6.1 or newer: earlier images talk Docker API 1.24, which
-    # Docker Engine 29 refuses, so the docker provider finds no containers and
-    # Traefik answers 404 for everything.
+    # v3.6.1+ required: older images talk Docker API 1.24, refused by Engine 29.
     image: traefik:v3.7.13
     container_name: abs-traefik
     restart: unless-stopped
@@ -28,21 +14,11 @@ services:
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
-      # HTTP/3 over QUIC on UDP 443, advertised through the alt-svc header.
-      # Clients that do not speak it keep negotiating HTTP/2, so this is purely
-      # additive — as long as UDP 443 really reaches this host. A firewall that
-      # silently drops it makes browsers wait for a QUIC timeout on the first
-      # request before falling back, so set TRAEFIK_HTTP3=false when UDP cannot
-      # be opened. Only TLS routers can serve HTTP/3, which is all of them here.
       - --entrypoints.websecure.http3=${TRAEFIK_HTTP3:-true}
-      # Everything is served over https; plain http only redirects.
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --log.level=INFO
       - --accesslog=true
-      # ACME over HTTP-01. Declaring the resolver costs nothing when no router
-      # references it: Traefik only contacts the CA to satisfy a certificate
-      # request, so with TLS_CERTRESOLVER empty it never reaches out.
       - --certificatesresolvers.le.acme.email=${ACME_EMAIL}
       - --certificatesresolvers.le.acme.storage=/acme/acme.json
       - --certificatesresolvers.le.acme.httpchallenge=true
@@ -51,10 +27,8 @@ services:
     ports:
       - "80:80"
       - "443:443/tcp"
-      # Docker publishes TCP only unless asked, and QUIC is UDP on the same port.
       - "443:443/udp"
     volumes:
-      # Read-only socket: Traefik only needs to discover containers.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./dynamic:/etc/traefik/dynamic:ro
       - ./certs:/etc/traefik/certs:ro
@@ -103,24 +77,19 @@ services:
       - MOODLE_DATABASE_PASSWORD=${MARIADB_PASSWORD}
       - MOODLE_DATABASE_NAME=${MARIADB_DATABASE}
 
-      # The entrypoint waits for the database and provisions the schema as root,
-      # so it needs the admin credentials too — not just the Moodle user.
+      # The entrypoint provisions the schema as root, so it needs admin creds too.
       - MARIADB_HOST=mariadb
       - MARIADB_PORT_NUMBER=3306
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_PASSWORD=${MARIADB_PASSWORD}
 
-      # Traefik terminates TLS, so sslproxy is on. reverseproxy stays OFF because
-      # Traefik forwards the original Host header (passHostHeader defaults to
-      # true) and Moodle rejects that combination with "reverseproxyabused".
+      # reverseproxy must stay no: Traefik keeps the original Host and Moodle
+      # rejects that combination with "reverseproxyabused".
       - MOODLE_WWWROOT=https://${MOODLE_DOMAIN}
       - MOODLE_SSLPROXY=yes
       - MOODLE_REVERSEPROXY=no
-      # Set to yes once you run more than one Moodle node.
       - MOODLE_CLUSTER=no
-    # Same bind-mount layout as the root docker-compose.yml, so config.php and
-    # moodledata stay readable on the host. The directories must be owned by uid
-    # 1000: the container runs unprivileged as absiuser and cannot chown them.
+    # data/ must be owned by uid 1000; the container cannot chown it.
     volumes:
       - ./data/moodle:/var/www/html
       - ./data/moodledata:/var/www/moodledata
@@ -139,14 +108,11 @@ services:
       - traefik.http.routers.moodle.rule=Host(`${MOODLE_DOMAIN}`)
       - traefik.http.routers.moodle.entrypoints=websecure
       - traefik.http.routers.moodle.tls=true
-      # Empty means "use the default certificate", i.e. the one dynamic/tls.yml
-      # registers from ./certs. The single-dash default keeps an explicitly empty
-      # value empty instead of falling back to le.
+      # Single-dash default on purpose: an empty value must stay empty, which
+      # means "serve the default certificate from dynamic/tls.yml".
       - traefik.http.routers.moodle.tls.certresolver=${TLS_CERTRESOLVER-le}
-      # Moodle listens on 8080 for plain http; Traefik holds the TLS side.
       - traefik.http.services.moodle.loadbalancer.server.port=8080
-      # Probe the endpoint that bypasses Moodle's wwwroot check, so Traefik
-      # never sees the 303 that /login/index.php returns for a non-wwwroot host.
+      # /login/index.php answers 303 to a probe, so health-check /readyz instead.
       - traefik.http.services.moodle.loadbalancer.healthcheck.path=/readyz
       - traefik.http.services.moodle.loadbalancer.healthcheck.interval=15s
       - traefik.http.services.moodle.loadbalancer.healthcheck.timeout=5s
