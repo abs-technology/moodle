@@ -6,6 +6,9 @@ data/moodledata/*
 !data/moodle/.gitkeep
 !data/moodledata/.gitkeep
 
+# Same layout under the deployment examples, created on first boot
+examples/*/data/
+
 # Environment file with sensitive information
 .env
 

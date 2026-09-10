@@ -99,9 +99,13 @@ services:
       - MOODLE_REVERSEPROXY=no
       # Set to yes once you run more than one Moodle node.
       - MOODLE_CLUSTER=no
+    # Same bind-mount layout as the root docker-compose.yml, so config.php and
+    # moodledata stay readable on the host. The directories must be owned by uid
+    # 1000: the container runs unprivileged as absiuser and cannot chown them.
     volumes:
-      - moodle_code:/var/www/html
-      - moodle_data:/var/www/moodledata
+      - ./data/moodle:/var/www/html
+      - ./data/moodledata:/var/www/moodledata
+      - ./data/moodle-backups:/var/www/moodle-backups
     depends_on:
       mariadb:
         condition: service_healthy
@@ -132,5 +136,3 @@ networks:
 
 volumes:
   mariadb_data:
-  moodle_code:
-  moodle_data:

@@ -26,31 +26,33 @@ traefik/                        # any name; see the note on project names below
 ├── .env                        # you create this; chmod 600
 ├── .env.example
 ├── certs/                      # Option A only: cert.pem + key.pem
-└── dynamic/
-    └── tls.yml.example         # Option A only: copy to tls.yml
+├── dynamic/
+│   └── tls.yml.example         # Option A only: copy to tls.yml
+└── data/                       # created before the first start, uid 1000
+    ├── moodle/                 # /var/www/html — code and config.php
+    ├── moodledata/             # /var/www/moodledata — uploads, caches, sessions
+    └── moodle-backups/         # /var/www/moodle-backups — pre-upgrade snapshots
 ```
 
 Under Option B both `certs/` and `dynamic/` stay empty, and Traefik keeps the
 certificate it obtained in a volume instead.
 
-Everything else lives in named volumes rather than bind mounts, so the host
-directory holds only configuration:
+`data/` is bind-mounted, the same layout the root `docker-compose.yml` uses, so
+`config.php` and `moodledata` stay readable on the host. It has to exist and
+belong to uid 1000 before the first start — the container runs unprivileged as
+`absiuser` and cannot chown a directory it does not own. Both options below
+begin with that step.
+
+Only two things stay in named volumes, prefixed with the compose project name,
+which defaults to the directory name:
 
 | Volume | Mounted at | Holds |
 |---|---|---|
-| `<project>_moodle_code` | `/var/www/html` | Moodle code and `config.php` |
-| `<project>_moodle_data` | `/var/www/moodledata` | uploads, caches, sessions |
 | `<project>_mariadb_data` | `/var/lib/mysql` | the database |
 | `<project>_traefik_acme` | `/acme` | `acme.json`, the Let's Encrypt account and certificate |
 
-`<project>` is the compose project name, which defaults to the directory name.
 Deleting `<project>_traefik_acme` makes Traefik request a fresh certificate on
 the next start, so avoid it on shared test domains that rate-limit quickly.
-Because the code lives in a volume, read `config.php` through the container:
-
-```bash
-docker exec abs-moodle cat /var/www/html/config.php
-```
 
 The container names are fixed (`abs-traefik`, `abs-moodle`, `abs-mariadb`) and
 Traefik binds ports 80 and 443, so only one stack from this example can run per
@@ -61,8 +63,9 @@ requires stopping this one first, even from a differently named directory.
 
 ```bash
 cp .env.example .env          # set MOODLE_DOMAIN
+mkdir -p data/moodle data/moodledata data/moodle-backups certs
+sudo chown -R 1000:1000 data
 cp dynamic/tls.yml.example dynamic/tls.yml
-mkdir -p certs
 cp /path/fullchain.pem certs/cert.pem
 cp /path/privkey.pem  certs/key.pem
 docker compose up -d
@@ -80,6 +83,8 @@ challenge is answered on port 80.
 
 ```bash
 cp .env.example .env          # set MOODLE_DOMAIN and ACME_EMAIL
+mkdir -p data/moodle data/moodledata data/moodle-backups
+sudo chown -R 1000:1000 data
 docker compose -f docker-compose.yml -f docker-compose.letsencrypt.yml up -d
 ```
 
@@ -120,7 +125,7 @@ A `303` means `MOODLE_SSLPROXY` did not reach the container; a `500` means
 with:
 
 ```bash
-docker exec abs-moodle grep -nE 'wwwroot =|sslproxy|reverseproxy' /var/www/html/config.php
+grep -nE 'wwwroot =|sslproxy|reverseproxy' data/moodle/config.php
 ```
 
 ## Scaling to more than one node
