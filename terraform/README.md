@@ -27,17 +27,31 @@ terraform/
     └── truong-b-gcp/
 ```
 
-Mọi lệnh nhận `DEPLOY` là tên thư mục:
+Chỉ hai lệnh chạy từ gốc repo, vì chúng làm việc trên nhiều khách cùng lúc:
 
 ```bash
-make tf-list                                       # đang chạy những gì
-make tf-new  DEPLOY=truong-b-gcp CLOUD=gcp         # tạo khách mới
-make tf-apply DEPLOY=truong-b-gcp                  # dựng hoặc cập nhật
-make tf-plan  DEPLOY=truong-b-gcp                  # xem trước, không đụng gì
-make tf-ssh   DEPLOY=truong-b-gcp                  # vào VM
-make tf-output DEPLOY=truong-b-gcp                 # in cả mật khẩu
-make tf-destroy DEPLOY=truong-b-gcp                # xoá, mất toàn bộ data khách đó
+make tf-list                                 # ai đang chạy ở đâu
+make tf-new DEPLOY=truong-b-gcp CLOUD=gcp    # tạo khách mới, một lần duy nhất
 ```
+
+Còn lại thì `cd` vào thư mục khách và gõ `terraform` thẳng — không biến, không
+`-chdir`, không cần nhớ gì ngoài các lệnh Terraform bạn đã biết:
+
+```bash
+cd terraform/deployments/truong-b-gcp
+
+terraform init                               # một lần sau khi tạo
+terraform plan                               # xem trước, không đụng gì
+terraform apply                              # dựng hoặc cập nhật
+terraform output -raw moodle_admin_password  # mật khẩu admin Moodle
+eval "$(terraform output -raw ssh_command)"  # vào VM
+terraform destroy                            # xoá, mất toàn bộ data khách đó
+```
+
+Đứng sẵn trong thư mục là đủ để Terraform biết state nào, credential nào, khách nào:
+`terraform.tfvars` được nạp tự động và backend đã ghi trong `main.tf`. Đó cũng là ranh
+giới an toàn — `terraform destroy` không có cách nào chạm sang khách khác, vì nó chỉ
+biết đúng thư mục bạn đang đứng.
 
 `tf-new` chép khuôn từ `terraform/templates/<cloud>/`, thay tên deployment vào backend,
 và tạo bucket state nếu chưa có. Đặt `TF_SKIP_BUCKET=1` nếu bucket do người khác quản.
@@ -83,18 +97,27 @@ Rồi sửa `terraform/deployments/truong-b-aws/terraform.tfvars`: `access_key`,
 `secret_key`, `region`, `acme_email`, và `ssh_allowed_cidrs = ["0.0.0.0/0"]`. GCP thì
 điền `project_id` thay cho key/secret. `name` đã được đặt sẵn bằng tên deployment.
 
-**2.** `make tf-apply DEPLOY=truong-b-aws`, xem plan rồi gõ `yes`. Khoảng 4–6 phút sau
-site có HTTPS thật tại `https://moodle.<ip>.nip.io`, chứng chỉ Let's Encrypt, không cần
-làm gì với DNS.
+**2.** Dựng site:
+
+```bash
+cd terraform/deployments/truong-b-aws
+terraform init
+terraform apply
+```
+
+Xem plan rồi gõ `yes`. Khoảng 4–6 phút sau site có HTTPS thật tại
+`https://moodle.<ip>.nip.io`, chứng chỉ Let's Encrypt, không cần làm gì với DNS.
 
 **3.** Lấy tài khoản admin của Moodle và IP:
 
 ```bash
-make tf-output DEPLOY=truong-b-aws
+terraform output moodle_admin_user               # mặc định absi_admin
+terraform output -raw moodle_admin_password
+terraform output -raw public_ip                  # ghi lại, bước 5 cần
 ```
 
-In ra `moodle_admin_user` (mặc định `absi_admin`), `moodle_admin_password` và
-`public_ip`. Ghi lại IP.
+`terraform output` không tham số sẽ che mật khẩu; phải gọi đúng tên output như trên mới
+đọc được giá trị.
 
 Đổi tên admin bằng `moodle_admin_user` trong tfvars trước khi apply; mật khẩu thì luôn
 do Terraform sinh. Đây là tài khoản đăng nhập Moodle, khác với user SSH vào VM (`admin`
@@ -118,7 +141,7 @@ scp -i break-glass.pem fullchain.pem privkey.pem admin@<IP>:/tmp/
 **7.** Vào máy và chạy một lệnh:
 
 ```bash
-make tf-ssh DEPLOY=truong-b-aws
+eval "$(terraform output -raw ssh_command)"
 cd /opt/moodle
 sudo ./change-domain.sh --domain lms.example.com \
     --cert /tmp/fullchain.pem --key /tmp/privkey.pem
@@ -142,14 +165,18 @@ Mặc định không cloud nào mở port 22 ra internet.
 
 | | Cách vào | Cơ chế |
 |---|---|---|
-| GCP | `make tf-ssh DEPLOY=...` | IAP TCP forwarding — firewall chỉ allow 22 từ `35.235.240.0/20`, cộng OS Login để phân quyền bằng IAM thay vì metadata key |
-| AWS | `make tf-ssh DEPLOY=...` | SSM Session Manager — security group **không có** inbound 22 nào; agent tự mở kết nối ra ngoài |
+| GCP | `eval "$(terraform output -raw ssh_command)"` | IAP TCP forwarding — firewall chỉ allow 22 từ `35.235.240.0/20`, cộng OS Login để phân quyền bằng IAM thay vì metadata key |
+| AWS | `eval "$(terraform output -raw ssh_command)"` | SSM Session Manager — security group **không có** inbound 22 nào; agent tự mở kết nối ra ngoài |
+
+Cùng một lệnh cho cả hai cloud, và cũng cùng lệnh đó khi đã bật break-glass bên dưới:
+`ssh_command` là output do module tự chọn nội dung tùy cấu hình, nên bạn không phải nhớ
+cloud nào dùng đường nào.
 
 Cả hai đường trên đều phụ thuộc credential của cloud CLI còn hạn. Muốn một đường
 không phụ thuộc gì cả, xem SSH break-glass bên dưới.
 
 Vì AMI Debian không cài sẵn SSM agent, bootstrap script tải và cài nó trước khi làm
-việc khác. Nếu bước này lỗi thì `make tf-ssh DEPLOY=...` sẽ không vào được.
+việc khác. Nếu bước này lỗi thì đường SSM sẽ không vào được.
 
 `aws ssm start-session` cần plugin cài riêng trên máy bạn:
 
@@ -176,7 +203,8 @@ cd terraform/deployments/<ten>
 ssh -i break-glass.pem admin@$(terraform output -raw public_ip)
 ```
 
-`make tf-ssh DEPLOY=...` và `make tf-ssh DEPLOY=...` tự chọn đúng lệnh tùy biến này có được đặt hay không.
+Hoặc cứ dùng `eval "$(terraform output -raw ssh_command)"` như trên: output đó tự đổi
+sang dạng break-glass khi biến này được đặt.
 
 Mở `0.0.0.0/0` là chấp nhận được vì xác thực là key-only: image Debian của cả hai cloud
 tắt sẵn `PasswordAuthentication` và `PermitRootLogin`, nên cái bạn nhận thêm chủ yếu là
@@ -195,8 +223,9 @@ Cả hai cần Terraform >= 1.5 và một file `terraform.tfvars`:
 
 ```bash
 make tf-new DEPLOY=<ten>-gcp CLOUD=gcp
-cp terraform/deployments/<ten>/terraform.tfvars.example terraform/deployments/<ten>/terraform.tfvars
 ```
+
+`tf-new` tạo sẵn `terraform.tfvars` trong thư mục đó, bạn chỉ cần sửa nội dung.
 
 `acme_email` bắt buộc và phải là TLD công khai thật — Let's Encrypt từ chối `.test`,
 `.local` và các TLD dành riêng khác.
@@ -223,7 +252,7 @@ credentials = "/path/to/sa-key.json"
 Service account cần `roles/compute.admin`, và `roles/serviceusage.serviceUsageAdmin`
 nếu để `enable_apis = true`.
 
-Để `make tf-ssh DEPLOY=...` hoạt động, account của bạn cần `roles/iap.tunnelResourceAccessor`
+Để đường IAP hoạt động, account của bạn cần `roles/iap.tunnelResourceAccessor`
 và `roles/compute.osLogin` (owner đã có sẵn). Module tự enable
 `compute.googleapis.com`; nếu bạn không có quyền `serviceusage` thì đặt
 `enable_apis = false`.
@@ -343,44 +372,46 @@ khớp để người sau đọc không hiểu nhầm, apply sẽ không làm g�
 | 80/tcp | ACME HTTP-01 challenge, và redirect sang HTTPS |
 | 443/tcp | HTTPS |
 | 443/udp | HTTP/3 (QUIC) |
-| 22/tcp | GCP: chỉ từ dải IAP. AWS: không mở. |
+| 22/tcp | Chỉ mở cho các CIDR trong `ssh_allowed_cidrs`. Danh sách rỗng thì GCP chỉ còn dải IAP, AWS không mở gì. |
 
 ## Mật khẩu
 
 Terraform sinh ngẫu nhiên mật khẩu admin Moodle và MariaDB. Đọc bằng:
 
 ```bash
-make tf-output DEPLOY=<ten>
-make tf-output DEPLOY=<ten>
+cd terraform/deployments/<ten>
+terraform output -raw moodle_admin_password
+terraform output -raw mariadb_root_password
 ```
 
 Bộ ký tự đặc biệt bị giới hạn ở `!@%^*-_=+` vì Docker Compose nội suy giá trị trong
 `.env`, nên `$`, `` ` ``, `#`, dấu nháy và backslash sẽ làm sai mật khẩu.
 
-State file chứa các mật khẩu này ở dạng plaintext. `.gitignore` đã loại `*.tfstate`
-và `terraform/*/terraform.tfvars`; nếu dùng nhiều người thì chuyển sang backend GCS/S3
-có mã hoá.
+State file chứa các mật khẩu này ở dạng plaintext, nên state nằm trong bucket S3/GCS đã
+bật mã hoá và versioning chứ không nằm cạnh code. `.gitignore` loại `*.tfstate*`,
+`*.tfvars` ở mọi độ sâu (trừ `*.tfvars.example`) và `*.pem`.
 
 ## Theo dõi lần boot đầu
 
 Bootstrap mất khoảng 3–5 phút (cài Docker, pull image, Moodle tự cài schema). Xem log:
 
 ```bash
-terraform -chdir=terraform/deployments/<ten> output -raw bootstrap_log_command
+cd terraform/deployments/<ten>
+eval "$(terraform output -raw bootstrap_log_command)"
 ```
 
 Kiểm tra khi xong:
 
 ```bash
-curl -sI "$(terraform -chdir=terraform/deployments/<ten> output -raw site_url)"   # 200
-curl -s  "$(terraform -chdir=terraform/deployments/<ten> output -raw site_url)/readyz"  # ready
+curl -sI "$(terraform output -raw site_url)"           # 200
+curl -s  "$(terraform output -raw site_url)/readyz"    # ready
 ```
 
 ## Xoá
 
 ```bash
-make tf-destroy DEPLOY=...
-make tf-destroy DEPLOY=...
+cd terraform/deployments/<ten>
+terraform destroy
 ```
 
 Destroy xoá luôn VM và disk, tức là mất toàn bộ data Moodle. Backup `/opt/moodle/data`

@@ -144,7 +144,8 @@ cmd_new() {
     info "Đã tạo $dir"
     echo
     echo "  1. Sửa $dir/terraform.tfvars (credential, region, acme_email)"
-    echo "  2. make tf-apply DEPLOY=$name"
+    echo "  2. cd $dir"
+    echo "  3. terraform init && terraform apply"
     echo
     warn "terraform.tfvars và break-glass.pem trong thư mục này không bao giờ được commit."
 }

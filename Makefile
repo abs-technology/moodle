@@ -36,18 +36,8 @@ export BUILDKIT_IMAGE SBOM_SCANNER ATTESTATIONS
 
 DATA_DIRS := data/moodle data/moodledata data/moodle-backups
 
-TF ?= terraform
-
-# terraform.tfvars carries project_id / acme_email và không được commit.
-define tf_require_tfvars
-	@test -f terraform/$(1)/terraform.tfvars || { \
-		printf 'Thiếu terraform/%s/terraform.tfvars\n' '$(1)'; \
-		printf '  cp terraform/%s/terraform.tfvars.example terraform/%s/terraform.tfvars\n' '$(1)' '$(1)'; \
-		exit 1; }
-endef
-
 .PHONY: help build push inspect-manifest scan policy cves-critical fix login tag-latest up down remove logs shell \
-	tf-list tf-new tf-apply tf-plan tf-ssh tf-output tf-destroy
+	tf-list tf-new
 
 help: ## Lệnh có sẵn
 	@printf 'Image : %s\n' "$(IMG_FULL)"
@@ -118,48 +108,13 @@ shell: ## Vào shell container moodle
 	@docker compose exec moodle bash
 
 # Một khách hàng = một thư mục dưới terraform/deployments/ = một state riêng.
-# Xem terraform/README.md. DEPLOY là tên thư mục đó.
-TF_DIR = terraform/deployments/$(DEPLOY)
-
-define tf_require_deploy
-	@test -n "$(DEPLOY)" || { \
-		printf 'Thiếu DEPLOY. Ví dụ: make %s DEPLOY=horizonschool-aws\n' '$@'; \
-		printf 'Đang có:\n'; ls terraform/deployments 2>/dev/null | sed 's/^/  /'; \
-		exit 1; }
-	@test -d "$(TF_DIR)" || { \
-		printf 'Không có %s\n' '$(TF_DIR)'; \
-		printf '  make tf-new DEPLOY=%s CLOUD=aws\n' '$(DEPLOY)'; \
-		exit 1; }
-	@test -f "$(TF_DIR)/terraform.tfvars" || { \
-		printf 'Thiếu %s/terraform.tfvars\n' '$(TF_DIR)'; \
-		exit 1; }
-endef
+# Chỉ hai lệnh này ở đây, vì chúng làm việc trên nhiều deployment nên phải chạy từ
+# gốc repo. Còn plan/apply/output/ssh/destroy thì gõ terraform thẳng trong thư mục
+# khách đó: Terraform không cần biết DEPLOY khi nó đã đứng sẵn trong thư mục.
+# Xem terraform/README.md.
 
 tf-list: ## Liệt kê các deployment và domain hiện tại của chúng
 	@scripts/tf-deployments.sh list
 
 tf-new: ## Tạo deployment mới: make tf-new DEPLOY=tenkhach-aws CLOUD=aws
 	@scripts/tf-deployments.sh new "$(DEPLOY)" "$(CLOUD)"
-
-tf-apply: ## Dựng hoặc cập nhật một deployment: make tf-apply DEPLOY=...
-	$(call tf_require_deploy)
-	@$(TF) -chdir=$(TF_DIR) init -input=false -upgrade
-	@$(TF) -chdir=$(TF_DIR) apply
-
-tf-plan: ## Xem trước thay đổi, không đụng gì: make tf-plan DEPLOY=...
-	$(call tf_require_deploy)
-	@$(TF) -chdir=$(TF_DIR) init -input=false
-	@$(TF) -chdir=$(TF_DIR) plan
-
-tf-ssh: ## SSH vào VM của một deployment: make tf-ssh DEPLOY=...
-	$(call tf_require_deploy)
-	@cd $(TF_DIR) && eval "$$($(TF) output -raw ssh_command)"
-
-tf-output: ## In toàn bộ output kể cả mật khẩu: make tf-output DEPLOY=...
-	$(call tf_require_deploy)
-	@$(TF) -chdir=$(TF_DIR) output -json | \
-		python3 -c 'import json,sys; [print(f"{k:24} {v[\"value\"]}") for k,v in json.load(sys.stdin).items()]'
-
-tf-destroy: ## Xoá hạ tầng của một deployment (mất toàn bộ data Moodle của khách đó)
-	$(call tf_require_deploy)
-	@$(TF) -chdir=$(TF_DIR) destroy
