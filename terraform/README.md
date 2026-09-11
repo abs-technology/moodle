@@ -27,34 +27,28 @@ terraform/
     └── truong-b-gcp/
 ```
 
-Chỉ hai lệnh chạy từ gốc repo, vì chúng làm việc trên nhiều khách cùng lúc:
+Tên khách đi thẳng sau động từ, không biến, không `cd`, chạy từ gốc repo:
 
 ```bash
-make tf-list                                 # ai đang chạy ở đâu
-make tf-new DEPLOY=truong-b-gcp CLOUD=gcp    # tạo khách mới, một lần duy nhất
+make deploys                    # ai đang chạy ở đâu
+make new truong-b-gcp           # tạo khách mới, một lần duy nhất
+make plan truong-b-gcp          # xem trước, không đụng gì
+make apply truong-b-gcp         # dựng hoặc cập nhật
+make output truong-b-gcp        # in mọi output, kể cả mật khẩu
+make ssh truong-b-gcp           # vào VM
+make destroy truong-b-gcp       # xoá, mất toàn bộ data khách đó
 ```
 
-Còn lại thì `cd` vào thư mục khách và gõ `terraform` thẳng — không biến, không
-`-chdir`, không cần nhớ gì ngoài các lệnh Terraform bạn đã biết:
+Hậu tố `-aws` hay `-gcp` trong tên là thứ quyết định cloud, nên `make new` không cần
+hỏi thêm. Tên không theo quy ước đó thì thêm `CLOUD=aws` hoặc `CLOUD=gcp`.
 
-```bash
-cd terraform/deployments/truong-b-gcp
+Gõ sai tên khách thì `make` báo lỗi và liệt kê những khách đang có, chứ không âm thầm
+làm gì cả. Thiếu tên cũng vậy — không lệnh nào có deployment mặc định, nên `make
+destroy` không thể chạy vào khách mà bạn không gõ tên.
 
-terraform init                               # một lần sau khi tạo
-terraform plan                               # xem trước, không đụng gì
-terraform apply                              # dựng hoặc cập nhật
-terraform output -raw moodle_admin_password  # mật khẩu admin Moodle
-eval "$(terraform output -raw ssh_command)"  # vào VM
-terraform destroy                            # xoá, mất toàn bộ data khách đó
-```
-
-Đứng sẵn trong thư mục là đủ để Terraform biết state nào, credential nào, khách nào:
-`terraform.tfvars` được nạp tự động và backend đã ghi trong `main.tf`. Đó cũng là ranh
-giới an toàn — `terraform destroy` không có cách nào chạm sang khách khác, vì nó chỉ
-biết đúng thư mục bạn đang đứng.
-
-`tf-new` chép khuôn từ `terraform/templates/<cloud>/`, thay tên deployment vào backend,
-và tạo bucket state nếu chưa có. Đặt `TF_SKIP_BUCKET=1` nếu bucket do người khác quản.
+`make new` chép khuôn từ `terraform/templates/<cloud>/`, thay tên deployment vào backend,
+tạo sẵn `terraform.tfvars`, và tạo bucket state nếu chưa có. Đặt `TF_SKIP_BUCKET=1` nếu
+bucket do người khác quản.
 
 Ba điều cấu trúc này giải quyết, và đều là lỗi thật sẽ xảy ra nếu không có nó:
 
@@ -77,7 +71,7 @@ site Moodle lại là chuyện khác hẳn, cần `moodledata` dùng chung và s
 database; xem [../docs/LOAD-BALANCING.md](../docs/LOAD-BALANCING.md).
 
 Sau khi chạy `change-domain.sh`, nhớ cập nhật `moodle_domain` trong tfvars của deployment
-đó. Terraform không biết việc đổi domain trên VM, và `make tf-list` đọc chính giá trị này
+đó. Terraform không biết việc đổi domain trên VM, và `make deploys` đọc chính giá trị này
 để hiển thị domain thật.
 
 ## Quy trình đầy đủ
@@ -90,34 +84,25 @@ chuyển sang domain và chứng chỉ thật khi đã mua.
 **1.** Tạo thư mục cho khách và điền credential:
 
 ```bash
-make tf-new DEPLOY=truong-b-aws CLOUD=aws
+make new truong-b-aws
 ```
 
 Rồi sửa `terraform/deployments/truong-b-aws/terraform.tfvars`: `access_key`,
 `secret_key`, `region`, `acme_email`, và `ssh_allowed_cidrs = ["0.0.0.0/0"]`. GCP thì
 điền `project_id` thay cho key/secret. `name` đã được đặt sẵn bằng tên deployment.
 
-**2.** Dựng site:
-
-```bash
-cd terraform/deployments/truong-b-aws
-terraform init
-terraform apply
-```
-
-Xem plan rồi gõ `yes`. Khoảng 4–6 phút sau site có HTTPS thật tại
-`https://moodle.<ip>.nip.io`, chứng chỉ Let's Encrypt, không cần làm gì với DNS.
+**2.** `make apply truong-b-aws`, xem plan rồi gõ `yes`. Khoảng 4–6 phút sau site có
+HTTPS thật tại `https://moodle.<ip>.nip.io`, chứng chỉ Let's Encrypt, không cần làm gì
+với DNS.
 
 **3.** Lấy tài khoản admin của Moodle và IP:
 
 ```bash
-terraform output moodle_admin_user               # mặc định absi_admin
-terraform output -raw moodle_admin_password
-terraform output -raw public_ip                  # ghi lại, bước 5 cần
+make output truong-b-aws
 ```
 
-`terraform output` không tham số sẽ che mật khẩu; phải gọi đúng tên output như trên mới
-đọc được giá trị.
+In ra `moodle_admin_user` (mặc định `absi_admin`), `moodle_admin_password` và
+`public_ip`. Ghi lại IP.
 
 Đổi tên admin bằng `moodle_admin_user` trong tfvars trước khi apply; mật khẩu thì luôn
 do Terraform sinh. Đây là tài khoản đăng nhập Moodle, khác với user SSH vào VM (`admin`
@@ -141,7 +126,7 @@ scp -i break-glass.pem fullchain.pem privkey.pem admin@<IP>:/tmp/
 **7.** Vào máy và chạy một lệnh:
 
 ```bash
-eval "$(terraform output -raw ssh_command)"
+make ssh truong-b-aws
 cd /opt/moodle
 sudo ./change-domain.sh --domain lms.example.com \
     --cert /tmp/fullchain.pem --key /tmp/privkey.pem
@@ -151,7 +136,7 @@ Gõ tên domain mới để xác nhận, khoảng 30 giây là xong. Muốn dùn
 domain mới thay vì chứng chỉ đã mua thì thay hai tham số cert bằng `--letsencrypt`.
 
 Xong thì cập nhật `moodle_domain` trong tfvars của deployment cho khớp. Terraform không
-tự biết, và đó là chỗ `make tf-list` đọc để hiển thị domain thật.
+tự biết, và đó là chỗ `make deploys` đọc để hiển thị domain thật.
 
 Hai điều cần biết trước khi chạy bước 7. `fullchain.pem` phải là chuỗi đầy đủ với cert
 lá đứng đầu, và key không được đặt passphrase — script từ chối ngay trước khi đụng vào
@@ -165,12 +150,12 @@ Mặc định không cloud nào mở port 22 ra internet.
 
 | | Cách vào | Cơ chế |
 |---|---|---|
-| GCP | `eval "$(terraform output -raw ssh_command)"` | IAP TCP forwarding — firewall chỉ allow 22 từ `35.235.240.0/20`, cộng OS Login để phân quyền bằng IAM thay vì metadata key |
-| AWS | `eval "$(terraform output -raw ssh_command)"` | SSM Session Manager — security group **không có** inbound 22 nào; agent tự mở kết nối ra ngoài |
+| GCP | `make ssh <ten>` | IAP TCP forwarding — firewall chỉ allow 22 từ `35.235.240.0/20`, cộng OS Login để phân quyền bằng IAM thay vì metadata key |
+| AWS | `make ssh <ten>` | SSM Session Manager — security group **không có** inbound 22 nào; agent tự mở kết nối ra ngoài |
 
-Cùng một lệnh cho cả hai cloud, và cũng cùng lệnh đó khi đã bật break-glass bên dưới:
-`ssh_command` là output do module tự chọn nội dung tùy cấu hình, nên bạn không phải nhớ
-cloud nào dùng đường nào.
+Một lệnh cho cả hai cloud, và vẫn là lệnh đó khi đã bật break-glass bên dưới: `make ssh`
+dùng `break-glass.pem` nếu có, không thì đọc output `ssh_command` do module tự chọn nội
+dung theo cấu hình. Bạn không phải nhớ cloud nào đi đường nào.
 
 Cả hai đường trên đều phụ thuộc credential của cloud CLI còn hạn. Muốn một đường
 không phụ thuộc gì cả, xem SSH break-glass bên dưới.
@@ -198,13 +183,12 @@ Terraform sinh key ED25519, ghi ra `break-glass.pem trong thư mục deployment`
 mở port 22 cho đúng các CIDR đó. Danh sách rỗng thì không có key pair nào và port 22
 đóng hoàn toàn.
 
+`make ssh <ten>` tự dùng key này khi nó có mặt. Muốn gõ tay:
+
 ```bash
 cd terraform/deployments/<ten>
 ssh -i break-glass.pem admin@$(terraform output -raw public_ip)
 ```
-
-Hoặc cứ dùng `eval "$(terraform output -raw ssh_command)"` như trên: output đó tự đổi
-sang dạng break-glass khi biến này được đặt.
 
 Mở `0.0.0.0/0` là chấp nhận được vì xác thực là key-only: image Debian của cả hai cloud
 tắt sẵn `PasswordAuthentication` và `PermitRootLogin`, nên cái bạn nhận thêm chủ yếu là
@@ -222,10 +206,10 @@ Hai khác biệt giữa hai cloud:
 Cả hai cần Terraform >= 1.5 và một file `terraform.tfvars`:
 
 ```bash
-make tf-new DEPLOY=<ten>-gcp CLOUD=gcp
+make new <ten>-gcp
 ```
 
-`tf-new` tạo sẵn `terraform.tfvars` trong thư mục đó, bạn chỉ cần sửa nội dung.
+`make new` tạo sẵn `terraform.tfvars` trong thư mục đó, bạn chỉ cần sửa nội dung.
 
 `acme_email` bắt buộc và phải là TLD công khai thật — Let's Encrypt từ chối `.test`,
 `.local` và các TLD dành riêng khác.
@@ -379,9 +363,7 @@ khớp để người sau đọc không hiểu nhầm, apply sẽ không làm g�
 Terraform sinh ngẫu nhiên mật khẩu admin Moodle và MariaDB. Đọc bằng:
 
 ```bash
-cd terraform/deployments/<ten>
-terraform output -raw moodle_admin_password
-terraform output -raw mariadb_root_password
+make output <ten>
 ```
 
 Bộ ký tự đặc biệt bị giới hạn ở `!@%^*-_=+` vì Docker Compose nội suy giá trị trong
@@ -400,7 +382,7 @@ cd terraform/deployments/<ten>
 eval "$(terraform output -raw bootstrap_log_command)"
 ```
 
-Kiểm tra khi xong:
+Kiểm tra khi xong, cũng từ trong thư mục đó:
 
 ```bash
 curl -sI "$(terraform output -raw site_url)"           # 200
@@ -410,8 +392,7 @@ curl -s  "$(terraform output -raw site_url)/readyz"    # ready
 ## Xoá
 
 ```bash
-cd terraform/deployments/<ten>
-terraform destroy
+make destroy <ten>
 ```
 
 Destroy xoá luôn VM và disk, tức là mất toàn bộ data Moodle. Backup `/opt/moodle/data`

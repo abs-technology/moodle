@@ -37,7 +37,7 @@ export BUILDKIT_IMAGE SBOM_SCANNER ATTESTATIONS
 DATA_DIRS := data/moodle data/moodledata data/moodle-backups
 
 .PHONY: help build push inspect-manifest scan policy cves-critical fix login tag-latest up down remove logs shell \
-	tf-list tf-new
+	deploys new plan apply output ssh destroy
 
 help: ## Lệnh có sẵn
 	@printf 'Image : %s\n' "$(IMG_FULL)"
@@ -108,13 +108,80 @@ shell: ## Vào shell container moodle
 	@docker compose exec moodle bash
 
 # Một khách hàng = một thư mục dưới terraform/deployments/ = một state riêng.
-# Chỉ hai lệnh này ở đây, vì chúng làm việc trên nhiều deployment nên phải chạy từ
-# gốc repo. Còn plan/apply/output/ssh/destroy thì gõ terraform thẳng trong thư mục
-# khách đó: Terraform không cần biết DEPLOY khi nó đã đứng sẵn trong thư mục.
+# Tên khách đi thẳng trên dòng lệnh: make apply horizonschool-aws
+# Hậu tố -aws / -gcp quyết định cloud, nên không lệnh nào cần biến.
 # Xem terraform/README.md.
 
-tf-list: ## Liệt kê các deployment và domain hiện tại của chúng
+TF ?= terraform
+
+DEPLOYS  := $(notdir $(patsubst %/,%,$(wildcard terraform/deployments/*/)))
+TF_VERBS := deploys new plan apply output ssh destroy
+DEPLOY   := $(filter-out $(TF_VERBS),$(MAKECMDGOALS))
+TF_DIR    = terraform/deployments/$(DEPLOY)
+
+# Tên khách xuất hiện như một goal nên make cần một target cho nó. Chỉ sinh từ thư
+# mục có thật, để gõ sai tên vẫn báo lỗi thay vì im lặng không làm gì.
+$(DEPLOYS):
+	@:
+.PHONY: $(DEPLOYS)
+
+# `new` là lệnh duy nhất nhận tên chưa tồn tại, nên chỉ nó cần catch-all, và chỉ khi
+# nó thực sự có trên dòng lệnh — nếu định nghĩa vô điều kiện thì mọi target gõ sai
+# đều lặng lẽ thành no-op.
+ifneq ($(filter new,$(MAKECMDGOALS)),)
+%:
+	@:
+endif
+
+define need_deploy
+	@test -n "$(DEPLOY)" || { \
+		printf 'Thiếu tên deployment. Ví dụ: make %s horizonschool-aws\n' '$@'; \
+		printf 'Đang có:\n'; printf '  %s\n' $(DEPLOYS); \
+		exit 1; }
+	@test $(words $(DEPLOY)) -eq 1 || { \
+		printf 'Mỗi lệnh một deployment, không phải: %s\n' '$(DEPLOY)'; \
+		exit 1; }
+	@test -d "$(TF_DIR)" || { \
+		printf 'Không có deployment %s\n' '$(DEPLOY)'; \
+		printf '  make new %s\n' '$(DEPLOY)'; \
+		exit 1; }
+	@test -f "$(TF_DIR)/terraform.tfvars" || { \
+		printf 'Thiếu %s/terraform.tfvars\n' '$(TF_DIR)'; \
+		exit 1; }
+endef
+
+deploys: ## Terraform: liệt kê deployment và domain hiện tại
 	@scripts/tf-deployments.sh list
 
-tf-new: ## Tạo deployment mới: make tf-new DEPLOY=tenkhach-aws CLOUD=aws
+new: ## Terraform: tạo khách mới — make new truong-b-gcp
 	@scripts/tf-deployments.sh new "$(DEPLOY)" "$(CLOUD)"
+
+plan: ## Terraform: xem trước, không đụng gì — make plan <ten>
+	$(call need_deploy)
+	@$(TF) -chdir=$(TF_DIR) init -input=false
+	@$(TF) -chdir=$(TF_DIR) plan
+
+apply: ## Terraform: dựng hoặc cập nhật — make apply <ten>
+	$(call need_deploy)
+	@$(TF) -chdir=$(TF_DIR) init -input=false -upgrade
+	@$(TF) -chdir=$(TF_DIR) apply
+
+output: ## Terraform: in output kể cả mật khẩu — make output <ten>
+	$(call need_deploy)
+	@$(TF) -chdir=$(TF_DIR) output -json | \
+		python3 -c 'import json,sys; [print("%-24s %s" % (k, v["value"])) for k, v in json.load(sys.stdin).items()]'
+
+# break-glass.pem nằm cạnh state nên phải chạy từ trong thư mục. Ưu tiên nó thay vì
+# ssh_command: output đó được ghi vào state lúc apply, nên các stack apply trước lần
+# tách module vẫn còn mang đường dẫn cũ cho tới lần apply kế tiếp.
+ssh: ## Terraform: vào VM — make ssh <ten>
+	$(call need_deploy)
+	@cd $(TF_DIR) && if [ -f break-glass.pem ]; then \
+		ssh -i break-glass.pem admin@$$($(TF) output -raw public_ip); \
+	else \
+		eval "$$($(TF) output -raw ssh_command)"; \
+	fi
+
+destroy: ## Terraform: xoá hạ tầng (mất toàn bộ data Moodle của khách đó) — make destroy <ten>
+	$(call need_deploy)
+	@$(TF) -chdir=$(TF_DIR) destroy

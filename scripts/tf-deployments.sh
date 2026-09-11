@@ -101,8 +101,17 @@ ensure_bucket_gcp() {
 cmd_new() {
     local name="${1:-}" cloud="${2:-}"
 
-    [[ -n "$name" ]]  || die "Thiếu tên. Ví dụ: make tf-new DEPLOY=horizonschool-aws CLOUD=aws"
-    [[ -n "$cloud" ]] || die "Thiếu CLOUD=aws hoặc CLOUD=gcp"
+    [[ -n "$name" ]] || die "Thiếu tên. Ví dụ: make new horizonschool-aws"
+
+    # Hậu tố tên đã nói cloud nào, nên không bắt gõ thêm lần nữa; CLOUD= vẫn đè được
+    # nếu bạn muốn tên không theo quy ước.
+    if [[ -z "$cloud" ]]; then
+        case "$name" in
+            *-aws) cloud=aws ;;
+            *-gcp) cloud=gcp ;;
+            *) die "Tên '$name' không kết thúc bằng -aws hay -gcp; thêm CLOUD=aws hoặc CLOUD=gcp." ;;
+        esac
+    fi
     [[ "$cloud" == aws || "$cloud" == gcp ]] || die "CLOUD phải là aws hoặc gcp, không phải '$cloud'."
     [[ "$name" =~ ^[a-z][a-z0-9-]{2,40}$ ]] ||
         die "Tên chỉ gồm chữ thường, số và dấu gạch, bắt đầu bằng chữ."
@@ -144,8 +153,7 @@ cmd_new() {
     info "Đã tạo $dir"
     echo
     echo "  1. Sửa $dir/terraform.tfvars (credential, region, acme_email)"
-    echo "  2. cd $dir"
-    echo "  3. terraform init && terraform apply"
+    echo "  2. make apply $name"
     echo
     warn "terraform.tfvars và break-glass.pem trong thư mục này không bao giờ được commit."
 }
