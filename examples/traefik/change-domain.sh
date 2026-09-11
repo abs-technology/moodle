@@ -74,9 +74,27 @@ if [[ "$use_le" == no ]]; then
     # A passphrase-protected key would make Traefik prompt at startup, and it cannot.
     openssl pkey -noout -in "$key_src" -passin pass: 2>/dev/null || die "$key_src is not a PEM key, or has a passphrase."
 
+    # A BEGIN line that is not exactly five dashes leaves the block invisible to
+    # OpenSSL, which then silently reads the next certificate down instead. That
+    # surfaces later as a key mismatch and sends you looking in the wrong place.
+    blocks="$(grep -c 'BEGIN CERTIFICATE' "$cert_src" || true)"
+    parsed="$(openssl crl2pkcs7 -nocrl -certfile "$cert_src" 2>/dev/null |
+              openssl pkcs7 -print_certs -noout 2>/dev/null | grep -c '^subject=' || true)"
+    if [[ "$blocks" != "$parsed" ]]; then
+        warn "$cert_src has $blocks BEGIN CERTIFICATE lines but OpenSSL reads only $parsed."
+        die "A PEM marker is malformed. Every one needs exactly five dashes: -----BEGIN CERTIFICATE-----"
+    fi
+
+    # openssl x509 reads the first block, so a chain in the wrong order fails the
+    # key comparison below for a reason that has nothing to do with the key.
+    if openssl x509 -noout -ext basicConstraints -in "$cert_src" 2>/dev/null | grep -q 'CA:TRUE'; then
+        die "The first certificate in $cert_src is a CA. Put the leaf first, then the intermediates."
+    fi
+
     cert_pub="$(openssl x509 -noout -pubkey -in "$cert_src")"
     key_pub="$(openssl pkey -pubout -in "$key_src" -passin pass:)"
-    [[ "$cert_pub" == "$key_pub" ]] || die "Certificate and key do not belong together."
+    [[ "$cert_pub" == "$key_pub" ]] ||
+        die "$key_src is not the key for the first certificate in $cert_src."
 
     openssl x509 -noout -checkend 0 -in "$cert_src" >/dev/null || die "Certificate has already expired."
 
