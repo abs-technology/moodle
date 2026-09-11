@@ -156,19 +156,27 @@ deploys: ## Terraform: liệt kê deployment và domain hiện tại
 new: ## Terraform: tạo khách mới — make new truong-b-gcp
 	@scripts/tf-deployments.sh new "$(DEPLOY)" "$(CLOUD)"
 
+# Backend của Terraform không nhận biến, nên nếu không truyền credential của
+# deployment vào bằng biến môi trường thì backend sẽ rơi về profile mặc định của máy —
+# và state của khách này đi vào account của người khác. TF_ENV bảo đảm backend và
+# provider luôn dùng chung một danh tính.
+TF_ENV = eval "$$(scripts/tf-deployments.sh env $(DEPLOY))" &&
+
 plan: ## Terraform: xem trước, không đụng gì — make plan <ten>
 	$(call need_deploy)
-	@$(TF) -chdir=$(TF_DIR) init -input=false
-	@$(TF) -chdir=$(TF_DIR) plan
+	@scripts/tf-deployments.sh backend $(DEPLOY)
+	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) init -input=false
+	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) plan
 
 apply: ## Terraform: dựng hoặc cập nhật — make apply <ten>
 	$(call need_deploy)
-	@$(TF) -chdir=$(TF_DIR) init -input=false -upgrade
-	@$(TF) -chdir=$(TF_DIR) apply
+	@scripts/tf-deployments.sh backend $(DEPLOY)
+	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) init -input=false -upgrade
+	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) apply
 
 output: ## Terraform: in output kể cả mật khẩu — make output <ten>
 	$(call need_deploy)
-	@$(TF) -chdir=$(TF_DIR) output -json | \
+	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) output -json | \
 		python3 -c 'import json,sys; [print("%-24s %s" % (k, v["value"])) for k, v in json.load(sys.stdin).items()]'
 
 # break-glass.pem nằm cạnh state nên phải chạy từ trong thư mục. Ưu tiên nó thay vì
@@ -176,7 +184,7 @@ output: ## Terraform: in output kể cả mật khẩu — make output <ten>
 # tách module vẫn còn mang đường dẫn cũ cho tới lần apply kế tiếp.
 ssh: ## Terraform: vào VM — make ssh <ten>
 	$(call need_deploy)
-	@cd $(TF_DIR) && if [ -f break-glass.pem ]; then \
+	@$(TF_ENV) cd $(TF_DIR) && if [ -f break-glass.pem ]; then \
 		ssh -i break-glass.pem admin@$$($(TF) output -raw public_ip); \
 	else \
 		eval "$$($(TF) output -raw ssh_command)"; \
@@ -184,4 +192,4 @@ ssh: ## Terraform: vào VM — make ssh <ten>
 
 destroy: ## Terraform: xoá hạ tầng (mất toàn bộ data Moodle của khách đó) — make destroy <ten>
 	$(call need_deploy)
-	@$(TF) -chdir=$(TF_DIR) destroy
+	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) destroy

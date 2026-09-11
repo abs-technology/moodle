@@ -25,14 +25,7 @@ terraform {
   # State lives centrally, one object per deployment, so losing this working copy
   # never costs the ability to manage or destroy a customer's stack.
   # use_lockfile needs Terraform 1.10+ and replaces the old DynamoDB table.
-  backend "s3" {
-    bucket       = "absi-moodle-tfstate"
-    key          = "deployments/horizonschool-aws.tfstate"
-    region       = "ap-southeast-1"
-    profile      = "default"
-    encrypt      = true
-    use_lockfile = true
-  }
+  # Backend nằm ở backend.tf.
 }
 
 # Credentials come from this deployment's terraform.tfvars, so each customer can

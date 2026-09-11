@@ -18,13 +18,9 @@ info() { printf '%s==>%s %s\n' "$GREEN" "$NC" "$*"; }
 warn() { printf '%s[!]%s %s\n' "$YELLOW" "$NC" "$*" >&2; }
 die()  { printf '%s[x]%s %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
 
-# Where every deployment's state object lives. Override per shell if you keep
-# state somewhere else.
-: "${TF_STATE_BUCKET_AWS:=absi-moodle-tfstate}"
-: "${TF_STATE_REGION:=ap-southeast-1}"
-: "${TF_STATE_PROFILE:=default}"
-: "${TF_STATE_BUCKET_GCP:=absi-moodle-tfstate}"
-: "${TF_STATE_PROJECT_GCP:=}"
+# Tên bucket state được suy ra từ account (AWS) hoặc project (GCP) của chính
+# deployment, nên state luôn nằm cùng chỗ với hạ tầng. Đặt TF_STATE_BUCKET nếu bạn
+# muốn tên khác, nhưng hãy giữ nguyên tắc một bucket cho một account.
 
 DEPLOYMENTS=terraform/deployments
 
@@ -54,37 +50,37 @@ cmd_list() {
 }
 
 ensure_bucket_aws() {
-    local bucket="$1"
+    local bucket="$1" region="$2"
     # head-bucket trả JSON ở CLI mới, và ở đây chỉ cần exit code.
-    if aws s3api head-bucket --bucket "$bucket" --profile "$TF_STATE_PROFILE" >/dev/null 2>&1; then
+    if aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
         return 0
     fi
 
-    info "Tạo bucket state s3://$bucket"
-    aws s3api create-bucket --bucket "$bucket" --profile "$TF_STATE_PROFILE" \
-        --region "$TF_STATE_REGION" \
-        --create-bucket-configuration "LocationConstraint=$TF_STATE_REGION" >/dev/null
+    info "Tạo bucket state s3://$bucket ($region)"
+    aws s3api create-bucket --bucket "$bucket" --region "$region" \
+        --create-bucket-configuration "LocationConstraint=$region" >/dev/null
 
     # State holds the generated Moodle and MariaDB passwords in plaintext.
-    aws s3api put-public-access-block --bucket "$bucket" --profile "$TF_STATE_PROFILE" \
+    aws s3api put-public-access-block --bucket "$bucket" \
         --public-access-block-configuration \
         'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true'
-    aws s3api put-bucket-encryption --bucket "$bucket" --profile "$TF_STATE_PROFILE" \
+    aws s3api put-bucket-encryption --bucket "$bucket" \
         --server-side-encryption-configuration \
         '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
     # Versioning is what turns a corrupted or truncated state into a rollback.
-    aws s3api put-bucket-versioning --bucket "$bucket" --profile "$TF_STATE_PROFILE" \
+    aws s3api put-bucket-versioning --bucket "$bucket" \
         --versioning-configuration Status=Enabled
 }
 
 ensure_bucket_gcp() {
-    local bucket="$1"
+    local bucket="$1" project="$2" region="$3"
 
     # `gcloud auth login` and `gcloud auth application-default login` hold separate
     # credentials, and the CLI one expires on its own schedule. Terraform reads ADC,
     # so borrow the same token here and the bucket is created by the same identity.
     local token
-    if token="$(gcloud auth application-default print-access-token 2>/dev/null)"; then
+    if [[ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]] &&
+       token="$(gcloud auth application-default print-access-token 2>/dev/null)"; then
         export CLOUDSDK_AUTH_ACCESS_TOKEN="$token"
     fi
 
@@ -92,16 +88,120 @@ ensure_bucket_gcp() {
         return 0
     fi
 
-    [[ -n "$TF_STATE_PROJECT_GCP" ]] ||
-        die "Đặt TF_STATE_PROJECT_GCP để biết tạo bucket state trong project nào."
-
-    info "Tạo bucket state gs://$bucket"
+    info "Tạo bucket state gs://$bucket ($project)"
     gcloud storage buckets create "gs://$bucket" \
-        --project "$TF_STATE_PROJECT_GCP" \
-        --location "asia-southeast1" \
+        --project "$project" \
+        --location "$region" \
         --uniform-bucket-level-access \
         --public-access-prevention
     gcloud storage buckets update "gs://$bucket" --versioning
+}
+
+# Đọc một giá trị chuỗi từ terraform.tfvars của deployment.
+tfvar() { sed -n "s/^ *$2 *= *\"\(.*\)\"/\1/p" "$1/terraform.tfvars" 2>/dev/null | head -1; }
+
+cloud_of() {
+    [[ -f "$1/main.tf" ]] || die "$1 chưa có main.tf."
+    if grep -q 'provider "aws"' "$1/main.tf"; then echo aws
+    elif grep -q 'provider "google"' "$1/main.tf"; then echo gcp
+    else die "Không nhận ra cloud của $1."; fi
+}
+
+# In ra các lệnh export để `eval`. Backend của Terraform không nhận biến, nên cách
+# duy nhất để nó dùng đúng credential của deployment là qua biến môi trường — và đó
+# cũng là cách bảo đảm state với hạ tầng không bao giờ lạc sang hai account khác nhau.
+cmd_env() {
+    local name="${1:-}" dir
+    [[ -n "$name" ]] || die "Thiếu tên deployment."
+    dir="$DEPLOYMENTS/$name"
+    [[ -f "$dir/terraform.tfvars" ]] || die "Thiếu $dir/terraform.tfvars"
+
+    case "$(cloud_of "$dir")" in
+    aws)
+        local ak sk pf rg
+        ak="$(tfvar "$dir" access_key)"; sk="$(tfvar "$dir" secret_key)"
+        pf="$(tfvar "$dir" profile)";    rg="$(tfvar "$dir" region)"
+        echo "unset AWS_PROFILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY"
+        [[ -n "$rg" ]] && echo "export AWS_REGION=$(printf '%q' "$rg")"
+        if [[ -n "$ak" && -n "$sk" ]]; then
+            echo "export AWS_ACCESS_KEY_ID=$(printf '%q' "$ak")"
+            echo "export AWS_SECRET_ACCESS_KEY=$(printf '%q' "$sk")"
+        elif [[ -n "$pf" ]]; then
+            echo "export AWS_PROFILE=$(printf '%q' "$pf")"
+        fi
+        echo "export AWS_PAGER="
+        ;;
+    gcp)
+        local cred
+        cred="$(tfvar "$dir" credentials)"
+        [[ -n "$cred" ]] && echo "export GOOGLE_APPLICATION_CREDENTIALS=$(printf '%q' "$cred")"
+        ;;
+    esac
+}
+
+# Sinh backend.tf trong đúng account/project của deployment. Idempotent, và tuyệt
+# đối không ghi đè backend đã có: dời state là việc phải làm có ý thức, còn âm thầm
+# trỏ sang bucket khác thì Terraform sẽ coi như chưa có gì và định tạo lại tất cả.
+cmd_backend() {
+    local name="${1:-}" dir bucket
+    [[ -n "$name" ]] || die "Thiếu tên deployment."
+    dir="$DEPLOYMENTS/$name"
+    [[ -f "$dir/terraform.tfvars" ]] || die "Thiếu $dir/terraform.tfvars"
+    if [[ -f "$dir/backend.tf" ]] || grep -q 'backend "' "$dir/main.tf"; then
+        return 0
+    fi
+
+    eval "$(cmd_env "$name")"
+
+    case "$(cloud_of "$dir")" in
+    aws)
+        local acct region
+        region="$(tfvar "$dir" region)"
+        [[ -n "$region" ]] || die "Thiếu region trong $dir/terraform.tfvars"
+        if [[ -n "${TF_STATE_BUCKET:-}" ]]; then
+            bucket="$TF_STATE_BUCKET"; acct="do TF_STATE_BUCKET chỉ định"
+        else
+            # Tên bucket lấy theo account, nên không thể trỏ nhầm sang account khác.
+            acct="$(aws sts get-caller-identity --query Account --output text)" ||
+                die "Không xác thực được với AWS bằng credential trong $dir/terraform.tfvars"
+            bucket="absi-moodle-tfstate-$acct"
+        fi
+        [[ "${TF_SKIP_BUCKET:-}" == 1 ]] || ensure_bucket_aws "$bucket" "$region"
+        cat >"$dir/backend.tf" <<EOF
+# Sinh tự động bởi scripts/tf-deployments.sh. Bucket nằm cùng account với hạ tầng
+# ($acct), vì cả hai đều dùng credential trong terraform.tfvars của deployment này.
+terraform {
+  backend "s3" {
+    bucket       = "$bucket"
+    key          = "deployments/$name.tfstate"
+    region       = "$region"
+    encrypt      = true
+    use_lockfile = true
+  }
+}
+EOF
+        ;;
+    gcp)
+        local project region
+        project="$(tfvar "$dir" project_id)"
+        region="$(tfvar "$dir" region)"
+        [[ -n "$project" ]] || die "Thiếu project_id trong $dir/terraform.tfvars"
+        bucket="${TF_STATE_BUCKET:-absi-moodle-tfstate-$project}"
+        [[ "${TF_SKIP_BUCKET:-}" == 1 ]] ||
+            ensure_bucket_gcp "$bucket" "$project" "${region:-asia-southeast1}"
+        cat >"$dir/backend.tf" <<EOF
+# Sinh tự động bởi scripts/tf-deployments.sh, trong project $project — cùng project
+# với hạ tầng, vì project_id lấy từ terraform.tfvars của chính deployment này.
+terraform {
+  backend "gcs" {
+    bucket = "$bucket"
+    prefix = "deployments/$name"
+  }
+}
+EOF
+        ;;
+    esac
+    info "Đã sinh $dir/backend.tf"
 }
 
 cmd_new() {
@@ -125,17 +225,8 @@ cmd_new() {
     local dir="$DEPLOYMENTS/$name"
     [[ ! -e "$dir" ]] || die "$dir đã tồn tại."
 
-    local bucket
-    [[ "$cloud" == aws ]] && bucket="$TF_STATE_BUCKET_AWS" || bucket="$TF_STATE_BUCKET_GCP"
-
-    if [[ "${TF_SKIP_BUCKET:-}" == 1 ]]; then
-        warn "Bỏ qua việc tạo bucket state; $bucket phải có sẵn."
-    elif [[ "$cloud" == aws ]]; then
-        ensure_bucket_aws "$bucket"
-    else
-        ensure_bucket_gcp "$bucket"
-    fi
-
+    # Bucket state chưa tạo được ở bước này: nó phải nằm trong account mà credential
+    # trỏ tới, mà credential thì chính bạn sắp điền vào tfvars. `make apply` lo phần đó.
     mkdir -p "$dir"
     cp "terraform/templates/$cloud/main.tf"    "$dir/main.tf"
     cp "terraform/templates/$cloud/outputs.tf" "$dir/outputs.tf"
@@ -144,12 +235,7 @@ cmd_new() {
     # authored copy, and the deployment gets them fresh at creation time.
     cp "terraform/modules/moodle-$cloud/variables.tf" "$dir/variables.tf"
 
-    sed -i.bak \
-        -e "s|TF_STATE_BUCKET|$bucket|g" \
-        -e "s|TF_STATE_REGION|$TF_STATE_REGION|g" \
-        -e "s|TF_STATE_PROFILE|$TF_STATE_PROFILE|g" \
-        -e "s|DEPLOY|$name|g" \
-        "$dir/main.tf"
+    sed -i.bak -e "s|DEPLOY|$name|g" "$dir/main.tf"
     rm -f "$dir/main.tf.bak"
 
     # The name must differ per deployment or IAM roles and key pairs collide.
@@ -161,11 +247,15 @@ cmd_new() {
     echo "  1. Sửa $dir/terraform.tfvars (credential, region, acme_email)"
     echo "  2. make apply $name"
     echo
+    echo "  Bucket state sẽ được tạo ở bước 2, trong đúng account mà credential trỏ tới."
+    echo
     warn "terraform.tfvars và break-glass.pem trong thư mục này không bao giờ được commit."
 }
 
 case "${1:-}" in
-    list) cmd_list ;;
-    new)  shift; cmd_new "$@" ;;
-    *)    die "Dùng: $0 {list|new <tên> <aws|gcp>}" ;;
+    list)    cmd_list ;;
+    new)     shift; cmd_new "$@" ;;
+    backend) shift; cmd_backend "$@" ;;
+    env)     shift; cmd_env "$@" ;;
+    *)       die "Dùng: $0 {list|new <tên> <aws|gcp>|backend <tên>|env <tên>}" ;;
 esac

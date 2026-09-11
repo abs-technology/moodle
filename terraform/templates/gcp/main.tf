@@ -22,13 +22,10 @@ terraform {
     }
   }
 
-  # State lives centrally, one object per deployment, so losing this working copy
-  # never costs the ability to manage or destroy a customer's stack. GCS locks
-  # state on its own; nothing extra to provision.
-  backend "gcs" {
-    bucket = "TF_STATE_BUCKET"
-    prefix = "deployments/DEPLOY"
-  }
+  # Backend nằm ở backend.tf, do scripts/tf-deployments.sh sinh ra ở lần chạy đầu.
+  # Không đặt ở đây được: block backend không nhận biến, mà bucket state phải nằm
+  # trong đúng project mà project_id dưới đây trỏ tới — và giá trị đó chỉ biết
+  # được sau khi terraform.tfvars đã điền.
 }
 
 # Credentials come from this deployment's terraform.tfvars, so each customer can

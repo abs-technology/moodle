@@ -63,7 +63,23 @@ trong project, nên hai khách trùng `name` sẽ đụng nhau ngay lần apply 
 
 **Cách ly credential.** `access_key`/`secret_key` (AWS) và `project_id`/`credentials`
 (GCP) khai báo trong tfvars của từng deployment, nên khách nào muốn nằm ở account hay
-project riêng đều được, mà vẫn dùng chung một bộ module.
+project riêng đều được, mà vẫn dùng chung một bộ module. **State đi theo credential
+đó**, không nằm ở một chỗ tập trung: bucket tên `absi-moodle-tfstate-<account>` (AWS)
+hoặc `absi-moodle-tfstate-<project_id>` (GCP), tạo trong đúng account mà tfvars trỏ tới.
+
+Chỗ này từng có bug đáng nhớ. Block `backend` của Terraform **không nhận biến**, nên nó
+không thể đọc `var.access_key`; nếu không làm gì thêm, backend rơi về profile mặc định
+của máy và state của khách đi vào một account hoàn toàn khác — mật khẩu Moodle nằm
+plaintext trong state, ở nhà người khác, và mất quyền vào account đó là mất khả năng
+`destroy` mọi stack. Hai thứ chặn điều đó:
+
+`backend.tf` được **sinh ra** ở lần `make apply` đầu tiên, sau khi tfvars đã có
+credential, nên tên bucket suy từ `sts get-caller-identity` của chính credential ấy. Và
+`make` xuất `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` từ tfvars ra biến môi trường
+trước mỗi lệnh Terraform — đó là đường duy nhất truyền credential vào backend.
+
+Script **không bao giờ ghi đè** `backend.tf` đã có. Dời state là việc phải làm có ý
+thức: âm thầm trỏ sang bucket khác thì Terraform thấy state rỗng và định tạo lại tất cả.
 
 Một khách có nhiều site độc lập — staging và production chẳng hạn — thì tạo nhiều
 deployment: `truong-b-prod-aws` và `truong-b-staging-aws`. Nhiều VM phục vụ **cùng một**
