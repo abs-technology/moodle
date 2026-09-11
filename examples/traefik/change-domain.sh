@@ -102,14 +102,17 @@ if [[ -n "$public_ip" && "$resolved" != "$public_ip" ]]; then
     [[ "$force" == yes ]] || die "Re-run with --force to proceed anyway."
 fi
 
-# tool_replace refuses a replacement longer than the search string unless it is
-# allowed to trim whatever would overflow a column. Decide here, not after the
-# site has already been half-migrated.
+# tool_replace stops with "cannotfit" when the replacement is longer than the
+# search string, and --shorten is only the flag that lets it past that check:
+# replace_all_text() trims regardless. Only fixed-length CHAR columns are cut,
+# to their own max_length; the TEXT columns holding course content are replaced
+# whole. Decided here so a longer domain fails nothing halfway through.
 shorten=""
 if [[ ${#new_domain} -gt ${#old_domain} ]]; then
     shorten="--shorten"
-    warn "$new_domain is longer than $old_domain."
-    warn "Text that would overflow its column after the rewrite gets trimmed."
+    warn "$new_domain is longer than $old_domain, which Moodle refuses by default."
+    warn "Proceeding: content columns are rewritten whole, and only short"
+    warn "fixed-length fields already near their limit can lose the overflow."
 fi
 
 cat <<SUMMARY
