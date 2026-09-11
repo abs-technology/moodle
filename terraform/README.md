@@ -16,9 +16,63 @@ make aws   # VPC + VM + Moodle trên AWS
 
 Cả hai đều chạy `terraform apply` ở chế độ tương tác: bạn xem plan rồi gõ `yes`.
 
+## Quy trình đầy đủ
+
+Bảy bước, hai giai đoạn: deploy ngay bằng nip.io để khách hàng dùng được luôn, rồi
+chuyển sang domain và chứng chỉ thật khi đã mua.
+
+### Giai đoạn 1 — deploy bằng nip.io
+
+**1.** Điền `terraform/aws/terraform.tfvars`: `access_key`, `secret_key`, `region`,
+`acme_email`, và `ssh_allowed_cidrs = ["0.0.0.0/0"]`. GCP thì điền `project_id` thay
+cho key/secret. Xem file `.example` cạnh đó.
+
+**2.** `make aws` (hoặc `make gcp`), xem plan rồi gõ `yes`. Khoảng 4–6 phút sau site có
+HTTPS thật tại `https://moodle.<ip>.nip.io`, chứng chỉ Let's Encrypt, không cần làm gì
+với DNS.
+
+**3.** Lấy thông tin đăng nhập và IP:
+
+```bash
+terraform -chdir=terraform/aws output -raw moodle_admin_password
+terraform -chdir=terraform/aws output -raw public_ip     # ghi lại IP này
+```
+
+**4.** Giao site cho khách hàng. IP ở bước 3 là địa chỉ tĩnh và **không đổi** về sau —
+đó là lý do giai đoạn 2 nhẹ nhàng.
+
+### Giai đoạn 2 — chuyển sang domain và cert của bạn
+
+**5.** Trỏ A record của domain mới về đúng IP ở bước 3. Site nip.io vẫn chạy bình
+thường suốt lúc chờ DNS lan, khách hàng chưa bị ảnh hưởng gì.
+
+**6.** Đẩy cặp chứng chỉ lên máy:
+
+```bash
+scp -i terraform/aws/break-glass.pem fullchain.pem privkey.pem admin@<IP>:/tmp/
+```
+
+**7.** Vào máy và chạy một lệnh:
+
+```bash
+ssh -i terraform/aws/break-glass.pem admin@<IP>
+cd /opt/moodle
+sudo ./change-domain.sh --domain lms.example.com \
+    --cert /tmp/fullchain.pem --key /tmp/privkey.pem
+```
+
+Gõ tên domain mới để xác nhận, khoảng 30 giây là xong. Muốn dùng Let's Encrypt cho
+domain mới thay vì chứng chỉ đã mua thì thay hai tham số cert bằng `--letsencrypt`.
+
+Hai điều cần biết trước khi chạy bước 7. `fullchain.pem` phải là chuỗi đầy đủ với cert
+lá đứng đầu, và key không được đặt passphrase — script từ chối ngay trước khi đụng vào
+gì nếu sai. Sau khi chạy, domain nip.io ngừng hoạt động và mọi người đang đăng nhập bị
+đăng xuất, nên chọn giờ thấp điểm. Độ dài domain không quan trọng; xem
+[Chuyển site đang chạy sang domain và cert của bạn](#chuyển-site-đang-chạy-sang-domain-và-cert-của-bạn).
+
 ## Truy cập SSH
 
-Không cloud nào mở port 22 ra internet.
+Mặc định không cloud nào mở port 22 ra internet.
 
 | | Cách vào | Cơ chế |
 |---|---|---|
@@ -193,34 +247,27 @@ Khi test nhiều lần, bật `acme_staging = true` để tránh rate limit củ
 
 ### Chuyển site đang chạy sang domain và cert của bạn
 
-Đây là luồng dành cho trường hợp deploy bằng nip.io trước, khách hàng vào dùng và cấu
-hình một thời gian, sau đó mới mua domain và chứng chỉ.
+Các bước cụ thể nằm ở [Quy trình đầy đủ](#quy-trình-đầy-đủ) phía trên. Phần này giải
+thích vì sao phải làm như vậy.
 
 Đổi `moodle_domain` trong tfvars rồi apply lại **không** làm được việc này. Terraform
 để `startup-script`/`user_data` dưới `ignore_changes` nên VM không bị đụng tới, và kể
 cả có đụng thì cũng vô ích: image chỉ sinh `config.php` đúng một lần lúc cài, còn URL
 cũ thì đã nằm rải rác trong database.
 
-Việc này làm trên VM, bằng script Terraform đã đặt sẵn ở đó:
+Nên việc này làm trên VM, bằng `change-domain.sh` mà Terraform đặt sẵn ở đó. Script
+kiểm tra cert khớp key, đúng SAN, đủ chain và domain đã resolve về máy này trước khi
+đụng vào bất cứ thứ gì; sau đó backup database, `config.php` và `moodledata`, bật
+maintenance mode, sửa `wwwroot`, chạy `admin/tool/replace` trên toàn database, chuyển
+địa chỉ no-reply, purge cache và session, rồi tự kiểm tra lại. Chi tiết và các cờ bỏ
+bước nằm trong [../examples/traefik/README.md](../examples/traefik/README.md).
 
-```bash
-make aws-ssh                    # hoặc make gcp-ssh
-cd /opt/moodle
-sudo ./change-domain.sh --domain lms.example.com \
-    --cert /root/fullchain.pem --key /root/privkey.pem
-```
+Domain mới dài hơn tên nip.io cũng không sao. Moodle mặc định từ chối trường hợp đó và
+script tự truyền `--shorten` để đi tiếp; cột TEXT chứa nội dung khoá học vẫn được thay
+nguyên vẹn, chỉ cột VARCHAR độ dài cố định đã sát giới hạn mới bị cắt phần tràn.
 
-Trỏ A record của domain mới vào IP tĩnh trước — IP không đổi khi chuyển, nên site
-nip.io vẫn chạy bình thường suốt lúc chờ DNS lan. Script kiểm tra cert khớp key, đúng
-SAN, đủ chain và domain đã resolve về máy này trước khi đụng vào bất cứ thứ gì; sau đó
-backup database, `config.php` và `moodledata`, bật maintenance mode, sửa `wwwroot`,
-chạy `admin/tool/replace` trên toàn database, purge cache và session, rồi tự kiểm tra
-lại. Chi tiết và các cờ bỏ bước nằm trong
-[../examples/traefik/README.md](../examples/traefik/README.md).
-
-Sau khi chuyển, domain nip.io ngừng hoạt động và mọi người đang đăng nhập bị đăng xuất.
-`moodle_domain` trong tfvars từ lúc đó không còn là sự thật nữa; cập nhật lại cho khớp
-để người sau đọc không hiểu nhầm, apply sẽ không làm gì thêm.
+Sau khi chuyển, `moodle_domain` trong tfvars không còn là sự thật nữa; cập nhật lại cho
+khớp để người sau đọc không hiểu nhầm, apply sẽ không làm gì thêm.
 
 ## Port mở
 
