@@ -11,7 +11,7 @@ data "aws_availability_zones" "available" {
 
 locals {
   availability_zone = var.availability_zone != "" ? var.availability_zone : data.aws_availability_zones.available.names[0]
-  break_glass       = var.ssh_allowed_cidr != ""
+  break_glass       = length(var.ssh_allowed_cidrs) > 0
 }
 
 # Khoá sinh tại chỗ, ghi ra break-glass.pem để không phải quản lý key pair thủ công.
@@ -95,7 +95,7 @@ resource "aws_security_group" "moodle" {
   description = "Moodle web traffic only"
   vpc_id      = aws_vpc.moodle.id
 
-  # Break-glass: chỉ tồn tại khi ssh_allowed_cidr được đặt, và chỉ mở cho CIDR đó.
+  # Break-glass: chỉ tồn tại khi ssh_allowed_cidrs không rỗng.
   dynamic "ingress" {
     for_each = local.break_glass ? [1] : []
 
@@ -104,7 +104,7 @@ resource "aws_security_group" "moodle" {
       from_port   = 22
       to_port     = 22
       protocol    = "tcp"
-      cidr_blocks = [var.ssh_allowed_cidr]
+      cidr_blocks = var.ssh_allowed_cidrs
     }
   }
 
@@ -245,8 +245,10 @@ resource "aws_instance" "moodle" {
   ami                  = data.aws_ami.debian13.id
   instance_type        = var.instance_type
   iam_instance_profile = aws_iam_instance_profile.ssm.name
-  user_data            = module.bootstrap.script
-  key_name             = local.break_glass ? aws_key_pair.break_glass[0].key_name : null
+  # EC2 caps user_data at 16 KB and the bootstrap payload is past that. cloud-init
+  # detects the gzip magic bytes and decompresses before running it.
+  user_data_base64 = base64gzip(module.bootstrap.script)
+  key_name         = local.break_glass ? aws_key_pair.break_glass[0].key_name : null
 
   network_interface {
     network_interface_id = aws_network_interface.moodle.id
@@ -270,6 +272,6 @@ resource "aws_instance" "moodle" {
   depends_on = [aws_route_table_association.public, aws_eip_association.moodle]
 
   lifecycle {
-    ignore_changes = [user_data, ami]
+    ignore_changes = [user_data_base64, ami]
   }
 }

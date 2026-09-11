@@ -25,6 +25,9 @@ Không cloud nào mở port 22 ra internet.
 | GCP | `make gcp-ssh` | IAP TCP forwarding — firewall chỉ allow 22 từ `35.235.240.0/20`, cộng OS Login để phân quyền bằng IAM thay vì metadata key |
 | AWS | `make aws-ssh` | SSM Session Manager — security group **không có** inbound 22 nào; agent tự mở kết nối ra ngoài |
 
+Cả hai đường trên đều phụ thuộc credential của cloud CLI còn hạn. Muốn một đường
+không phụ thuộc gì cả, xem SSH break-glass bên dưới.
+
 Vì AMI Debian không cài sẵn SSM agent, bootstrap script tải và cài nó trước khi làm
 việc khác. Nếu bước này lỗi thì `make aws-ssh` sẽ không vào được.
 
@@ -34,26 +37,36 @@ việc khác. Nếu bước này lỗi thì `make aws-ssh` sẽ không vào đư
 brew install --cask session-manager-plugin
 ```
 
-### SSH dự phòng trên AWS
+### SSH break-glass
 
-Vì SSM là đường vào duy nhất, mất nó là VM thành hộp đen. Đặt `ssh_allowed_cidr` để có
-thêm một đường:
+SSM và IAP đều hỏng theo cùng một kiểu: token CLI hết hạn, hoặc agent không lên, là
+mất đường vào VM. `ssh_allowed_cidrs` mở thêm một đường độc lập, có trên cả hai cloud:
 
 ```hcl
-ssh_allowed_cidr = "1.2.3.4/32"
+ssh_allowed_cidrs = ["1.2.3.4/32"]     # chỉ IP của bạn
+ssh_allowed_cidrs = ["0.0.0.0/0"]      # mọi client
 ```
 
-Terraform sinh key ED25519, ghi ra `terraform/aws/break-glass.pem` với quyền 0600, và
-mở port 22 **chỉ cho CIDR đó**. Biến này có validation chặn `0.0.0.0/0`. Để trống thì
-không có key pair nào và port 22 đóng hoàn toàn.
+Terraform sinh key ED25519, ghi ra `terraform/<cloud>/break-glass.pem` quyền 0600, và
+mở port 22 cho đúng các CIDR đó. Danh sách rỗng thì không có key pair nào và port 22
+đóng hoàn toàn.
 
 ```bash
 ssh -i terraform/aws/break-glass.pem admin@$(terraform -chdir=terraform/aws output -raw public_ip)
 ```
 
-`make aws-ssh` tự chọn đúng lệnh tùy theo biến này được đặt hay không. Lưu ý thêm hoặc
-bỏ `ssh_allowed_cidr` sẽ **tạo lại VM**, vì `key_name` là thuộc tính không đổi được của
-EC2 instance.
+`make gcp-ssh` và `make aws-ssh` tự chọn đúng lệnh tùy biến này có được đặt hay không.
+
+Mở `0.0.0.0/0` là chấp nhận được vì xác thực là key-only: image Debian của cả hai cloud
+tắt sẵn `PasswordAuthentication` và `PermitRootLogin`, nên cái bạn nhận thêm chủ yếu là
+log brute-force. Đổi lại là không bao giờ mất quyền vào máy khi IP nhà bạn thay đổi.
+
+Hai khác biệt giữa hai cloud:
+
+- **AWS**: thêm hoặc bỏ biến này sẽ **tạo lại VM**, vì `key_name` là thuộc tính không
+  đổi được của EC2 instance. Quyết định trước khi có dữ liệu thật.
+- **GCP**: đặt biến này sẽ **tắt OS Login**, vì OS Login cố tình bỏ qua metadata key.
+  Phân quyền chuyển từ IAM sang việc ai giữ file `.pem`.
 
 ## Chuẩn bị
 
@@ -177,6 +190,37 @@ trỏ A record vào đó. Traefik sẽ retry ACME tới khi DNS lan xong.
 
 Khi test nhiều lần, bật `acme_staging = true` để tránh rate limit của Let's Encrypt
 (chứng chỉ sẽ không được trust).
+
+### Chuyển site đang chạy sang domain và cert của bạn
+
+Đây là luồng dành cho trường hợp deploy bằng nip.io trước, khách hàng vào dùng và cấu
+hình một thời gian, sau đó mới mua domain và chứng chỉ.
+
+Đổi `moodle_domain` trong tfvars rồi apply lại **không** làm được việc này. Terraform
+để `startup-script`/`user_data` dưới `ignore_changes` nên VM không bị đụng tới, và kể
+cả có đụng thì cũng vô ích: image chỉ sinh `config.php` đúng một lần lúc cài, còn URL
+cũ thì đã nằm rải rác trong database.
+
+Việc này làm trên VM, bằng script Terraform đã đặt sẵn ở đó:
+
+```bash
+make aws-ssh                    # hoặc make gcp-ssh
+cd /opt/moodle
+sudo ./change-domain.sh --domain lms.example.com \
+    --cert /root/fullchain.pem --key /root/privkey.pem
+```
+
+Trỏ A record của domain mới vào IP tĩnh trước — IP không đổi khi chuyển, nên site
+nip.io vẫn chạy bình thường suốt lúc chờ DNS lan. Script kiểm tra cert khớp key, đúng
+SAN, đủ chain và domain đã resolve về máy này trước khi đụng vào bất cứ thứ gì; sau đó
+backup database, `config.php` và `moodledata`, bật maintenance mode, sửa `wwwroot`,
+chạy `admin/tool/replace` trên toàn database, purge cache và session, rồi tự kiểm tra
+lại. Chi tiết và các cờ bỏ bước nằm trong
+[../examples/traefik/README.md](../examples/traefik/README.md).
+
+Sau khi chuyển, domain nip.io ngừng hoạt động và mọi người đang đăng nhập bị đăng xuất.
+`moodle_domain` trong tfvars từ lúc đó không còn là sự thật nữa; cập nhật lại cho khớp
+để người sau đọc không hiểu nhầm, apply sẽ không làm gì thêm.
 
 ## Port mở
 

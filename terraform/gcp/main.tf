@@ -36,6 +36,38 @@ resource "google_compute_firewall" "web" {
   target_tags   = [var.name]
 }
 
+locals {
+  break_glass = length(var.ssh_allowed_cidrs) > 0
+}
+
+# Khoá sinh tại chỗ, ghi ra break-glass.pem để vào được VM mà không cần gcloud
+# còn token hợp lệ.
+resource "tls_private_key" "break_glass" {
+  count     = local.break_glass ? 1 : 0
+  algorithm = "ED25519"
+}
+
+resource "local_sensitive_file" "break_glass" {
+  count           = local.break_glass ? 1 : 0
+  filename        = "${path.module}/break-glass.pem"
+  content         = tls_private_key.break_glass[0].private_key_openssh
+  file_permission = "0600"
+}
+
+resource "google_compute_firewall" "break_glass_ssh" {
+  count   = local.break_glass ? 1 : 0
+  name    = "${var.name}-allow-ssh"
+  network = google_compute_network.moodle.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  source_ranges = var.ssh_allowed_cidrs
+  target_tags   = [var.name]
+}
+
 # 22 is reachable only from Google's IAP forwarders, never from the internet.
 resource "google_compute_firewall" "iap_ssh" {
   name    = "${var.name}-allow-iap-ssh"
@@ -115,11 +147,17 @@ resource "google_compute_instance" "moodle" {
     }
   }
 
-  metadata = {
-    startup-script = module.bootstrap.script
-    # OS Login keeps SSH access on IAM instead of metadata keys.
-    enable-oslogin = "TRUE"
-  }
+  # OS Login keeps SSH access on IAM instead of metadata keys, but it also
+  # ignores them — a break-glass key only works with OS Login off.
+  metadata = merge(
+    {
+      startup-script = module.bootstrap.script
+      enable-oslogin = local.break_glass ? "FALSE" : "TRUE"
+    },
+    local.break_glass ? {
+      ssh-keys = "admin:${trimspace(tls_private_key.break_glass[0].public_key_openssh)} break-glass"
+    } : {}
+  )
 
   shielded_instance_config {
     enable_secure_boot          = true

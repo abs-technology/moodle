@@ -44,6 +44,21 @@ cat >/opt/moodle/docker-compose.yml <<'ABSI_EOF_COMPOSE'
 ${compose_file}
 ABSI_EOF_COMPOSE
 
+# Template và hướng dẫn để đổi sang cert tự có, ngay trên máy.
+cat >/opt/moodle/dynamic/tls.yml.example <<'ABSI_EOF_TLS'
+${tls_example}
+ABSI_EOF_TLS
+
+cat >/opt/moodle/README.md <<'ABSI_EOF_README'
+${readme}
+ABSI_EOF_README
+
+# Đổi domain trên site đã có dữ liệu là thao tác nhiều bước; để sẵn script.
+cat >/opt/moodle/change-domain.sh <<'ABSI_EOF_CHANGEDOMAIN'
+${change_domain}
+ABSI_EOF_CHANGEDOMAIN
+chmod 0755 /opt/moodle/change-domain.sh
+
 touch /opt/moodle/.env
 chmod 600 /opt/moodle/.env
 cat >/opt/moodle/.env <<'ABSI_EOF_ENV'

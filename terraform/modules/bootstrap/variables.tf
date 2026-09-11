@@ -6,6 +6,17 @@ variable "acme_email" {
   type = string
 }
 
+variable "tls_certresolver" {
+  description = "le asks Let's Encrypt; empty serves certs/cert.pem through dynamic/tls.yml."
+  type        = string
+  default     = "le"
+
+  validation {
+    condition     = contains(["le", ""], var.tls_certresolver)
+    error_message = "tls_certresolver must be \"le\" or an empty string."
+  }
+}
+
 variable "acme_staging" {
   type = bool
 }

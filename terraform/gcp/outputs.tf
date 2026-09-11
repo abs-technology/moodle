@@ -11,12 +11,20 @@ output "instance_name" {
 }
 
 output "ssh_command" {
-  description = "Port 22 is closed to the internet; IAP is the only path in."
-  value       = "gcloud compute ssh ${google_compute_instance.moodle.name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap"
+  description = "IAP là đường mặc định. Đặt ssh_allowed_cidrs thì dùng break-glass.pem, không cần gcloud còn token."
+  value = local.break_glass ? (
+    "ssh -i terraform/gcp/break-glass.pem admin@${google_compute_address.moodle.address}"
+    ) : (
+    "gcloud compute ssh ${google_compute_instance.moodle.name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap"
+  )
 }
 
 output "bootstrap_log_command" {
-  value = "gcloud compute ssh ${google_compute_instance.moodle.name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap --command 'sudo tail -f /var/log/absi-moodle-bootstrap.log'"
+  value = local.break_glass ? (
+    "ssh -i terraform/gcp/break-glass.pem admin@${google_compute_address.moodle.address} 'sudo tail -f /var/log/absi-moodle-bootstrap.log'"
+    ) : (
+    "gcloud compute ssh ${google_compute_instance.moodle.name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap --command 'sudo tail -f /var/log/absi-moodle-bootstrap.log'"
+  )
 }
 
 output "moodle_admin_user" {

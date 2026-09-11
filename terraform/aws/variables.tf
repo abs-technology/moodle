@@ -83,13 +83,8 @@ variable "moodle_admin_user" {
   default     = "absi_admin"
 }
 
-variable "ssh_allowed_cidr" {
-  description = "Mở SSH cho đúng CIDR này và sinh break-glass.pem. Để trống thì chỉ vào được bằng SSM."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = var.ssh_allowed_cidr != "0.0.0.0/0"
-    error_message = "Không mở SSH ra toàn internet. Dùng /32 của IP bạn."
-  }
+variable "ssh_allowed_cidrs" {
+  description = "Mở SSH cho các CIDR này và sinh break-glass.pem. Danh sách rỗng thì chỉ vào được bằng SSM. Xác thực luôn là key-only, Debian AMI tắt sẵn password auth."
+  type        = list(string)
+  default     = []
 }

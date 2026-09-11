@@ -68,6 +68,12 @@ variable "moodle_admin_user" {
   default     = "absi_admin"
 }
 
+variable "ssh_allowed_cidrs" {
+  description = "Mở SSH cho các CIDR này, sinh break-glass.pem và tắt OS Login. Danh sách rỗng thì chỉ vào được qua IAP. Xác thực luôn là key-only."
+  type        = list(string)
+  default     = []
+}
+
 variable "enable_apis" {
   description = "Enable compute.googleapis.com. Turn off if the project already has it and you lack serviceusage rights."
   type        = bool

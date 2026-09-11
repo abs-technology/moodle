@@ -16,9 +16,11 @@ secret_key = "..."
 # availability_zone = "ap-southeast-1-han-1a"
 # instance_type     = "m7i.large"
 
-# SSH dự phòng khi SSM không dùng được (ví dụ trong Local Zone). Terraform sinh
-# break-glass.pem và chỉ mở port 22 cho CIDR này. Để trống thì chỉ vào bằng SSM.
-# ssh_allowed_cidr = "1.2.3.4/32"
+# SSH dự phòng khi SSM không dùng được. Terraform sinh break-glass.pem và mở
+# port 22 cho các CIDR này; danh sách rỗng thì chỉ vào bằng SSM. Xác thực luôn là
+# key-only, Debian AMI tắt sẵn password auth.
+# ssh_allowed_cidrs = ["1.2.3.4/32"]
+# ssh_allowed_cidrs = ["0.0.0.0/0"]
 
 # Leave unset to get moodle.<elastic-ip>.nip.io and a real certificate with no DNS work.
 # moodle_domain = "lms.example.com"

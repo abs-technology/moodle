@@ -9,6 +9,10 @@ acme_email = "admin@example.com"
 # JSON key của service account. Để trống thì dùng application-default credentials.
 # credentials = "/path/to/sa-key.json"
 
+# SSH thẳng bằng break-glass.pem thay vì IAP. Đặt giá trị sẽ tắt OS Login trên VM.
+# ssh_allowed_cidrs = ["1.2.3.4/32"]
+# ssh_allowed_cidrs = ["0.0.0.0/0"]
+
 # Leave unset to get moodle.<static-ip>.nip.io and a real certificate with no DNS work.
 # moodle_domain = "lms.example.com"
 
