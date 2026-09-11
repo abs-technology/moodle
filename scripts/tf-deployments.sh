@@ -73,6 +73,15 @@ ensure_bucket_aws() {
 
 ensure_bucket_gcp() {
     local bucket="$1"
+
+    # `gcloud auth login` and `gcloud auth application-default login` hold separate
+    # credentials, and the CLI one expires on its own schedule. Terraform reads ADC,
+    # so borrow the same token here and the bucket is created by the same identity.
+    local token
+    if token="$(gcloud auth application-default print-access-token 2>/dev/null)"; then
+        export CLOUDSDK_AUTH_ACCESS_TOKEN="$token"
+    fi
+
     if gcloud storage buckets describe "gs://$bucket" >/dev/null 2>&1; then
         return 0
     fi
