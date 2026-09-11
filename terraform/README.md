@@ -31,12 +31,17 @@ cho key/secret. Xem file `.example` cạnh đó.
 HTTPS thật tại `https://moodle.<ip>.nip.io`, chứng chỉ Let's Encrypt, không cần làm gì
 với DNS.
 
-**3.** Lấy thông tin đăng nhập và IP:
+**3.** Lấy tài khoản admin của Moodle và IP:
 
 ```bash
-terraform -chdir=terraform/aws output -raw moodle_admin_password
-terraform -chdir=terraform/aws output -raw public_ip     # ghi lại IP này
+terraform -chdir=terraform/aws output -raw moodle_admin_user      # absi_admin
+terraform -chdir=terraform/aws output -raw moodle_admin_password  # Terraform sinh
+terraform -chdir=terraform/aws output -raw public_ip              # ghi lại IP này
 ```
+
+Đổi tên admin bằng `moodle_admin_user` trong tfvars trước khi apply; mật khẩu thì luôn
+do Terraform sinh. Đây là tài khoản đăng nhập Moodle, khác với user SSH vào VM (`admin`
+trên cả hai cloud).
 
 **4.** Giao site cho khách hàng. IP ở bước 3 là địa chỉ tĩnh và **không đổi** về sau —
 đó là lý do giai đoạn 2 nhẹ nhàng.
