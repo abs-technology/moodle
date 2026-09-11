@@ -26,7 +26,11 @@ id_rsa*
 *.tfstate
 *.tfstate.*
 *.tfplan
-terraform/*/terraform.tfvars
+# Every tfvars at any depth: they carry cloud credentials and per-customer data.
+# Only the committed templates are exempt.
+*.tfvars
+*.tfvars.*
+!*.tfvars.example
 
 # Docker volumes data
 volumes/

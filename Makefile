@@ -47,7 +47,7 @@ define tf_require_tfvars
 endef
 
 .PHONY: help build push inspect-manifest scan policy cves-critical fix login tag-latest up down remove logs shell \
-	gcp gcp-destroy gcp-ssh aws aws-destroy aws-ssh
+	tf-list tf-new tf-apply tf-plan tf-ssh tf-output tf-destroy
 
 help: ## Lệnh có sẵn
 	@printf 'Image : %s\n' "$(IMG_FULL)"
@@ -117,27 +117,49 @@ logs: ## Xem log moodle
 shell: ## Vào shell container moodle
 	@docker compose exec moodle bash
 
-# VPC mới, không mở 22 ra internet, VM chỉ pull image từ Docker Hub — xem terraform/README.md
-gcp: ## Terraform: VPC mới + VM Debian 13 trên GCP + deploy Moodle
-	$(call tf_require_tfvars,gcp)
-	@$(TF) -chdir=terraform/gcp init -input=false -upgrade
-	@$(TF) -chdir=terraform/gcp apply
+# Một khách hàng = một thư mục dưới terraform/deployments/ = một state riêng.
+# Xem terraform/README.md. DEPLOY là tên thư mục đó.
+TF_DIR = terraform/deployments/$(DEPLOY)
 
-gcp-ssh: ## SSH vào VM GCP qua IAP tunnel
-	@eval "$$($(TF) -chdir=terraform/gcp output -raw ssh_command)"
+define tf_require_deploy
+	@test -n "$(DEPLOY)" || { \
+		printf 'Thiếu DEPLOY. Ví dụ: make %s DEPLOY=horizonschool-aws\n' '$@'; \
+		printf 'Đang có:\n'; ls terraform/deployments 2>/dev/null | sed 's/^/  /'; \
+		exit 1; }
+	@test -d "$(TF_DIR)" || { \
+		printf 'Không có %s\n' '$(TF_DIR)'; \
+		printf '  make tf-new DEPLOY=%s CLOUD=aws\n' '$(DEPLOY)'; \
+		exit 1; }
+	@test -f "$(TF_DIR)/terraform.tfvars" || { \
+		printf 'Thiếu %s/terraform.tfvars\n' '$(TF_DIR)'; \
+		exit 1; }
+endef
 
-gcp-destroy: ## Xoá hạ tầng GCP (mất toàn bộ data Moodle)
-	$(call tf_require_tfvars,gcp)
-	@$(TF) -chdir=terraform/gcp destroy
+tf-list: ## Liệt kê các deployment và domain hiện tại của chúng
+	@scripts/tf-deployments.sh list
 
-aws: ## Terraform: VPC mới + VM Debian 13 trên AWS + deploy Moodle
-	$(call tf_require_tfvars,aws)
-	@$(TF) -chdir=terraform/aws init -input=false -upgrade
-	@$(TF) -chdir=terraform/aws apply
+tf-new: ## Tạo deployment mới: make tf-new DEPLOY=tenkhach-aws CLOUD=aws
+	@scripts/tf-deployments.sh new "$(DEPLOY)" "$(CLOUD)"
 
-aws-ssh: ## SSH vào VM AWS qua SSM Session Manager
-	@eval "$$($(TF) -chdir=terraform/aws output -raw ssh_command)"
+tf-apply: ## Dựng hoặc cập nhật một deployment: make tf-apply DEPLOY=...
+	$(call tf_require_deploy)
+	@$(TF) -chdir=$(TF_DIR) init -input=false -upgrade
+	@$(TF) -chdir=$(TF_DIR) apply
 
-aws-destroy: ## Xoá hạ tầng AWS (mất toàn bộ data Moodle)
-	$(call tf_require_tfvars,aws)
-	@$(TF) -chdir=terraform/aws destroy
+tf-plan: ## Xem trước thay đổi, không đụng gì: make tf-plan DEPLOY=...
+	$(call tf_require_deploy)
+	@$(TF) -chdir=$(TF_DIR) init -input=false
+	@$(TF) -chdir=$(TF_DIR) plan
+
+tf-ssh: ## SSH vào VM của một deployment: make tf-ssh DEPLOY=...
+	$(call tf_require_deploy)
+	@cd $(TF_DIR) && eval "$$($(TF) output -raw ssh_command)"
+
+tf-output: ## In toàn bộ output kể cả mật khẩu: make tf-output DEPLOY=...
+	$(call tf_require_deploy)
+	@$(TF) -chdir=$(TF_DIR) output -json | \
+		python3 -c 'import json,sys; [print(f"{k:24} {v[\"value\"]}") for k,v in json.load(sys.stdin).items()]'
+
+tf-destroy: ## Xoá hạ tầng của một deployment (mất toàn bộ data Moodle của khách đó)
+	$(call tf_require_deploy)
+	@$(TF) -chdir=$(TF_DIR) destroy

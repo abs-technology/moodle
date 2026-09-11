@@ -49,7 +49,7 @@ resource "tls_private_key" "break_glass" {
 
 resource "local_sensitive_file" "break_glass" {
   count           = local.break_glass ? 1 : 0
-  filename        = "${path.module}/break-glass.pem"
+  filename        = "${path.root}/break-glass.pem"
   content         = tls_private_key.break_glass[0].private_key_openssh
   file_permission = "0600"
 }
@@ -113,7 +113,7 @@ locals {
 }
 
 module "bootstrap" {
-  source = "../modules/bootstrap"
+  source = "../bootstrap"
 
   moodle_domain         = local.moodle_domain
   acme_email            = var.acme_email

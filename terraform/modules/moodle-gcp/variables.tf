@@ -22,9 +22,13 @@ variable "zone" {
 }
 
 variable "name" {
-  description = "Prefix for every resource this module creates."
+  description = "Prefix for every resource this module creates. Required: IAM roles and key pairs are account-wide, so two deployments sharing a name collide."
   type        = string
-  default     = "absi-moodle"
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{2,30}$", var.name))
+    error_message = "name must be lowercase letters, digits and dashes, 3-31 chars, starting with a letter."
+  }
 }
 
 variable "machine_type" {

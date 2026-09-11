@@ -20,12 +20,3 @@ terraform {
     }
   }
 }
-
-provider "google" {
-  project = var.project_id
-  region  = var.region
-
-  # Để trống var.credentials thì provider dùng application-default credentials
-  # từ `gcloud auth application-default login`.
-  credentials = var.credentials != "" ? file(var.credentials) : null
-}

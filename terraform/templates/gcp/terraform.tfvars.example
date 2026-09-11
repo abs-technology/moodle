@@ -1,0 +1,29 @@
+# Một khách hàng, một thư mục, một state. File thật đã được .gitignore.
+
+# Bắt buộc. Tiền tố của mọi tài nguyên. Tên VPC, firewall và address là duy nhất
+# trong một project, nên hai khách chung project phải khác name.
+name = "horizonschool"
+
+# Project của khách này. Mỗi khách một project là cách ly tốt nhất.
+project_id = "my-gcp-project"
+acme_email = "admin@example.com"
+
+region = "asia-southeast1"
+zone   = "asia-southeast1-a"
+
+# JSON key của service account. Để trống thì dùng application-default credentials.
+# credentials = "/path/to/sa-key.json"
+
+# SSH thẳng bằng break-glass.pem thay vì IAP, không phụ thuộc token gcloud.
+# Đặt giá trị này sẽ TẮT OS Login trên VM.
+ssh_allowed_cidrs = ["0.0.0.0/0"]
+
+# Để trống thì dùng moodle.<static-ip>.nip.io, không cần đụng DNS.
+# Đổi sang domain thật thì dùng change-domain.sh trên VM, không sửa ở đây.
+# moodle_domain = "lms.example.com"
+
+# Chứng chỉ không được trust, nhưng không dính rate limit khi test.
+# acme_staging = true
+
+# Tắt nếu project đã bật compute API và bạn không có quyền serviceusage.
+# enable_apis = false

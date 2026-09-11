@@ -13,7 +13,7 @@ output "instance_id" {
 output "ssh_command" {
   description = "SSM là đường chính. Nếu ssh_allowed_cidr được đặt thì có thêm SSH bằng break-glass.pem."
   value = local.break_glass ? (
-    "ssh -i terraform/aws/break-glass.pem admin@${aws_eip.moodle.public_ip}"
+    "ssh -i break-glass.pem admin@${aws_eip.moodle.public_ip}"
     ) : (
     "aws ssm start-session --region ${var.region} --target ${aws_instance.moodle.id}"
   )
@@ -21,7 +21,7 @@ output "ssh_command" {
 
 output "bootstrap_log_command" {
   value = local.break_glass ? (
-    "ssh -i terraform/aws/break-glass.pem admin@${aws_eip.moodle.public_ip} sudo tail -f /var/log/absi-moodle-bootstrap.log"
+    "ssh -i break-glass.pem admin@${aws_eip.moodle.public_ip} sudo tail -f /var/log/absi-moodle-bootstrap.log"
     ) : (
     "aws ssm start-session --region ${var.region} --target ${aws_instance.moodle.id} --document-name AWS-StartInteractiveCommand --parameters command='sudo tail -f /var/log/absi-moodle-bootstrap.log'"
   )
