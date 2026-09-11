@@ -8,6 +8,11 @@ set -Eeuo pipefail
 
 cd "$(dirname "$(readlink -f "$0")")/.."
 
+# AWS CLI v2 đẩy output qua less khi stdout là terminal, và script chạy dưới `make`
+# vẫn thấy terminal. Một lệnh chỉ để kiểm tra sẽ mở pager rồi đứng chờ bấm phím,
+# trông đúng như treo. Tắt hẳn pager cho mọi lệnh aws trong script.
+export AWS_PAGER=""
+
 GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'; RED=$'\033[0;31m'; NC=$'\033[0m'
 info() { printf '%s==>%s %s\n' "$GREEN" "$NC" "$*"; }
 warn() { printf '%s[!]%s %s\n' "$YELLOW" "$NC" "$*" >&2; }
@@ -50,7 +55,8 @@ cmd_list() {
 
 ensure_bucket_aws() {
     local bucket="$1"
-    if aws s3api head-bucket --bucket "$bucket" --profile "$TF_STATE_PROFILE" 2>/dev/null; then
+    # head-bucket trả JSON ở CLI mới, và ở đây chỉ cần exit code.
+    if aws s3api head-bucket --bucket "$bucket" --profile "$TF_STATE_PROFILE" >/dev/null 2>&1; then
         return 0
     fi
 
