@@ -1,236 +1,97 @@
-# Moodle trên GCP / AWS bằng Terraform
+# Moodle on GCP / AWS with Terraform
 
-Mỗi lần deploy tạo VPC mới hoàn toàn rồi dựng một VM Debian 13 amd64 chạy Moodle sau
+Each deployment creates a fresh VPC and one Debian 13 amd64 VM running Moodle behind
 Traefik.
 
-VM không có source code và không build gì. Terraform đọc
-`examples/traefik/docker-compose.yml` của repo, nhúng vào metadata của VM cùng file
-`.env` đã sinh sẵn, và bootstrap script chỉ làm ba việc: cài Docker từ apt repo chính
-thức, ghi hai file đó vào `/opt/moodle`, rồi `docker compose up -d` để pull
-`abstechnology/moodle-standard:5.2.2-r5` từ Docker Hub.
+Nothing is cloned or built on the VM. Terraform reads
+`examples/traefik/docker-compose.yml`, embeds it in instance metadata with a generated
+`.env`, and the bootstrap script installs Docker from the official apt repo, writes both
+files to `/opt/moodle`, and runs `docker compose up -d` to pull
+`abstechnology/moodle-standard:5.2.2-r5`.
 
-## Một khách hàng, một thư mục
+## One customer, one directory
 
-Mỗi site Moodle là một thư mục dưới `terraform/deployments/`, có state riêng và
-credential riêng. Đây là ranh giới an toàn quan trọng nhất: không lệnh `apply` hay
-`destroy` nào chạm được sang khách khác, kể cả khi bạn gõ nhầm.
+Every Moodle site is a directory under `terraform/deployments/` with its own state and
+credentials. This is the safety boundary that matters most: no `apply` or `destroy` can
+reach another customer's stack, even if you mistype.
 
 ```
 terraform/
 ├── modules/
-│   ├── moodle-aws/       hạ tầng AWS, dùng chung cho mọi khách
-│   ├── moodle-gcp/       hạ tầng GCP
-│   └── bootstrap/        script cài đặt VM, dùng chung cho cả hai cloud
-├── templates/            khuôn để tạo deployment mới
+│   ├── moodle-aws/       AWS infrastructure, shared by every customer
+│   ├── moodle-gcp/       GCP infrastructure
+│   └── bootstrap/        VM install script, shared by both clouds
+├── templates/            scaffolding for a new deployment
 └── deployments/
-    ├── horizonschool-aws/    main.tf + variables.tf + outputs.tf + terraform.tfvars
-    └── truong-b-gcp/
+    └── horizonschool-aws/    main.tf, variables.tf, outputs.tf, backend.tf, terraform.tfvars
 ```
 
-Tên khách đi thẳng sau động từ, không biến, không `cd`, chạy từ gốc repo:
+The customer name goes straight after the verb — no variables, no `cd`, run from the repo
+root:
 
 ```bash
-make deploys                    # ai đang chạy ở đâu
-make new truong-b-gcp           # tạo khách mới, một lần duy nhất
-make plan truong-b-gcp          # xem trước, không đụng gì
-make apply truong-b-gcp         # dựng hoặc cập nhật
-make output truong-b-gcp        # in mọi output, kể cả mật khẩu
-make ssh truong-b-gcp           # vào VM
-make destroy truong-b-gcp       # xoá, mất toàn bộ data khách đó
+make deploys                   # who is running where
+make new school-b-gcp          # create a customer, once in its lifetime
+make plan school-b-gcp         # preview, touches nothing
+make apply school-b-gcp        # build or update
+make output school-b-gcp       # every output, passwords included
+make ssh school-b-gcp          # get on the VM
+make destroy school-b-gcp      # delete, and lose that customer's data
 ```
 
-Hậu tố `-aws` hay `-gcp` trong tên là thứ quyết định cloud, nên `make new` không cần
-hỏi thêm. Tên không theo quy ước đó thì thêm `CLOUD=aws` hoặc `CLOUD=gcp`.
+The `-aws` or `-gcp` suffix picks the cloud, so `make new` never asks; add `CLOUD=aws` or
+`CLOUD=gcp` for a name outside that convention. `make new` copies the template,
+substitutes the name, and writes a `terraform.tfvars` to fill in.
 
-Gõ sai tên khách thì `make` báo lỗi và liệt kê những khách đang có, chứ không âm thầm
-làm gì cả. Thiếu tên cũng vậy — không lệnh nào có deployment mặc định, nên `make
-destroy` không thể chạy vào khách mà bạn không gõ tên.
+Mistyping a name fails with the list of names that do exist. No command has a default
+deployment, so `make destroy` cannot run against a customer you did not name.
 
-`make new` chép khuôn từ `terraform/templates/<cloud>/`, thay tên deployment vào backend,
-tạo sẵn `terraform.tfvars`, và tạo bucket state nếu chưa có. Đặt `TF_SKIP_BUCKET=1` nếu
-bucket do người khác quản.
+`name` is required and has no default: IAM roles and key pairs are account-wide on AWS and
+VPC and firewall names are unique per project on GCP, so two customers sharing a `name`
+collide on the second apply.
 
-Ba điều cấu trúc này giải quyết, và đều là lỗi thật sẽ xảy ra nếu không có nó:
+One customer with several independent sites gets several deployments —
+`school-b-prod-aws`, `school-b-staging-aws`. Several VMs serving **one** Moodle site is a
+different problem needing shared `moodledata` and sessions in the database; see
+[../docs/LOAD-BALANCING.md](../docs/LOAD-BALANCING.md).
 
-**State.** Mỗi deployment có một object riêng trong bucket, mã hoá và bật versioning.
-Trước đây cả repo dùng chung một file state cục bộ, nên deploy khách thứ hai sẽ sửa
-thẳng vào stack của khách thứ nhất. Mất file state cũng đồng nghĩa mất luôn khả năng
-quản lý và `destroy` hạ tầng của khách.
+## State lives in the customer's own account
 
-**Tên tài nguyên.** `name` giờ là biến bắt buộc, không còn giá trị mặc định. IAM role và
-key pair trên AWS có phạm vi toàn account, còn tên VPC và firewall trên GCP là duy nhất
-trong project, nên hai khách trùng `name` sẽ đụng nhau ngay lần apply thứ hai.
+State goes to `absi-moodle-tfstate-<account>` (AWS) or
+`absi-moodle-tfstate-<project_id>` (GCP), encrypted and versioned, in the same account the
+deployment's credentials point at — so infrastructure and the state describing it never
+drift apart.
 
-**Cách ly credential.** `access_key`/`secret_key` (AWS) và `project_id`/`credentials`
-(GCP) khai báo trong tfvars của từng deployment, nên khách nào muốn nằm ở account hay
-project riêng đều được, mà vẫn dùng chung một bộ module. **State đi theo credential
-đó**, không nằm ở một chỗ tập trung: bucket tên `absi-moodle-tfstate-<account>` (AWS)
-hoặc `absi-moodle-tfstate-<project_id>` (GCP), tạo trong đúng account mà tfvars trỏ tới.
+This took a bug to get right. A Terraform `backend` block **cannot use variables**, so it
+cannot read `var.access_key`. Left alone it falls back to whatever default profile the
+machine has, and a customer's state — carrying their Moodle and MariaDB passwords in
+plaintext — lands in an unrelated account whose loss would cost the ability to destroy any
+stack.
 
-Chỗ này từng có bug đáng nhớ. Block `backend` của Terraform **không nhận biến**, nên nó
-không thể đọc `var.access_key`; nếu không làm gì thêm, backend rơi về profile mặc định
-của máy và state của khách đi vào một account hoàn toàn khác — mật khẩu Moodle nằm
-plaintext trong state, ở nhà người khác, và mất quyền vào account đó là mất khả năng
-`destroy` mọi stack. Hai thứ chặn điều đó:
+Two things prevent that. `backend.tf` is **generated** on the first `make apply`, once
+tfvars has credentials, so the bucket name comes from `sts get-caller-identity` under those
+exact credentials. And `make` exports `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or
+`GOOGLE_APPLICATION_CREDENTIALS`) from tfvars before every Terraform command, the only way
+to get credentials into a backend.
 
-`backend.tf` được **sinh ra** ở lần `make apply` đầu tiên, sau khi tfvars đã có
-credential, nên tên bucket suy từ `sts get-caller-identity` của chính credential ấy. Và
-`make` xuất `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` từ tfvars ra biến môi trường
-trước mỗi lệnh Terraform — đó là đường duy nhất truyền credential vào backend.
+An existing `backend.tf` is **never overwritten**: repoint Terraform silently and it sees
+empty state and offers to rebuild everything. Use `TF_STATE_BUCKET` to name the bucket
+yourself, or `TF_SKIP_BUCKET=1` when someone else manages it.
 
-Script **không bao giờ ghi đè** `backend.tf` đã có. Dời state là việc phải làm có ý
-thức: âm thầm trỏ sang bucket khác thì Terraform thấy state rỗng và định tạo lại tất cả.
+## Prerequisites
 
-Một khách có nhiều site độc lập — staging và production chẳng hạn — thì tạo nhiều
-deployment: `truong-b-prod-aws` và `truong-b-staging-aws`. Nhiều VM phục vụ **cùng một**
-site Moodle lại là chuyện khác hẳn, cần `moodledata` dùng chung và session trong
-database; xem [../docs/LOAD-BALANCING.md](../docs/LOAD-BALANCING.md).
+Terraform >= 1.10, since `use_lockfile` replaces the old DynamoDB lock table.
+`acme_email` is required and must use a real public TLD — Let's Encrypt rejects `.test`,
+`.local` and other reserved suffixes.
 
-Sau khi chạy `change-domain.sh`, nhớ cập nhật `moodle_domain` trong tfvars của deployment
-đó. Terraform không biết việc đổi domain trên VM, và `make deploys` đọc chính giá trị này
-để hiển thị domain thật.
+**AWS.** An IAM user's key and secret in tfvars, or `profile = "..."` instead. Empty
+variables are ignored, and provider configuration never reaches state, so keys stay out of
+`terraform.tfstate`. The user needs EC2 (VPC, subnet, internet gateway, route table,
+security group, network interface, Elastic IP, instance) and IAM (`CreateRole`,
+`AttachRolePolicy`, `CreateInstanceProfile`, `PassRole`) for the SSM instance profile. Use
+an IAM user, not root keys: root cannot be scoped or revoked piecemeal.
 
-## Quy trình đầy đủ
-
-Bảy bước, hai giai đoạn: deploy ngay bằng nip.io để khách hàng dùng được luôn, rồi
-chuyển sang domain và chứng chỉ thật khi đã mua.
-
-### Giai đoạn 1 — deploy bằng nip.io
-
-**1.** Tạo thư mục cho khách và điền credential:
-
-```bash
-make new truong-b-aws
-```
-
-Rồi sửa `terraform/deployments/truong-b-aws/terraform.tfvars`: `access_key`,
-`secret_key`, `region`, `acme_email`, và `ssh_allowed_cidrs = ["0.0.0.0/0"]`. GCP thì
-điền `project_id` thay cho key/secret. `name` đã được đặt sẵn bằng tên deployment.
-
-**2.** `make apply truong-b-aws`, xem plan rồi gõ `yes`. Khoảng 4–6 phút sau site có
-HTTPS thật tại `https://moodle.<ip>.nip.io`, chứng chỉ Let's Encrypt, không cần làm gì
-với DNS.
-
-**3.** Lấy tài khoản admin của Moodle và IP:
-
-```bash
-make output truong-b-aws
-```
-
-In ra `moodle_admin_user` (mặc định `absi_admin`), `moodle_admin_password` và
-`public_ip`. Ghi lại IP.
-
-Đổi tên admin bằng `moodle_admin_user` trong tfvars trước khi apply; mật khẩu thì luôn
-do Terraform sinh. Đây là tài khoản đăng nhập Moodle, khác với user SSH vào VM (`admin`
-trên cả hai cloud).
-
-**4.** Giao site cho khách hàng. IP ở bước 3 là địa chỉ tĩnh và **không đổi** về sau —
-đó là lý do giai đoạn 2 nhẹ nhàng.
-
-### Giai đoạn 2 — chuyển sang domain và cert của bạn
-
-**5.** Trỏ A record của domain mới về đúng IP ở bước 3. Site nip.io vẫn chạy bình
-thường suốt lúc chờ DNS lan, khách hàng chưa bị ảnh hưởng gì.
-
-**6.** Đẩy cặp chứng chỉ lên máy:
-
-```bash
-cd terraform/deployments/truong-b-aws
-scp -i break-glass.pem fullchain.pem privkey.pem admin@<IP>:/tmp/
-```
-
-**7.** Vào máy và chạy một lệnh:
-
-```bash
-make ssh truong-b-aws
-cd /opt/moodle
-sudo ./change-domain.sh --domain lms.example.com \
-    --cert /tmp/fullchain.pem --key /tmp/privkey.pem
-```
-
-Gõ tên domain mới để xác nhận, khoảng 30 giây là xong. Muốn dùng Let's Encrypt cho
-domain mới thay vì chứng chỉ đã mua thì thay hai tham số cert bằng `--letsencrypt`.
-
-Xong thì cập nhật `moodle_domain` trong tfvars của deployment cho khớp. Terraform không
-tự biết, và đó là chỗ `make deploys` đọc để hiển thị domain thật.
-
-Hai điều cần biết trước khi chạy bước 7. `fullchain.pem` phải là chuỗi đầy đủ với cert
-lá đứng đầu, và key không được đặt passphrase — script từ chối ngay trước khi đụng vào
-gì nếu sai. Sau khi chạy, domain nip.io ngừng hoạt động và mọi người đang đăng nhập bị
-đăng xuất, nên chọn giờ thấp điểm. Độ dài domain không quan trọng; xem
-[Chuyển site đang chạy sang domain và cert của bạn](#chuyển-site-đang-chạy-sang-domain-và-cert-của-bạn).
-
-## Truy cập SSH
-
-Mặc định không cloud nào mở port 22 ra internet.
-
-| | Cách vào | Cơ chế |
-|---|---|---|
-| GCP | `make ssh <ten>` | IAP TCP forwarding — firewall chỉ allow 22 từ `35.235.240.0/20`, cộng OS Login để phân quyền bằng IAM thay vì metadata key |
-| AWS | `make ssh <ten>` | SSM Session Manager — security group **không có** inbound 22 nào; agent tự mở kết nối ra ngoài |
-
-Một lệnh cho cả hai cloud, và vẫn là lệnh đó khi đã bật break-glass bên dưới: `make ssh`
-dùng `break-glass.pem` nếu có, không thì đọc output `ssh_command` do module tự chọn nội
-dung theo cấu hình. Bạn không phải nhớ cloud nào đi đường nào.
-
-Cả hai đường trên đều phụ thuộc credential của cloud CLI còn hạn. Muốn một đường
-không phụ thuộc gì cả, xem SSH break-glass bên dưới.
-
-Vì AMI Debian không cài sẵn SSM agent, bootstrap script tải và cài nó trước khi làm
-việc khác. Nếu bước này lỗi thì đường SSM sẽ không vào được.
-
-`aws ssm start-session` cần plugin cài riêng trên máy bạn:
-
-```bash
-brew install --cask session-manager-plugin
-```
-
-### SSH break-glass
-
-SSM và IAP đều hỏng theo cùng một kiểu: token CLI hết hạn, hoặc agent không lên, là
-mất đường vào VM. `ssh_allowed_cidrs` mở thêm một đường độc lập, có trên cả hai cloud:
-
-```hcl
-ssh_allowed_cidrs = ["1.2.3.4/32"]     # chỉ IP của bạn
-ssh_allowed_cidrs = ["0.0.0.0/0"]      # mọi client
-```
-
-Terraform sinh key ED25519, ghi ra `break-glass.pem trong thư mục deployment` quyền 0600, và
-mở port 22 cho đúng các CIDR đó. Danh sách rỗng thì không có key pair nào và port 22
-đóng hoàn toàn.
-
-`make ssh <ten>` tự dùng key này khi nó có mặt. Muốn gõ tay:
-
-```bash
-cd terraform/deployments/<ten>
-ssh -i break-glass.pem admin@$(terraform output -raw public_ip)
-```
-
-Mở `0.0.0.0/0` là chấp nhận được vì xác thực là key-only: image Debian của cả hai cloud
-tắt sẵn `PasswordAuthentication` và `PermitRootLogin`, nên cái bạn nhận thêm chủ yếu là
-log brute-force. Đổi lại là không bao giờ mất quyền vào máy khi IP nhà bạn thay đổi.
-
-Hai khác biệt giữa hai cloud:
-
-- **AWS**: thêm hoặc bỏ biến này sẽ **tạo lại VM**, vì `key_name` là thuộc tính không
-  đổi được của EC2 instance. Quyết định trước khi có dữ liệu thật.
-- **GCP**: đặt biến này sẽ **tắt OS Login**, vì OS Login cố tình bỏ qua metadata key.
-  Phân quyền chuyển từ IAM sang việc ai giữ file `.pem`.
-
-## Chuẩn bị
-
-Cả hai cần Terraform >= 1.5 và một file `terraform.tfvars`:
-
-```bash
-make new <ten>-gcp
-```
-
-`make new` tạo sẵn `terraform.tfvars` trong thư mục đó, bạn chỉ cần sửa nội dung.
-
-`acme_email` bắt buộc và phải là TLD công khai thật — Let's Encrypt từ chối `.test`,
-`.local` và các TLD dành riêng khác.
-
-**GCP** — cần `project_id`, quyền tạo VPC/instance, và:
+**GCP.** `project_id` plus **both** auth commands:
 
 ```bash
 gcloud auth login
@@ -238,76 +99,197 @@ gcloud auth application-default login
 gcloud auth application-default set-quota-project <project_id>
 ```
 
-Phải chạy **cả hai** lệnh auth. `gcloud auth login` chỉ cấp credential cho CLI, còn
-Terraform đọc application-default credentials — một bộ hoàn toàn riêng. Nếu bạn đổi
-account bằng `gcloud auth login` mà quên lệnh thứ hai, `gcloud projects list` sẽ chạy
-đúng với account mới trong khi `terraform apply` vẫn bị 403 dưới identity cũ.
+The CLI and Terraform read separate credential sets. Switch accounts with the first
+command only and `gcloud projects list` reports the new account while `terraform apply`
+still gets 403 as the old identity. A service account avoids the problem:
+`credentials = "/path/to/sa-key.json"`, needing `roles/compute.admin`, plus
+`roles/serviceusage.serviceUsageAdmin` if `enable_apis = true` and
+`roles/iap.tunnelResourceAccessor` with `roles/compute.osLogin` for the IAP route.
 
-Hoặc dùng service account, không phụ thuộc credential cá nhân:
+## Deploy now, move to a real domain later
 
-```hcl
-credentials = "/path/to/sa-key.json"
-```
+Seven steps, two phases: ship on nip.io so the customer can start immediately, then move
+to their domain and certificate once bought.
 
-Service account cần `roles/compute.admin`, và `roles/serviceusage.serviceUsageAdmin`
-nếu để `enable_apis = true`.
+### Phase 1 — on nip.io
 
-Để đường IAP hoạt động, account của bạn cần `roles/iap.tunnelResourceAccessor`
-và `roles/compute.osLogin` (owner đã có sẵn). Module tự enable
-`compute.googleapis.com`; nếu bạn không có quyền `serviceusage` thì đặt
-`enable_apis = false`.
+**1.** `make new school-b-aws`, then edit
+`terraform/deployments/school-b-aws/terraform.tfvars`: `access_key`, `secret_key`,
+`region`, `acme_email`, `ssh_allowed_cidrs = ["0.0.0.0/0"]`. On GCP set `project_id`
+instead of the key pair. `name` is already filled in.
 
-**AWS** — xác thực bằng access key và secret của một IAM user. Module tự tạo IAM role,
-instance profile, VPC, subnet, IGW, security group và Elastic IP.
+**2.** `make apply school-b-aws`, read the plan, type `yes`. Four to six minutes later the
+site answers over real HTTPS at `https://moodle.<ip>.nip.io` with a Let's Encrypt
+certificate, and no DNS work was needed.
 
-Khai báo trong `terraform/deployments/<ten>/terraform.tfvars` — file này đã được `.gitignore`:
+**3.** `make output school-b-aws` prints `moodle_admin_user` (`absi_admin` by default),
+`moodle_admin_password` and `public_ip`. Write the IP down. Rename the admin through
+`moodle_admin_user` before applying; the password is always generated. This is the Moodle
+login, not the SSH user, which is `admin` on both clouds.
 
-```hcl
-access_key = "AKIA..."
-secret_key = "..."
-region     = "ap-southeast-1"
-acme_email = "admin@absi.tech"
-```
+**4.** Hand the site over. That IP is static and **will not change**, which is what makes
+phase 2 uneventful.
 
-Hai cách thay thế, nếu bạn không muốn key nằm trên đĩa trong repo:
+### Phase 2 — your domain and certificate
+
+**5.** Point the domain's A record at that IP. The nip.io site keeps serving while DNS
+propagates.
+
+**6.** Copy the certificate pair up:
 
 ```bash
-# biến môi trường
-export AWS_ACCESS_KEY_ID=AKIA...
-export AWS_SECRET_ACCESS_KEY=...
-
-# hoặc named profile
-aws configure --profile absi-moodle
-echo 'profile = "absi-moodle"' >> terraform/deployments/<ten>/terraform.tfvars
+cd terraform/deployments/school-b-aws
+scp -i break-glass.pem fullchain.pem privkey.pem admin@<IP>:/tmp/
 ```
 
-Cả ba đều dùng chung một provider block; biến nào để trống thì bị bỏ qua. Provider
-config không được ghi vào state, nên key không lọt vào `terraform.tfstate`.
+**7.** Run one command on the VM:
 
-IAM user cần quyền trên EC2 (VPC, subnet, internet gateway, route table, security
-group, network interface, Elastic IP, instance) và IAM (`CreateRole`,
-`AttachRolePolicy`, `CreateInstanceProfile`, `PassRole`) để dựng được instance profile
-cho SSM. Dùng IAM user thay vì access key của root — key root có toàn quyền và không
-thu hồi được từng phần.
+```bash
+make ssh school-b-aws
+cd /opt/moodle
+sudo ./change-domain.sh --domain lms.example.com \
+    --cert /tmp/fullchain.pem --key /tmp/privkey.pem
+```
 
-## Dựng trong AWS Local Zone
+Confirm by typing the new domain; it takes about 30 seconds. `--letsencrypt` replaces both
+certificate flags to get a fresh certificate instead. Afterwards update `moodle_domain` in
+tfvars to match — Terraform cannot learn about the change, and `make deploys` reads that
+value to show the real domain.
+
+`fullchain.pem` must be the full chain with the leaf first, and the key must have no
+passphrase; the script refuses before touching anything if either is wrong. Once it runs,
+nip.io stops working and everyone logged in is signed out, so pick a quiet hour.
+
+### Why this cannot be done from Terraform
+
+Changing `moodle_domain` and applying does **not** move the site. `startup-script` /
+`user_data` sit under `ignore_changes` so the VM is untouched, and even otherwise the image
+writes `config.php` exactly once at install and the old URL is already scattered through
+the database.
+
+So `change-domain.sh` does it on the VM. It verifies the certificate matches the key,
+covers the domain and carries a full chain, and that DNS already resolves here — all before
+touching anything. Then it backs up the database, `config.php` and `moodledata`, enables
+maintenance mode, rewrites `wwwroot`, runs `admin/tool/replace` across the database, moves
+the no-reply address, purges caches and sessions, and verifies the result. Details and the
+skip flags are in [../examples/traefik/README.md](../examples/traefik/README.md).
+
+A longer domain than the old nip.io name is fine. Moodle refuses that by default and the
+script passes `--shorten`; TEXT columns holding course content are still replaced whole,
+and only fixed-length VARCHAR fields already near their limit lose the overflow.
+
+## Domains and certificates
+
+Leave `moodle_domain` empty and it is derived from the static IP as `moodle.<ip>.nip.io`.
+nip.io resolves wildcards, so Traefik gets a real Let's Encrypt certificate on first boot
+with no DNS setup. On AWS the Elastic IP attaches to the network interface **before** the
+VM launches, so it boots already holding its final address.
+
+To use your own domain from the start, set `moodle_domain`, apply, then point an A record
+at `public_ip`; Traefik retries ACME until DNS catches up. When testing repeatedly, set
+`acme_staging = true` to avoid rate limits — those certificates are not trusted.
+
+## SSH access
+
+Neither cloud opens port 22 to the internet by default.
+
+| | Route | Mechanism |
+|---|---|---|
+| GCP | `make ssh <name>` | IAP TCP forwarding — port 22 only from `35.235.240.0/20`, plus OS Login so access is IAM rather than metadata keys |
+| AWS | `make ssh <name>` | SSM Session Manager — the security group has **no** inbound 22 at all; the agent dials out |
+
+One command for both clouds, and the same one once break-glass is on: `make ssh` prefers
+`break-glass.pem` when it exists and otherwise uses the `ssh_command` output, which each
+module fills in to suit its configuration.
+
+Both routes need unexpired cloud CLI credentials. The Debian AMI ships without the SSM
+agent, so bootstrap installs it first; if that fails, the SSM route never comes up.
+`aws ssm start-session` also needs `brew install --cask session-manager-plugin`.
+
+### Break-glass SSH
+
+SSM and IAP fail the same way — expired token, or an agent that never started — and the VM
+is unreachable. `ssh_allowed_cidrs` adds an independent route on both clouds:
+
+```hcl
+ssh_allowed_cidrs = ["1.2.3.4/32"]     # just your address
+ssh_allowed_cidrs = ["0.0.0.0/0"]      # anywhere
+```
+
+Terraform generates an ED25519 key, writes `break-glass.pem` in the deployment directory
+with mode 0600, and opens 22 to those CIDRs. An empty list means no key pair and port 22
+fully closed. `make ssh <name>` prefers this key; by hand it is
+`ssh -i break-glass.pem admin@$(terraform output -raw public_ip)` from the deployment
+directory.
+
+`0.0.0.0/0` is defensible because authentication is key-only: both Debian images disable
+`PasswordAuthentication` and `PermitRootLogin`, so what you mainly gain is brute-force
+noise in the logs, and you never lose access when your home IP changes.
+
+Two differences worth knowing before there is real data:
+
+- **AWS**: adding or removing this variable **replaces the VM**, because `key_name` is
+  immutable on an EC2 instance.
+- **GCP**: setting it **disables OS Login**, which deliberately ignores metadata keys.
+  Access control moves from IAM to whoever holds the `.pem`.
+
+## Open ports
+
+| Port | Reason |
+|---|---|
+| 80/tcp | ACME HTTP-01 challenge, and the redirect to HTTPS |
+| 443/tcp | HTTPS |
+| 443/udp | HTTP/3 (QUIC) |
+| 22/tcp | Only the CIDRs in `ssh_allowed_cidrs`. Empty list: GCP keeps the IAP range, AWS opens nothing. |
+
+## Passwords
+
+Terraform generates the Moodle admin and MariaDB passwords; read them with
+`make output <name>`. Special characters are limited to `!@%^*-_=+` because Docker Compose
+interpolates `.env`, where `$`, `` ` ``, `#`, quotes and backslashes would corrupt the
+value.
+
+State holds them in plaintext, which is why it lives in an encrypted, versioned bucket
+rather than next to the code. `.gitignore` excludes `*.tfstate*`, `*.tfvars` at any depth
+(except `*.tfvars.example`) and `*.pem`.
+
+## First boot, and destroying
+
+Bootstrap takes three to five minutes — install Docker, pull the image, let Moodle install
+its schema. From the deployment directory:
+
+```bash
+eval "$(terraform output -raw bootstrap_log_command)"
+curl -sI "$(terraform output -raw site_url)"           # 200
+curl -s  "$(terraform output -raw site_url)/readyz"    # ready
+```
+
+`make destroy <name>` deletes the VM and its disk, so all Moodle data goes with it. Back up
+`/opt/moodle/data` first if you need to keep anything.
+
+Both modules set `ignore_changes` on the bootstrap script, and on `ami` for AWS because
+`data.aws_ami` rolls forward weekly. Without it, a small compose edit or a new AMI would
+have `apply` destroy a running VM and its data. To roll out a new compose file, SSH in and
+run `cd /opt/moodle && docker compose up -d`, or taint the VM deliberately.
+
+## AWS Local Zones
 
 ```hcl
 availability_zone = "ap-southeast-1-han-1a"
 instance_type     = "m7i.large"
 ```
 
-Ba điều bắt buộc phải biết, nếu sai thì `apply` sẽ đứt giữa đường:
+Three things break `apply` halfway through if you get them wrong.
 
-**Zone group phải opt-in trước.** Terraform không làm được việc này:
+**The zone group must be opted in first**, which Terraform cannot do:
 
 ```bash
 aws ec2 modify-availability-zone-group \
   --group-name ap-southeast-1-han-1 --opt-in-status opted-in
 ```
 
-**Local Zone không có họ instance burstable.** Hà Nội chỉ có `c7i`, `m7i`, `r7i` —
-`t3.medium` mặc định sẽ bị từ chối. Liệt kê những gì zone đó có:
+**There are no burstable families.** Hanoi offers only `c7i`, `m7i` and `r7i`, so the
+default `t3.medium` is rejected. List what a zone offers:
 
 ```bash
 aws ec2 describe-instance-type-offerings --location-type availability-zone \
@@ -315,109 +297,12 @@ aws ec2 describe-instance-type-offerings --location-type availability-zone \
   --query 'sort(InstanceTypeOfferings[].InstanceType)' --output text
 ```
 
-**Elastic IP phải cấp đúng network border group.** Local Zone Hà Nội nằm trong group
-`ap-southeast-1-han-1`, không phải `ap-southeast-1`. Module tự lấy giá trị này từ
-`data.aws_availability_zone`, nên bạn chỉ cần đặt `availability_zone`. Nếu cấp EIP ở
-group của region rồi gắn vào interface trong Local Zone, AWS trả về
-`OperationNotPermitted: Cannot associate addresses across network border groups`.
+**The Elastic IP must come from the right network border group.** Hanoi is
+`ap-southeast-1-han-1`, not `ap-southeast-1`. The module reads this from
+`data.aws_availability_zone`, so setting `availability_zone` is enough; allocate in the
+region's group instead and AWS returns `OperationNotPermitted: Cannot associate addresses
+across network border groups`.
 
-Subnet Local Zone vẫn route ra internet qua internet gateway của region, và SSM Session
-Manager vẫn hoạt động vì agent gọi ra endpoint region. gp3 được hỗ trợ. Giá instance ở
-Local Zone cao hơn trong region, và không có lựa chọn burstable nên đừng để VM chạy
-không.
-
-## Domain và chứng chỉ
-
-Để trống `moodle_domain` thì domain được suy ra từ IP tĩnh: `moodle.<ip>.nip.io`.
-nip.io resolve wildcard nên không cần cấu hình DNS, và Traefik xin được chứng chỉ
-Let's Encrypt thật ngay lần boot đầu.
-
-Trên AWS, Elastic IP được gắn vào network interface **trước khi** VM launch, nên VM
-boot lên là đã giữ đúng IP cuối cùng và domain resolve được ngay.
-
-Muốn dùng domain riêng thì đặt `moodle_domain`, apply, lấy `public_ip` từ output rồi
-trỏ A record vào đó. Traefik sẽ retry ACME tới khi DNS lan xong.
-
-Khi test nhiều lần, bật `acme_staging = true` để tránh rate limit của Let's Encrypt
-(chứng chỉ sẽ không được trust).
-
-### Chuyển site đang chạy sang domain và cert của bạn
-
-Các bước cụ thể nằm ở [Quy trình đầy đủ](#quy-trình-đầy-đủ) phía trên. Phần này giải
-thích vì sao phải làm như vậy.
-
-Đổi `moodle_domain` trong tfvars rồi apply lại **không** làm được việc này. Terraform
-để `startup-script`/`user_data` dưới `ignore_changes` nên VM không bị đụng tới, và kể
-cả có đụng thì cũng vô ích: image chỉ sinh `config.php` đúng một lần lúc cài, còn URL
-cũ thì đã nằm rải rác trong database.
-
-Nên việc này làm trên VM, bằng `change-domain.sh` mà Terraform đặt sẵn ở đó. Script
-kiểm tra cert khớp key, đúng SAN, đủ chain và domain đã resolve về máy này trước khi
-đụng vào bất cứ thứ gì; sau đó backup database, `config.php` và `moodledata`, bật
-maintenance mode, sửa `wwwroot`, chạy `admin/tool/replace` trên toàn database, chuyển
-địa chỉ no-reply, purge cache và session, rồi tự kiểm tra lại. Chi tiết và các cờ bỏ
-bước nằm trong [../examples/traefik/README.md](../examples/traefik/README.md).
-
-Domain mới dài hơn tên nip.io cũng không sao. Moodle mặc định từ chối trường hợp đó và
-script tự truyền `--shorten` để đi tiếp; cột TEXT chứa nội dung khoá học vẫn được thay
-nguyên vẹn, chỉ cột VARCHAR độ dài cố định đã sát giới hạn mới bị cắt phần tràn.
-
-Sau khi chuyển, `moodle_domain` trong tfvars không còn là sự thật nữa; cập nhật lại cho
-khớp để người sau đọc không hiểu nhầm, apply sẽ không làm gì thêm.
-
-## Port mở
-
-| Port | Lý do |
-|---|---|
-| 80/tcp | ACME HTTP-01 challenge, và redirect sang HTTPS |
-| 443/tcp | HTTPS |
-| 443/udp | HTTP/3 (QUIC) |
-| 22/tcp | Chỉ mở cho các CIDR trong `ssh_allowed_cidrs`. Danh sách rỗng thì GCP chỉ còn dải IAP, AWS không mở gì. |
-
-## Mật khẩu
-
-Terraform sinh ngẫu nhiên mật khẩu admin Moodle và MariaDB. Đọc bằng:
-
-```bash
-make output <ten>
-```
-
-Bộ ký tự đặc biệt bị giới hạn ở `!@%^*-_=+` vì Docker Compose nội suy giá trị trong
-`.env`, nên `$`, `` ` ``, `#`, dấu nháy và backslash sẽ làm sai mật khẩu.
-
-State file chứa các mật khẩu này ở dạng plaintext, nên state nằm trong bucket S3/GCS đã
-bật mã hoá và versioning chứ không nằm cạnh code. `.gitignore` loại `*.tfstate*`,
-`*.tfvars` ở mọi độ sâu (trừ `*.tfvars.example`) và `*.pem`.
-
-## Theo dõi lần boot đầu
-
-Bootstrap mất khoảng 3–5 phút (cài Docker, pull image, Moodle tự cài schema). Xem log:
-
-```bash
-cd terraform/deployments/<ten>
-eval "$(terraform output -raw bootstrap_log_command)"
-```
-
-Kiểm tra khi xong, cũng từ trong thư mục đó:
-
-```bash
-curl -sI "$(terraform output -raw site_url)"           # 200
-curl -s  "$(terraform output -raw site_url)/readyz"    # ready
-```
-
-## Xoá
-
-```bash
-make destroy <ten>
-```
-
-Destroy xoá luôn VM và disk, tức là mất toàn bộ data Moodle. Backup `/opt/moodle/data`
-trước nếu cần giữ.
-
-## Vì sao VM không bị replace ngoài ý muốn
-
-Cả hai module `ignore_changes` trên bootstrap script (và trên `ami` ở AWS, vì
-`data.aws_ami` cuộn tới bản mới mỗi tuần). Nếu không, một thay đổi nhỏ trong compose
-file hoặc một AMI mới sẽ khiến `apply` huỷ VM đang chạy kèm dữ liệu. Muốn áp dụng
-compose mới thì SSH vào và `cd /opt/moodle && docker compose up -d`, hoặc taint VM một
-cách có ý thức.
+Local Zone subnets still reach the internet through the region's internet gateway, and SSM
+works because the agent dials the regional endpoint. gp3 is supported. Instances cost more
+than in-region with no burstable option, so do not leave one idle.
