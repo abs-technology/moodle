@@ -168,6 +168,16 @@ Staying on Let's Encrypt under the new name instead:
 sudo ./change-domain.sh --domain lms.example.com --letsencrypt
 ```
 
+On an IP-direct host (`make apply-ip`) the same script starts Traefik first.
+`--nip` is the no-DNS path: Let's Encrypt on `moodle.<public-ip>.nip.io`.
+
+```bash
+sudo ./change-domain.sh --nip
+# or: sudo ./change-domain.sh --nip --email you@school.com
+```
+
+`ACME_EMAIL=admin@example.com` is rejected. The script prompts, or use `--email`.
+
 The script validates before it touches anything: the key must match the
 certificate and carry no passphrase, the new domain must be in the SAN list, the
 chain must not be leaf-only, and the name must already resolve to this host.

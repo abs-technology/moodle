@@ -23,13 +23,28 @@ resource "google_compute_firewall" "web" {
 
   allow {
     protocol = "tcp"
-    ports    = ["80", "443"]
+    ports    = var.enable_global_alb ? [tostring(local.alb_backend_port)] : ["80", "443"]
   }
 
-  # HTTP/3 rides UDP 443.
+  # HTTP/3 rides UDP 443 on the VM only when Traefik terminates TLS (make apply).
+  dynamic "allow" {
+    for_each = var.enable_global_alb ? [] : [1]
+    content {
+      protocol = "udp"
+      ports    = ["443"]
+    }
+  }
+
+  source_ranges = var.enable_global_alb ? local.alb_proxy_ranges : ["0.0.0.0/0"]
+  target_tags   = [var.name]
+}
+
+resource "google_compute_firewall" "icmp" {
+  name    = "${var.name}-allow-icmp"
+  network = google_compute_network.moodle.name
+
   allow {
-    protocol = "udp"
-    ports    = ["443"]
+    protocol = "icmp"
   }
 
   source_ranges = ["0.0.0.0/0"]
@@ -109,15 +124,28 @@ resource "random_password" "mariadb_user" {
 }
 
 locals {
-  moodle_domain = var.moodle_domain != "" ? var.moodle_domain : "moodle.${google_compute_address.moodle.address}.nip.io"
+  # splat + coalesce: do not index alb[0] when count is 0 (classic / IP-direct).
+  public_ipv4 = coalesce(
+    one(google_compute_global_address.alb[*].address),
+    google_compute_address.moodle.address,
+  )
+  moodle_domain = var.enable_direct_ip ? local.public_ipv4 : (
+    var.moodle_domain != "" ? var.moodle_domain : "moodle.${local.public_ipv4}.nip.io"
+  )
 }
 
 module "bootstrap" {
   source = "../bootstrap"
 
-  moodle_domain         = local.moodle_domain
-  acme_email            = var.acme_email
-  acme_staging          = var.acme_staging
+  moodle_domain    = local.moodle_domain
+  acme_email       = var.acme_email
+  acme_staging     = var.acme_staging
+  tls_certresolver = var.enable_global_alb || var.enable_direct_ip ? "" : "le"
+  compose_relpath = (
+    var.enable_global_alb ? "alb/docker-compose.yml" :
+    var.enable_direct_ip ? "ip/docker-compose.yml" :
+    "traefik/docker-compose.yml"
+  )
   moodle_site_name      = "ABS Technology Moodle LMS"
   moodle_admin_user     = var.moodle_admin_user
   moodle_admin_password = random_password.moodle_admin.result
@@ -144,8 +172,11 @@ resource "google_compute_instance" "moodle" {
   network_interface {
     subnetwork = google_compute_subnetwork.moodle.id
 
-    access_config {
-      nat_ip = google_compute_address.moodle.address
+    dynamic "access_config" {
+      for_each = var.enable_global_alb ? [] : [1]
+      content {
+        nat_ip = google_compute_address.moodle.address
+      }
     }
   }
 
@@ -167,8 +198,11 @@ resource "google_compute_instance" "moodle" {
     enable_integrity_monitoring = true
   }
 
-  # The ACME challenge starts seconds after boot and needs port 80 already open.
-  depends_on = [google_compute_firewall.web]
+  # ACME needs :80 on first boot. ALB needs NAT before the VM can pull images.
+  depends_on = [
+    google_compute_firewall.web,
+    google_compute_router_nat.alb,
+  ]
 
   # Bootstrap changes must not silently replace a VM holding live Moodle data.
   lifecycle {

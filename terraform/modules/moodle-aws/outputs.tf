@@ -1,5 +1,5 @@
 output "site_url" {
-  value = "https://${local.moodle_domain}"
+  value = var.enable_direct_ip ? "http://${aws_eip.moodle.public_ip}" : "https://${local.moodle_domain}"
 }
 
 output "public_ip" {

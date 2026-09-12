@@ -1,24 +1,27 @@
-variable "project_id" {
-  description = "GCP project that will hold the VPC and the VM."
+variable "region" {
+  description = "Region for the VPC and the VM."
   type        = string
+  default     = "ap-southeast-1"
 }
 
-variable "credentials" {
-  description = "Đường dẫn file JSON key của service account. Để trống thì dùng gcloud application-default credentials."
+variable "access_key" {
+  description = "AWS access key ID. Khai báo trong terraform.tfvars (đã gitignore)."
   type        = string
   default     = ""
+  sensitive   = true
 }
 
-variable "region" {
-  description = "Region for the subnet and the static address."
+variable "secret_key" {
+  description = "AWS secret access key."
   type        = string
-  default     = "asia-southeast1"
+  default     = ""
+  sensitive   = true
 }
 
-variable "zone" {
-  description = "Zone for the VM. Must be inside var.region."
+variable "profile" {
+  description = "Dùng thay cho access_key/secret_key nếu bạn có profile trong ~/.aws/credentials."
   type        = string
-  default     = "asia-southeast1-a"
+  default     = ""
 }
 
 variable "name" {
@@ -31,26 +34,44 @@ variable "name" {
   }
 }
 
-variable "machine_type" {
-  description = "2 vCPU / 4 GB is the smallest size Moodle installs comfortably on."
+variable "availability_zone" {
+  description = "Để trống thì lấy AZ thường đầu tiên. Đặt tên Local Zone (ap-southeast-1-han-1a) để dựng trong Local Zone."
   type        = string
-  default     = "e2-medium"
+  default     = ""
+}
+
+variable "instance_type" {
+  description = "2 vCPU / 4 GB là mức nhỏ nhất Moodle cài được. Local Zone chỉ có c7i/m7i/r7i, không có t3."
+  type        = string
+  default     = "t3.medium"
 }
 
 variable "disk_gb" {
-  description = "Boot disk size. Moodle code plus moodledata needs ~5 GB to start."
+  description = "Root volume size. Moodle code plus moodledata needs ~5 GB to start."
   type        = number
   default     = 30
 }
 
-variable "subnet_cidr" {
-  description = "CIDR of the single subnet in the new VPC."
+variable "vpc_cidr" {
+  description = "CIDR of the new VPC."
   type        = string
-  default     = "10.20.0.0/24"
+  default     = "10.21.0.0/16"
+}
+
+variable "subnet_cidr" {
+  description = "CIDR of the single public subnet."
+  type        = string
+  default     = "10.21.1.0/24"
+}
+
+variable "enable_direct_ip" {
+  description = "Set by `make apply-ip`, not by `make apply`. Moodle on http://<public-ip> with no Traefik. change-domain.sh on the VM enables Traefik later."
+  type        = bool
+  default     = false
 }
 
 variable "moodle_domain" {
-  description = "Public hostname. Empty derives moodle.<static-ip>.nip.io, which needs no DNS work."
+  description = "Public hostname. Empty derives moodle.<elastic-ip>.nip.io, which needs no DNS work. Ignored on apply-ip (wwwroot is the public IP)."
   type        = string
   default     = ""
 }
@@ -73,15 +94,9 @@ variable "moodle_admin_user" {
 }
 
 variable "ssh_allowed_cidrs" {
-  description = "Mở SSH cho các CIDR này, sinh break-glass.pem và tắt OS Login. Danh sách rỗng thì chỉ vào được qua IAP. Xác thực luôn là key-only."
+  description = "Mở SSH cho các CIDR này và sinh break-glass.pem. Danh sách rỗng thì chỉ vào được bằng SSM. Xác thực luôn là key-only, Debian AMI tắt sẵn password auth."
   type        = list(string)
   default     = []
-}
-
-variable "enable_apis" {
-  description = "Enable compute.googleapis.com. Turn off if the project already has it and you lack serviceusage rights."
-  type        = bool
-  default     = true
 }
 
 variable "timezone" {
@@ -96,13 +111,13 @@ variable "timezone" {
 }
 
 variable "snapshot_weekly" {
-  description = "Snapshot the boot disk every Sunday at 22:00 in var.timezone."
+  description = "Snapshot the instance every Sunday at 22:00 in var.timezone."
   type        = bool
   default     = true
 }
 
 variable "vm_deletion_protection" {
-  description = "Block instance delete in the console and API. Set false, apply, then destroy when you really mean to delete the VM."
+  description = "Block TerminateInstances in the console and API. Set false, apply, then destroy when you really mean to delete the VM."
   type        = bool
   default     = true
 }

@@ -1,5 +1,5 @@
-# Copied to terraform/deployments/<name>/terraform.tfvars by `make new`.
-# Gitignored. Fill the required block; everything else has a default.
+# Copied to terraform/deployments/<name>-gcp/terraform.tfvars by `make create gcp-alb`.
+# Gitignored. Then: make apply-alb <name>
 
 # --- identity (required, unique in the GCP project) ---
 name = "school-b-gcp"
@@ -12,15 +12,14 @@ project_id = "my-gcp-project"
 region = "asia-southeast1"
 zone   = "asia-southeast1-a"
 
-# --- access ---
-# Setting this disables OS Login; SSH uses break-glass.pem.
+# --- access (SSH is IAP: make ssh-alb) ---
 ssh_allowed_cidrs = ["0.0.0.0/0"]
 
 # --- site ---
+# Used as the Moodle admin email. TLS is Certificate Manager, not Let's Encrypt.
 acme_email = "admin@example.com"
-# Empty = moodle.<static-ip>.nip.io. Do not set this to move a live site.
+# Empty = moodle.<global-ip>.nip.io. Do not set this to move a live site.
 # moodle_domain = "lms.example.com"
-# acme_staging  = true
 # enable_apis   = false
 
 # --- snapshots (already on: Sunday 22:00 Asia/Ho_Chi_Minh, keep 24) ---
@@ -28,5 +27,5 @@ acme_email = "admin@example.com"
 # snapshot_weekly       = true
 # snapshot_retain_weeks = 24
 
-# --- protection (already on). Set false, apply, then destroy. ---
+# --- protection (already on). Set false, apply-alb, then destroy. ---
 # vm_deletion_protection = true

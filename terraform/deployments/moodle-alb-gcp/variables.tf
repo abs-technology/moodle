@@ -50,7 +50,7 @@ variable "subnet_cidr" {
 }
 
 variable "moodle_domain" {
-  description = "Public hostname. Empty derives moodle.<static-ip>.nip.io, which needs no DNS work. Ignored on apply-ip (wwwroot is the public IP)."
+  description = "Public hostname. Empty derives moodle.<static-ip>.nip.io, which needs no DNS work."
   type        = string
   default     = ""
 }
@@ -86,12 +86,6 @@ variable "enable_apis" {
 
 variable "enable_global_alb" {
   description = "Set by `make apply-alb`, not by `make apply`. ALB in front, managed cert, NEG, Cloud NAT; VM has no public IP. GCP now; AWS later."
-  type        = bool
-  default     = false
-}
-
-variable "enable_direct_ip" {
-  description = "Set by `make apply-ip`, not by `make apply`. Moodle on http://<public-ip> with no Traefik. change-domain.sh on the VM enables Traefik later."
   type        = bool
   default     = false
 }

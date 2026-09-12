@@ -1,0 +1,35 @@
+# Copied to terraform/deployments/<name>-aws/terraform.tfvars by `make create aws-ip`.
+# Gitignored. Then: make apply-ip <name>
+
+# --- identity (required, unique in the AWS account) ---
+name = "school-b-aws"
+
+# --- credentials (or set profile / AWS_* env instead) ---
+access_key = "AKIA..."
+secret_key = "..."
+# profile    = "school-b"
+
+# --- placement ---
+region = "ap-southeast-1"
+# Local Zone: opt the zone group in first; no t3 family.
+# availability_zone = "ap-southeast-1-han-1a"
+# instance_type     = "c7i.large"
+# vpc_cidr    = "10.21.0.0/16"
+# subnet_cidr = "10.21.1.0/24"
+
+# --- access ---
+ssh_allowed_cidrs = ["0.0.0.0/0"]
+
+# --- site ---
+# Moodle admin email. Also Let's Encrypt contact after `change-domain.sh --nip`.
+# First boot is http://<public-ip> — do not set moodle_domain to move a live site.
+acme_email = "admin@example.com"
+# acme_staging  = true
+
+# --- snapshots (already on: Sunday 22:00 Asia/Ho_Chi_Minh, keep 24) ---
+# timezone              = "Asia/Ho_Chi_Minh"
+# snapshot_weekly       = true
+# snapshot_retain_weeks = 24
+
+# --- protection (already on). Set false, apply-ip, then destroy. ---
+# vm_deletion_protection = true

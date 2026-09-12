@@ -1,4 +1,4 @@
-# Copied to terraform/deployments/<name>/terraform.tfvars by `make new`.
+# Copied to terraform/deployments/<name>-aws/terraform.tfvars by `make create aws-traefik`.
 # Gitignored. Fill the required block; everything else has a default.
 
 # --- identity (required, unique in the AWS account) ---

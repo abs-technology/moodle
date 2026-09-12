@@ -1,0 +1,32 @@
+# Copied to terraform/deployments/<name>-gcp/terraform.tfvars by `make create gcp-ip`.
+# Gitignored. Then: make apply-ip <name>
+
+# --- identity (required, unique in the GCP project) ---
+name = "school-b-gcp"
+
+# --- project ---
+project_id = "my-gcp-project"
+# credentials = "/path/to/sa-key.json"
+
+# --- placement ---
+region = "asia-southeast1"
+zone   = "asia-southeast1-a"
+
+# --- access ---
+# Setting this disables OS Login; SSH uses break-glass.pem.
+ssh_allowed_cidrs = ["0.0.0.0/0"]
+
+# --- site ---
+# Moodle admin email. Also Let's Encrypt contact after `change-domain.sh --nip`.
+# First boot is http://<public-ip> — do not set moodle_domain to move a live site.
+acme_email = "admin@example.com"
+# acme_staging  = true
+# enable_apis   = false
+
+# --- snapshots (already on: Sunday 22:00 Asia/Ho_Chi_Minh, keep 24) ---
+# timezone              = "Asia/Ho_Chi_Minh"
+# snapshot_weekly       = true
+# snapshot_retain_weeks = 24
+
+# --- protection (already on). Set false, apply-ip, then destroy. ---
+# vm_deletion_protection = true

@@ -64,8 +64,14 @@ variable "subnet_cidr" {
   default     = "10.21.1.0/24"
 }
 
+variable "enable_direct_ip" {
+  description = "Set by `make apply-ip`, not by `make apply`. Moodle on http://<public-ip> with no Traefik. change-domain.sh on the VM enables Traefik later."
+  type        = bool
+  default     = false
+}
+
 variable "moodle_domain" {
-  description = "Public hostname. Empty derives moodle.<elastic-ip>.nip.io, which needs no DNS work."
+  description = "Public hostname. Empty derives moodle.<elastic-ip>.nip.io, which needs no DNS work. Ignored on apply-ip (wwwroot is the public IP)."
   type        = string
   default     = ""
 }

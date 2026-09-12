@@ -132,6 +132,14 @@ resource "aws_security_group" "moodle" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    description = "ICMP (ping and Path MTU)"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     description = "Docker Hub, apt, ACME and the SSM endpoints"
     from_port   = 0
@@ -214,7 +222,9 @@ resource "random_password" "mariadb_user" {
 }
 
 locals {
-  moodle_domain = var.moodle_domain != "" ? var.moodle_domain : "moodle.${aws_eip.moodle.public_ip}.nip.io"
+  moodle_domain = var.enable_direct_ip ? aws_eip.moodle.public_ip : (
+    var.moodle_domain != "" ? var.moodle_domain : "moodle.${aws_eip.moodle.public_ip}.nip.io"
+  )
 
   # Debian AMIs ship without the SSM agent, and Session Manager is the only way in.
   ssm_agent = <<-EOT
@@ -233,6 +243,8 @@ module "bootstrap" {
   moodle_domain         = local.moodle_domain
   acme_email            = var.acme_email
   acme_staging          = var.acme_staging
+  tls_certresolver      = var.enable_direct_ip ? "" : "le"
+  compose_relpath       = var.enable_direct_ip ? "ip/docker-compose.yml" : "traefik/docker-compose.yml"
   moodle_site_name      = "ABS Technology Moodle LMS"
   moodle_admin_user     = var.moodle_admin_user
   moodle_admin_password = random_password.moodle_admin.result

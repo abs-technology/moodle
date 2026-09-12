@@ -1,0 +1,76 @@
+# apply-alb only. No Traefik: the GCP Global ALB terminates TLS and the NEG
+# talks HTTP to Moodle :8080. make apply *-traefik uses examples/traefik/.
+services:
+  mariadb:
+    image: mariadb:11.8.9
+    container_name: abs-mariadb
+    restart: unless-stopped
+    environment:
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_USER=${MARIADB_USER}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
+      - MARIADB_DATABASE=${MARIADB_DATABASE}
+    command:
+      - '--character-set-server=utf8mb4'
+      - '--collation-server=utf8mb4_unicode_ci'
+      - '--init-connect=SET NAMES utf8mb4'
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "root", "-p${MARIADB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - moodle_network
+
+  moodle:
+    image: abstechnology/moodle-standard:5.2.2-r5
+    container_name: abs-moodle
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - MOODLE_USERNAME=${MOODLE_USERNAME}
+      - MOODLE_PASSWORD=${MOODLE_PASSWORD}
+      - MOODLE_EMAIL=${MOODLE_EMAIL}
+      - MOODLE_SITE_NAME=${MOODLE_SITE_NAME}
+
+      - MOODLE_DATABASE_TYPE=mariadb
+      - MOODLE_DATABASE_HOST=mariadb
+      - MOODLE_DATABASE_PORT_NUMBER=3306
+      - MOODLE_DATABASE_USER=${MARIADB_USER}
+      - MOODLE_DATABASE_PASSWORD=${MARIADB_PASSWORD}
+      - MOODLE_DATABASE_NAME=${MARIADB_DATABASE}
+
+      - MARIADB_HOST=mariadb
+      - MARIADB_PORT_NUMBER=3306
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
+
+      - MOODLE_WWWROOT=https://${MOODLE_DOMAIN}
+      - MOODLE_SSLPROXY=yes
+      - MOODLE_REVERSEPROXY=no
+      - MOODLE_CLUSTER=no
+    volumes:
+      - ./data/moodle:/var/www/html
+      - ./data/moodledata:/var/www/moodledata
+      - ./data/moodle-backups:/var/www/moodle-backups
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    networks:
+      - moodle_network
+
+networks:
+  moodle_network:
+    driver: bridge
+
+volumes:
+  mariadb_data:

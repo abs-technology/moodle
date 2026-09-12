@@ -49,6 +49,13 @@ cat >/opt/moodle/docker-compose.yml <<'ABSI_EOF_COMPOSE'
 ${compose_file}
 ABSI_EOF_COMPOSE
 
+%{ if traefik_compose != "" ~}
+# IP-direct first boot. change-domain.sh copies this over docker-compose.yml.
+cat >/opt/moodle/docker-compose.traefik.yml <<'ABSI_EOF_TRAEFIK'
+${traefik_compose}
+ABSI_EOF_TRAEFIK
+%{ endif ~}
+
 # Template và hướng dẫn để đổi sang cert tự có, ngay trên máy.
 cat >/opt/moodle/dynamic/tls.yml.example <<'ABSI_EOF_TLS'
 ${tls_example}

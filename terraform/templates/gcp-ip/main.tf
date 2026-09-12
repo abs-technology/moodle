@@ -1,12 +1,12 @@
-# One customer deployment on GCP. Copied by `make tf-new`; moodle-5-gcp is substituted
-# with the directory name.
+# One customer Moodle on a public IP (no Traefik). Copied by `make new-ip`.
+# Copied by `make create gcp-ip <name>`.
 terraform {
   required_version = ">= 1.10"
 
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "~> 6.0"
+      version = "~> 8.2"
     }
     random = {
       source  = "hashicorp/random"
@@ -23,13 +23,8 @@ terraform {
   }
 
   # Backend nằm ở backend.tf, do scripts/tf-deployments.sh sinh ra ở lần chạy đầu.
-  # Không đặt ở đây được: block backend không nhận biến, mà bucket state phải nằm
-  # trong đúng project mà project_id dưới đây trỏ tới — và giá trị đó chỉ biết
-  # được sau khi terraform.tfvars đã điền.
 }
 
-# Credentials come from this deployment's terraform.tfvars, so each customer can
-# sit in its own GCP project.
 provider "google" {
   project     = var.project_id
   region      = var.region
@@ -57,4 +52,5 @@ module "moodle" {
   snapshot_weekly        = var.snapshot_weekly
   snapshot_retain_weeks  = var.snapshot_retain_weeks
   vm_deletion_protection = var.vm_deletion_protection
+  enable_direct_ip       = true
 }

@@ -25,7 +25,7 @@ locals {
     MARIADB_DATABASE=abs_moodle_db
   EOT
 
-  readme = <<-EOT
+  readme_traefik = <<-EOT
     # Moodle on this host
 
     Deployed by Terraform. There is no source tree and nothing is built here: the
@@ -84,4 +84,49 @@ locals {
     apply, and the domain recorded in Terraform stops being the truth once
     change-domain.sh has run.
   EOT
+
+  readme_ip = <<-EOT
+    # Moodle on this host (IP-direct)
+
+    Deployed by Terraform. First boot is MariaDB + Moodle only — no Traefik and
+    no load balancer. Open the site at http://<this-host-public-ip>.
+
+        docker-compose.yml           Moodle on :80
+        docker-compose.traefik.yml   used by change-domain.sh, do not start it
+        .env                         IP and generated passwords, mode 600
+        change-domain.sh             enable Traefik and move to a domain
+        data/                        Moodle code, moodledata and backups
+
+        cd /opt/moodle && docker compose ps
+        docker compose logs -f moodle
+
+    ## Move to HTTPS (on this VM)
+
+    nip.io + Let's Encrypt, no DNS work:
+
+        sudo ./change-domain.sh --nip
+
+    That serves https://moodle.<public-ip>.nip.io.
+
+    Your own name and certificate (point the A record here first):
+
+        sudo ./change-domain.sh --domain lms.example.com \
+            --cert /root/fullchain.pem --key /root/privkey.pem
+
+    Let's Encrypt on a name you already pointed here:
+
+        sudo ./change-domain.sh --domain lms.example.com --letsencrypt
+
+    The script starts Traefik, rewrites wwwroot from http://IP to https://...,
+    and replaces stored URLs in the database. Everyone is signed out. After
+    that, http://IP stops being the site address.
+
+    ## Terraform
+
+    Changes made here are never pushed back or overwritten. The bootstrap script
+    is under ignore_changes, so a VM holding live data is not replaced by an
+    apply.
+  EOT
+
+  readme = var.compose_relpath == "ip/docker-compose.yml" ? local.readme_ip : local.readme_traefik
 }

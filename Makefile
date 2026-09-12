@@ -37,7 +37,7 @@ export BUILDKIT_IMAGE SBOM_SCANNER ATTESTATIONS
 DATA_DIRS := data/moodle data/moodledata data/moodle-backups
 
 .PHONY: help build push inspect-manifest scan policy cves-critical fix login tag-latest up down remove logs shell \
-	deploys new plan apply output ssh destroy
+	create plan apply destroy ssh output tf-list deploys
 
 help: ## Lệnh có sẵn
 	@printf 'Image : %s\n' "$(IMG_FULL)"
@@ -108,88 +108,58 @@ shell: ## Vào shell container moodle
 	@docker compose exec moodle bash
 
 # Một khách hàng = một thư mục dưới terraform/deployments/ = một state riêng.
-# Tên khách đi thẳng trên dòng lệnh: make apply horizonschool-aws
-# Hậu tố -aws / -gcp quyết định cloud, nên không lệnh nào cần biến.
+# Cú pháp thống nhất 3 kiểu (AWS; GCP đổi aws → gcp):
+#   make create aws-traefik|aws-ip|aws-alb <name>
+#   make plan|apply|destroy|ssh|output <track> <name>
+#   make tf-list
 # Xem terraform/README.md.
 
 TF ?= terraform
+export TF
 
+TRACKS   := aws-traefik aws-ip aws-alb gcp-traefik gcp-ip gcp-alb
+TF_VERBS := create plan apply destroy ssh output tf-list deploys
+TRACK    := $(firstword $(filter $(TRACKS),$(MAKECMDGOALS)))
+NAME     := $(filter-out $(TF_VERBS) $(TRACKS),$(MAKECMDGOALS))
 DEPLOYS  := $(notdir $(patsubst %/,%,$(wildcard terraform/deployments/*/)))
-TF_VERBS := deploys new plan apply output ssh destroy
-DEPLOY   := $(filter-out $(TF_VERBS),$(MAKECMDGOALS))
-TF_DIR    = terraform/deployments/$(DEPLOY)
 
-# Tên khách xuất hiện như một goal nên make cần một target cho nó. Chỉ sinh từ thư
-# mục có thật, để gõ sai tên vẫn báo lỗi thay vì im lặng không làm gì.
-$(DEPLOYS):
+$(TRACKS) $(DEPLOYS):
 	@:
-.PHONY: $(DEPLOYS)
+.PHONY: $(TRACKS) $(DEPLOYS)
 
-# `new` là lệnh duy nhất nhận tên chưa tồn tại, nên chỉ nó cần catch-all, và chỉ khi
-# nó thực sự có trên dòng lệnh — nếu định nghĩa vô điều kiện thì mọi target gõ sai
-# đều lặng lẽ thành no-op.
-ifneq ($(filter new,$(MAKECMDGOALS)),)
+# create nhận tên chưa có thư mục; plan/apply/… nhận tên ngắn (school-b) hoặc
+# đủ hậu tố (school-b-aws). Cả hai không phải target thật.
+ifneq ($(filter create plan apply destroy ssh output,$(MAKECMDGOALS)),)
 %:
 	@:
 endif
 
-define need_deploy
-	@test -n "$(DEPLOY)" || { \
-		printf 'Thiếu tên deployment. Ví dụ: make %s horizonschool-aws\n' '$@'; \
-		printf 'Đang có:\n'; printf '  %s\n' $(DEPLOYS); \
-		exit 1; }
-	@test $(words $(DEPLOY)) -eq 1 || { \
-		printf 'Mỗi lệnh một deployment, không phải: %s\n' '$(DEPLOY)'; \
-		exit 1; }
-	@test -d "$(TF_DIR)" || { \
-		printf 'Không có deployment %s\n' '$(DEPLOY)'; \
-		printf '  make new %s\n' '$(DEPLOY)'; \
-		exit 1; }
-	@test -f "$(TF_DIR)/terraform.tfvars" || { \
-		printf 'Thiếu %s/terraform.tfvars\n' '$(TF_DIR)'; \
-		exit 1; }
-endef
+create: ## Terraform: make create aws-traefik|aws-ip|gcp-traefik|gcp-ip|gcp-alb <name>
+	@scripts/tf-deployments.sh create "$(TRACK)" "$(NAME)"
 
-deploys: ## Terraform: liệt kê deployment và domain hiện tại
+plan: ## Terraform: make plan aws-traefik <name>
+	@scripts/tf-deployments.sh plan "$(TRACK)" "$(NAME)"
+
+apply: ## Terraform: make apply aws-traefik <name>
+	@scripts/tf-deployments.sh apply "$(TRACK)" "$(NAME)"
+
+destroy: ## Terraform: make destroy aws-traefik <name>
+	@scripts/tf-deployments.sh destroy "$(TRACK)" "$(NAME)"
+
+ssh: ## Terraform: make ssh aws-traefik <name>
+	@scripts/tf-deployments.sh ssh "$(TRACK)" "$(NAME)"
+
+output: ## Terraform: make output aws-traefik <name> (kể cả mật khẩu)
+	@scripts/tf-deployments.sh output "$(TRACK)" "$(NAME)"
+
+tf-list: ## Terraform: liệt kê deployment (track = cloud + type, IP, domain)
 	@scripts/tf-deployments.sh list
 
-new: ## Terraform: tạo khách mới — make new truong-b-gcp
-	@scripts/tf-deployments.sh new "$(DEPLOY)" "$(CLOUD)"
+deploys: tf-list ## alias của tf-list
 
-# Backend của Terraform không nhận biến, nên nếu không truyền credential của
-# deployment vào bằng biến môi trường thì backend sẽ rơi về profile mặc định của máy —
-# và state của khách này đi vào account của người khác. TF_ENV bảo đảm backend và
-# provider luôn dùng chung một danh tính.
-TF_ENV = eval "$$(scripts/tf-deployments.sh env $(DEPLOY))" &&
-
-plan: ## Terraform: xem trước, không đụng gì — make plan <ten>
-	$(call need_deploy)
-	@scripts/tf-deployments.sh backend $(DEPLOY)
-	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) init -input=false
-	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) plan
-
-apply: ## Terraform: dựng hoặc cập nhật — make apply <ten>
-	$(call need_deploy)
-	@scripts/tf-deployments.sh backend $(DEPLOY)
-	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) init -input=false -upgrade
-	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) apply
-
-output: ## Terraform: in output kể cả mật khẩu — make output <ten>
-	$(call need_deploy)
-	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) output -json | \
-		python3 -c 'import json,sys; [print("%-24s %s" % (k, v["value"])) for k, v in json.load(sys.stdin).items()]'
-
-# break-glass.pem nằm cạnh state nên phải chạy từ trong thư mục. Ưu tiên nó thay vì
-# ssh_command: output đó được ghi vào state lúc apply, nên các stack apply trước lần
-# tách module vẫn còn mang đường dẫn cũ cho tới lần apply kế tiếp.
-ssh: ## Terraform: vào VM — make ssh <ten>
-	$(call need_deploy)
-	@$(TF_ENV) cd $(TF_DIR) && if [ -f break-glass.pem ]; then \
-		ssh -i break-glass.pem admin@$$($(TF) output -raw public_ip); \
-	else \
-		eval "$$($(TF) output -raw ssh_command)"; \
-	fi
-
-destroy: ## Terraform: xoá hạ tầng (mất toàn bộ data Moodle của khách đó) — make destroy <ten>
-	$(call need_deploy)
-	@$(TF_ENV) $(TF) -chdir=$(TF_DIR) destroy
+# Lệnh cũ (new-traefik / apply-alb / …) — chỉ báo cú pháp mới.
+.PHONY: new new-traefik new-ip new-alb plan-traefik plan-ip plan-alb \
+	apply-traefik apply-ip apply-alb ssh-traefik ssh-ip ssh-alb
+new new-traefik new-ip new-alb plan-traefik plan-ip plan-alb \
+apply-traefik apply-ip apply-alb ssh-traefik ssh-ip ssh-alb:
+	@scripts/tf-deployments.sh legacy $@

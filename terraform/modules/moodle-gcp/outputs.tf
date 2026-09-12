@@ -1,29 +1,35 @@
 output "site_url" {
-  value = "https://${local.moodle_domain}"
+  value = var.enable_direct_ip ? "http://${google_compute_address.moodle.address}" : "https://${local.moodle_domain}"
 }
 
 output "public_ip" {
-  value = google_compute_address.moodle.address
+  description = "Regional VM IP, or the global ALB IP when enable_global_alb is set."
+  value       = var.enable_global_alb ? google_compute_global_address.alb[0].address : google_compute_address.moodle.address
 }
 
 output "instance_name" {
   value = google_compute_instance.moodle.name
 }
 
+output "iap_ssh_command" {
+  description = "SSH through IAP. Required after apply-alb: the VM has no public IP."
+  value       = "gcloud compute ssh ${google_compute_instance.moodle.name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap"
+}
+
 output "ssh_command" {
-  description = "IAP là đường mặc định. Đặt ssh_allowed_cidrs thì dùng break-glass.pem, không cần gcloud còn token."
-  value = local.break_glass ? (
-    "ssh -i break-glass.pem admin@${google_compute_address.moodle.address}"
-    ) : (
+  description = "IAP là đường mặc định. Đặt ssh_allowed_cidrs thì dùng break-glass.pem, không cần gcloud còn token. ALB luôn là IAP."
+  value = var.enable_global_alb || !local.break_glass ? (
     "gcloud compute ssh ${google_compute_instance.moodle.name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap"
+    ) : (
+    "ssh -i break-glass.pem admin@${google_compute_address.moodle.address}"
   )
 }
 
 output "bootstrap_log_command" {
-  value = local.break_glass ? (
-    "ssh -i break-glass.pem admin@${google_compute_address.moodle.address} 'sudo tail -f /var/log/absi-moodle-bootstrap.log'"
-    ) : (
+  value = var.enable_global_alb || !local.break_glass ? (
     "gcloud compute ssh ${google_compute_instance.moodle.name} --zone ${var.zone} --project ${var.project_id} --tunnel-through-iap --command 'sudo tail -f /var/log/absi-moodle-bootstrap.log'"
+    ) : (
+    "ssh -i break-glass.pem admin@${google_compute_address.moodle.address} 'sudo tail -f /var/log/absi-moodle-bootstrap.log'"
   )
 }
 

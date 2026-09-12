@@ -2,9 +2,12 @@
 # Scaffold and list Terraform deployments. One directory per customer site, each
 # with its own state object, so no apply can reach another customer's stack.
 #
-#   scripts/tf-deployments.sh new horizonschool-aws aws
-#   scripts/tf-deployments.sh list
+#   make create aws-traefik school-b
+#   make plan|apply|destroy|ssh|output aws-traefik school-b
+#   make tf-list
 set -Eeuo pipefail
+
+TF="${TF:-terraform}"
 
 cd "$(dirname "$(readlink -f "$0")")/.."
 
@@ -24,18 +27,35 @@ die()  { printf '%s[x]%s %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
 
 DEPLOYMENTS=terraform/deployments
 
+usage_cli() {
+    cat >&2 <<'EOF'
+Cú pháp (AWS; GCP đổi aws → gcp):
+
+  make create  aws-traefik|aws-ip|aws-alb <name>
+  make plan    aws-traefik|aws-ip|aws-alb <name>
+  make apply   aws-traefik|aws-ip|aws-alb <name>
+  make destroy aws-traefik|aws-ip|aws-alb <name>
+  make ssh     aws-traefik|aws-ip|aws-alb <name>
+  make output  aws-traefik|aws-ip|aws-alb <name>
+  make tf-list
+
+Ví dụ: make create aws-traefik school-b
+       make apply  gcp-alb     moodle-alb
+aws-alb chưa có — dùng gcp-alb.
+EOF
+}
+
 cmd_list() {
     [[ -d "$DEPLOYMENTS" ]] || { echo "Chưa có deployment nào."; return 0; }
 
-    printf '%-26s %-6s %-16s %s\n' DEPLOYMENT CLOUD IP DOMAIN
-    local dir name cloud ip domain
+    printf '%-28s %-14s %-16s %s\n' DEPLOYMENT TRACK IP DOMAIN
+    local dir name cloud kind track ip domain
     for dir in "$DEPLOYMENTS"/*/; do
         [[ -d "$dir" ]] || continue
         name="$(basename "$dir")"
-
-        cloud=unknown
-        grep -q 'modules/moodle-aws' "$dir/main.tf" 2>/dev/null && cloud=aws
-        grep -q 'modules/moodle-gcp' "$dir/main.tf" 2>/dev/null && cloud=gcp
+        cloud="$(cloud_guess "$dir")"
+        kind="$(kind_of "$dir")"
+        track="${cloud}-${kind}"
 
         # Remote state: terraform output needs the same credentials as apply.
         # Without them AWS falls through to the machine profile (wrong account)
@@ -44,16 +64,16 @@ cmd_list() {
             eval "$(cmd_env "$name")"
         fi
 
-        ip="$(terraform -chdir="$dir" output -raw public_ip 2>/dev/null || echo -)"
+        ip="$($TF -chdir="$dir" output -raw public_ip 2>/dev/null || echo -)"
         [[ -n "$ip" && "$ip" != "null" ]] || ip=-
 
         # tfvars first: change-domain.sh moves the live domain on the VM, and the
         # only record of that on this side is whoever updated moodle_domain.
         domain="$(sed -n 's/^ *moodle_domain *= *"\(.*\)"/\1/p' "$dir/terraform.tfvars" 2>/dev/null | head -1)"
-        [[ -n "$domain" ]] || domain="$(terraform -chdir="$dir" output -raw site_url 2>/dev/null | sed 's|^https://||' || true)"
+        [[ -n "$domain" ]] || domain="$($TF -chdir="$dir" output -raw site_url 2>/dev/null | sed -E 's|^https?://||' || true)"
         [[ -n "$domain" ]] || domain=-
 
-        printf '%-26s %-6s %-16s %s\n' "$name" "$cloud" "$ip" "$domain"
+        printf '%-28s %-14s %-16s %s\n' "$name" "$track" "$ip" "$domain"
     done
 }
 
@@ -212,58 +232,208 @@ EOF
     info "Đã sinh $dir/backend.tf"
 }
 
-cmd_new() {
-    local name="${1:-}" cloud="${2:-}"
+is_alb() { [[ -f "$1/frontend.alb" ]]; }
+is_ip()  { [[ -f "$1/frontend.ip" ]]; }
+is_traefik() {
+    [[ -f "$1/frontend.traefik" ]] && return 0
+    # Sites created before frontend.traefik: no other marker means Traefik.
+    ! is_alb "$1" && ! is_ip "$1"
+}
 
-    [[ -n "$name" ]] || die "Thiếu tên. Ví dụ: make new horizonschool-aws"
-
-    # Hậu tố tên đã nói cloud nào, nên không bắt gõ thêm lần nữa; CLOUD= vẫn đè được
-    # nếu bạn muốn tên không theo quy ước.
-    if [[ -z "$cloud" ]]; then
-        case "$name" in
-            *-aws) cloud=aws ;;
-            *-gcp) cloud=gcp ;;
-            *) die "Tên '$name' không kết thúc bằng -aws hay -gcp; thêm CLOUD=aws hoặc CLOUD=gcp." ;;
-        esac
+kind_of() {
+    if is_alb "$1"; then echo alb
+    elif is_ip "$1"; then echo ip
+    else echo traefik
     fi
-    [[ "$cloud" == aws || "$cloud" == gcp ]] || die "CLOUD phải là aws hoặc gcp, không phải '$cloud'."
-    [[ "$name" =~ ^[a-z][a-z0-9-]{2,40}$ ]] ||
-        die "Tên chỉ gồm chữ thường, số và dấu gạch, bắt đầu bằng chữ."
+}
 
-    local dir="$DEPLOYMENTS/$name"
+cloud_guess() {
+    grep -q 'provider "aws"' "$1/main.tf" 2>/dev/null && { echo aws; return 0; }
+    grep -q 'provider "google"' "$1/main.tf" 2>/dev/null && { echo gcp; return 0; }
+    echo unknown
+}
+
+parse_track() {
+    local track="${1:-}"
+    case "$track" in
+        aws-traefik|aws-ip|aws-alb|gcp-traefik|gcp-ip|gcp-alb)
+            TRACK_CLOUD="${track%-*}"
+            TRACK_KIND="${track#*-}"
+            ;;
+        *)
+            [[ -n "$track" ]] || die "Thiếu track (aws-traefik, aws-ip, gcp-alb, …)."
+            die "Track '$track' không hợp lệ."
+            ;;
+    esac
+    if [[ "$TRACK_CLOUD" == aws && "$TRACK_KIND" == alb ]]; then
+        die "aws-alb chưa có. Dùng gcp-alb, hoặc đợi giai đoạn AWS."
+    fi
+}
+
+# Thư mục trên đĩa vẫn là <name>-aws / <name>-gcp để AWS và GCP không đụng nhau.
+# Lệnh make không bắt gõ lại hậu tố: create aws-traefik school-b → school-b-aws.
+dir_name_for() {
+    local app="$1" cloud="$2"
+    case "$app" in
+        *-aws)
+            [[ "$cloud" == aws ]] || die "Tên '$app' là AWS nhưng track là ${cloud}-*."
+            echo "$app"
+            ;;
+        *-gcp)
+            [[ "$cloud" == gcp ]] || die "Tên '$app' là GCP nhưng track là ${cloud}-*."
+            echo "$app"
+            ;;
+        *)
+            echo "${app}-${cloud}"
+            ;;
+    esac
+}
+
+need_track_name() {
+    local track="${1:-}" app="${2:-}"
+    [[ -n "$track" && -n "$app" ]] || { usage_cli; exit 1; }
+    [[ "$app" != *" "* ]] || die "Mỗi lệnh một tên app, không phải: $app"
+    parse_track "$track"
+}
+
+# Tìm thư mục thật: school-b hoặc school-b-aws đều được nếu cloud + type khớp track.
+resolve_dir() {
+    local app="$1" cand dir found=""
+    local -a cands=("$app")
+    case "$app" in
+        *-aws|*-gcp) ;;
+        *) cands+=("${app}-${TRACK_CLOUD}") ;;
+    esac
+    for cand in "${cands[@]}"; do
+        dir="$DEPLOYMENTS/$cand"
+        [[ -d "$dir" && -f "$dir/main.tf" ]] || continue
+        [[ "$(cloud_guess "$dir")" == "$TRACK_CLOUD" ]] || continue
+        [[ "$(kind_of "$dir")" == "$TRACK_KIND" ]] || continue
+        found="$cand"
+        break
+    done
+    [[ -n "$found" ]] ||
+        die "Không có deployment '$app' loại ${TRACK_CLOUD}-${TRACK_KIND}. Xem: make tf-list"
+    echo "$found"
+}
+
+cmd_new() {
+    local name="$1" cloud="$2" kind="$3" track="$4" shown="${5:-$1}"
+    [[ "$name" =~ ^[a-z][a-z0-9-]{2,30}$ ]] ||
+        die "Tên thư mục phải là chữ thường, số và dấu gạch, 3–31 ký tự (khớp var.name)."
+
+    local dir="$DEPLOYMENTS/$name" tmpl="terraform/templates/${cloud}-${kind}"
     [[ ! -e "$dir" ]] || die "$dir đã tồn tại."
+    [[ -d "$tmpl" ]] || die "Thiếu template $tmpl."
 
-    # Bucket state chưa tạo được ở bước này: nó phải nằm trong account mà credential
-    # trỏ tới, mà credential thì chính bạn sắp điền vào tfvars. `make apply` lo phần đó.
     mkdir -p "$dir"
-    cp "terraform/templates/$cloud/main.tf"    "$dir/main.tf"
-    cp "terraform/templates/$cloud/outputs.tf" "$dir/outputs.tf"
-    cp "terraform/templates/$cloud/terraform.tfvars.example" "$dir/terraform.tfvars"
-    # Copied rather than committed twice: the module's variables are the only
-    # authored copy, and the deployment gets them fresh at creation time.
+    cp "$tmpl/main.tf"    "$dir/main.tf"
+    cp "$tmpl/outputs.tf" "$dir/outputs.tf"
+    cp "$tmpl/terraform.tfvars.example" "$dir/terraform.tfvars"
     cp "terraform/modules/moodle-$cloud/variables.tf" "$dir/variables.tf"
+    case "$kind" in
+        alb)     cp "$tmpl/frontend.alb" "$dir/frontend.alb" ;;
+        ip)      cp "$tmpl/frontend.ip" "$dir/frontend.ip" ;;
+        traefik) cp "$tmpl/frontend.traefik" "$dir/frontend.traefik" ;;
+        *)       die "kind phải là traefik, ip hoặc alb." ;;
+    esac
 
     sed -i.bak -e "s|DEPLOY|$name|g" "$dir/main.tf"
     rm -f "$dir/main.tf.bak"
-
-    # The name must differ per deployment or IAM roles and key pairs collide.
     sed -i.bak "s|^name = .*|name = \"$name\"|" "$dir/terraform.tfvars"
     rm -f "$dir/terraform.tfvars.bak"
 
     info "Đã tạo $dir"
     echo
     echo "  1. Sửa $dir/terraform.tfvars (credential, region, acme_email)"
-    echo "  2. make apply $name"
+    echo "  2. make apply $track $shown"
     echo
     echo "  Bucket state sẽ được tạo ở bước 2, trong đúng account mà credential trỏ tới."
     echo
     warn "terraform.tfvars và break-glass.pem trong thư mục này không bao giờ được commit."
 }
 
+cmd_create() {
+    local track="${1:-}" app="${2:-}" dir_name
+    need_track_name "$track" "$app"
+    dir_name="$(dir_name_for "$app" "$TRACK_CLOUD")"
+    cmd_new "$dir_name" "$TRACK_CLOUD" "$TRACK_KIND" "$track" "$app"
+}
+
+with_tf() {
+    local name="$1"; shift
+    local dir="$DEPLOYMENTS/$name"
+    eval "$(cmd_env "$name")"
+    "$@"
+}
+
+cmd_plan() {
+    local track="${1:-}" app="${2:-}" name
+    need_track_name "$track" "$app"
+    name="$(resolve_dir "$app")"
+    cmd_backend "$name"
+    with_tf "$name" $TF -chdir="$DEPLOYMENTS/$name" init -input=false
+    with_tf "$name" $TF -chdir="$DEPLOYMENTS/$name" plan
+}
+
+cmd_apply() {
+    local track="${1:-}" app="${2:-}" name
+    need_track_name "$track" "$app"
+    name="$(resolve_dir "$app")"
+    cmd_backend "$name"
+    with_tf "$name" $TF -chdir="$DEPLOYMENTS/$name" init -input=false -upgrade
+    with_tf "$name" $TF -chdir="$DEPLOYMENTS/$name" apply
+}
+
+cmd_destroy() {
+    local track="${1:-}" app="${2:-}" name
+    need_track_name "$track" "$app"
+    name="$(resolve_dir "$app")"
+    with_tf "$name" $TF -chdir="$DEPLOYMENTS/$name" destroy
+}
+
+cmd_output() {
+    local track="${1:-}" app="${2:-}" name
+    need_track_name "$track" "$app"
+    name="$(resolve_dir "$app")"
+    with_tf "$name" $TF -chdir="$DEPLOYMENTS/$name" output -json |
+        python3 -c 'import json,sys; [print("%-24s %s" % (k, v["value"])) for k, v in json.load(sys.stdin).items()]'
+}
+
+cmd_ssh() {
+    local track="${1:-}" app="${2:-}" name dir
+    need_track_name "$track" "$app"
+    name="$(resolve_dir "$app")"
+    dir="$DEPLOYMENTS/$name"
+    eval "$(cmd_env "$name")"
+    (
+        cd "$dir"
+        if [[ "$TRACK_KIND" == alb ]]; then
+            eval "$($TF output -raw iap_ssh_command)"
+        elif [[ -f break-glass.pem ]]; then
+            ssh -i break-glass.pem "admin@$($TF output -raw public_ip)"
+        else
+            eval "$($TF output -raw ssh_command)"
+        fi
+    )
+}
+
+cmd_legacy() {
+    usage_cli
+    die "Lệnh cũ '$1' đã đổi. Dùng make create|plan|apply|destroy <track> <name>."
+}
+
 case "${1:-}" in
-    list)    cmd_list ;;
-    new)     shift; cmd_new "$@" ;;
-    backend) shift; cmd_backend "$@" ;;
-    env)     shift; cmd_env "$@" ;;
-    *)       die "Dùng: $0 {list|new <tên> <aws|gcp>|backend <tên>|env <tên>}" ;;
+    list|tf-list)    cmd_list ;;
+    create)          shift; cmd_create "$@" ;;
+    plan)            shift; cmd_plan "$@" ;;
+    apply)           shift; cmd_apply "$@" ;;
+    destroy)         shift; cmd_destroy "$@" ;;
+    output)          shift; cmd_output "$@" ;;
+    ssh)             shift; cmd_ssh "$@" ;;
+    backend)         shift; cmd_backend "$@" ;;
+    env)             shift; cmd_env "$@" ;;
+    legacy)          shift; cmd_legacy "$@" ;;
+    -h|--help|help)  usage_cli; exit 0 ;;
+    *)               usage_cli; exit 1 ;;
 esac

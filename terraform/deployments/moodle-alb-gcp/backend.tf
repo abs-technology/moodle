@@ -3,6 +3,6 @@
 terraform {
   backend "gcs" {
     bucket = "absi-moodle-tfstate-abs-techcompany-public-2025"
-    prefix = "deployments/moodle-5-gcp"
+    prefix = "deployments/moodle-alb-gcp"
   }
 }

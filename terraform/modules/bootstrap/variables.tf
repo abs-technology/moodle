@@ -17,6 +17,21 @@ variable "tls_certresolver" {
   }
 }
 
+variable "compose_relpath" {
+  description = "Path under examples/. apply = traefik/; apply-alb = alb/; apply-ip = ip/."
+  type        = string
+  default     = "traefik/docker-compose.yml"
+
+  validation {
+    condition = contains([
+      "traefik/docker-compose.yml",
+      "alb/docker-compose.yml",
+      "ip/docker-compose.yml",
+    ], var.compose_relpath)
+    error_message = "compose_relpath must be traefik/, alb/, or ip/ docker-compose.yml."
+  }
+}
+
 variable "acme_staging" {
   type = bool
 }
