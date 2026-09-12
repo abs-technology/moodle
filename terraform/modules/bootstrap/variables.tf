@@ -49,3 +49,9 @@ variable "extra_bootstrap" {
   type        = string
   default     = ""
 }
+
+variable "timezone" {
+  description = "IANA timezone written by timedatectl on first boot (and every GCP boot)."
+  type        = string
+  default     = "Asia/Ho_Chi_Minh"
+}

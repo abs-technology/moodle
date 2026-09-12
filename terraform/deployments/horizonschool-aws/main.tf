@@ -49,19 +49,23 @@ provider "aws" {
 module "moodle" {
   source = "../../modules/moodle-aws"
 
-  name              = var.name
-  region            = var.region
-  access_key        = var.access_key
-  secret_key        = var.secret_key
-  profile           = var.profile
-  availability_zone = var.availability_zone
-  instance_type     = var.instance_type
-  disk_gb           = var.disk_gb
-  vpc_cidr          = var.vpc_cidr
-  subnet_cidr       = var.subnet_cidr
-  moodle_domain     = var.moodle_domain
-  acme_email        = var.acme_email
-  acme_staging      = var.acme_staging
-  moodle_admin_user = var.moodle_admin_user
-  ssh_allowed_cidrs = var.ssh_allowed_cidrs
+  name                   = var.name
+  region                 = var.region
+  access_key             = var.access_key
+  secret_key             = var.secret_key
+  profile                = var.profile
+  availability_zone      = var.availability_zone
+  instance_type          = var.instance_type
+  disk_gb                = var.disk_gb
+  vpc_cidr               = var.vpc_cidr
+  subnet_cidr            = var.subnet_cidr
+  moodle_domain          = var.moodle_domain
+  acme_email             = var.acme_email
+  acme_staging           = var.acme_staging
+  moodle_admin_user      = var.moodle_admin_user
+  ssh_allowed_cidrs      = var.ssh_allowed_cidrs
+  timezone               = var.timezone
+  snapshot_weekly        = var.snapshot_weekly
+  snapshot_retain_weeks  = var.snapshot_retain_weeks
+  vm_deletion_protection = var.vm_deletion_protection
 }

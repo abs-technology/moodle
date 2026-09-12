@@ -1,33 +1,35 @@
-# Một khách hàng, một thư mục, một state. File thật đã được .gitignore.
+# Copied to terraform/deployments/<name>/terraform.tfvars by `make new`.
+# Gitignored. Fill the required block; everything else has a default.
 
-# Bắt buộc. Tiền tố của mọi tài nguyên. IAM role và key pair là phạm vi toàn
-# account, nên hai khách trùng name sẽ đụng nhau. Đặt theo tên khách.
-name = "horizonschool"
+# --- identity (required, unique in the AWS account) ---
+name = "school-b-aws"
 
-acme_email = "admin@example.com"
-
-# Credential của khách này. Để trống cả ba nếu dùng biến môi trường.
+# --- credentials (or set profile / AWS_* env instead) ---
 access_key = "AKIA..."
 secret_key = "..."
-# profile  = "khach-a"
+# profile    = "school-b"
 
+# --- placement ---
 region = "ap-southeast-1"
-
-# Local Zone: zone group phải opt-in trước, và không có họ t3.
+# Local Zone: opt the zone group in first; no t3 family.
 # availability_zone = "ap-southeast-1-han-1a"
 # instance_type     = "c7i.large"
-
-# SSH dự phòng. Terraform sinh break-glass.pem ngay trong thư mục này.
-# Xác thực là key-only, Debian AMI tắt sẵn password auth.
-ssh_allowed_cidrs = ["0.0.0.0/0"]
-
-# Để trống thì dùng moodle.<elastic-ip>.nip.io, không cần đụng DNS.
-# Đổi sang domain thật thì dùng change-domain.sh trên VM, không sửa ở đây.
-# moodle_domain = "lms.example.com"
-
-# Chứng chỉ không được trust, nhưng không dính rate limit khi test.
-# acme_staging = true
-
-# Hai VPC + subnet không được trùng dải nếu về sau bạn peering chúng lại.
 # vpc_cidr    = "10.21.0.0/16"
 # subnet_cidr = "10.21.1.0/24"
+
+# --- access ---
+ssh_allowed_cidrs = ["0.0.0.0/0"]
+
+# --- site ---
+acme_email = "admin@example.com"
+# Empty = moodle.<elastic-ip>.nip.io. Do not set this to move a live site.
+# moodle_domain = "lms.example.com"
+# acme_staging  = true
+
+# --- snapshots (already on: Sunday 22:00 Asia/Ho_Chi_Minh, keep 24) ---
+# timezone              = "Asia/Ho_Chi_Minh"
+# snapshot_weekly       = true
+# snapshot_retain_weeks = 24
+
+# --- protection (already on). Set false, apply, then destroy. ---
+# vm_deletion_protection = true

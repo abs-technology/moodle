@@ -9,5 +9,6 @@ output "script" {
     env_file        = local.env_file
     readme          = local.readme
     extra_bootstrap = var.extra_bootstrap
+    timezone        = var.timezone
   })
 }

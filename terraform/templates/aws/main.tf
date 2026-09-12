@@ -62,6 +62,10 @@ module "moodle" {
   moodle_domain     = var.moodle_domain
   acme_email        = var.acme_email
   acme_staging      = var.acme_staging
-  moodle_admin_user = var.moodle_admin_user
-  ssh_allowed_cidrs = var.ssh_allowed_cidrs
+  moodle_admin_user     = var.moodle_admin_user
+  ssh_allowed_cidrs     = var.ssh_allowed_cidrs
+  timezone              = var.timezone
+  snapshot_weekly          = var.snapshot_weekly
+  snapshot_retain_weeks    = var.snapshot_retain_weeks
+  vm_deletion_protection   = var.vm_deletion_protection
 }

@@ -5,6 +5,11 @@ set -euo pipefail
 exec >>/var/log/absi-moodle-bootstrap.log 2>&1
 echo "=== bootstrap $(date -Is) ==="
 
+# GCP re-runs this whole file every boot; AWS user_data only once.
+# Timezone is cheap and must stay correct even if someone later switches the VM to UTC.
+timedatectl set-timezone '${timezone}'
+echo "timezone $(timedatectl show -p Timezone --value)"
+
 # GCP re-runs startup scripts on every boot.
 if [ -f /opt/moodle/.bootstrapped ]; then
   echo "already bootstrapped"

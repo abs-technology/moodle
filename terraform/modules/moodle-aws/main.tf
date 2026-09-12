@@ -239,6 +239,7 @@ module "bootstrap" {
   mariadb_root_password = random_password.mariadb_root.result
   mariadb_password      = random_password.mariadb_user.result
   extra_bootstrap       = local.ssm_agent
+  timezone              = var.timezone
 }
 
 resource "aws_instance" "moodle" {
@@ -261,11 +262,19 @@ resource "aws_instance" "moodle" {
     encrypted   = true
   }
 
+  disable_api_termination = var.vm_deletion_protection
+
   metadata_options {
     http_tokens = "required"
   }
 
   tags = { Name = var.name }
+
+  # DLM selects volumes by this tag. default_tags from the root provider merge in.
+  volume_tags = {
+    Name          = "${var.name}-root"
+    absi-snapshot = var.name
+  }
 
   # Bootstrap needs egress the moment it starts, and data.aws_ami rolls forward
   # weekly, which would otherwise replace a VM holding live Moodle data.

@@ -59,7 +59,8 @@ terraform/
 Do this once on the machine you run Terraform from.
 
 **AWS** — an IAM user with EC2 plus
-`CreateRole`, `AttachRolePolicy`, `CreateInstanceProfile`, `PassRole`.
+`CreateRole`, `AttachRolePolicy`, `CreateInstanceProfile`, `PassRole`,
+and DLM (`dlm:*`, `iam:PassRole` for the `*-dlm` role).
 You will paste the key into tfvars in step 2 (or use `profile = "..."`).
 
 **GCP** — then you will set `project_id` in tfvars:
@@ -134,7 +135,9 @@ make apply school-b-aws
 ```
 
 Read the plan, type `yes`. First apply also creates the state bucket in **this
-customer’s** AWS account / GCP project and writes `backend.tf`. Wait 4–6
+customer’s** AWS account / GCP project, writes `backend.tf`, and turns on a
+weekly snapshot at Sunday 22:00 Asia/Ho_Chi_Minh (keep 24 weeks). The VM
+clock is the same timezone. Wait 4–6
 minutes.
 
 ```bash
@@ -207,6 +210,8 @@ Do not run `make apply` just for that line. Flags and recovery:
 | New customer / new independent site | New directory | `make new other-aws` and start at step 2. Do not reuse this folder. |
 | Staging + production for one school | Two directories | `school-b-prod-aws` and `school-b-staging-aws` |
 | Region, instance size, SSH CIDRs, ACME email | `terraform.tfvars` | Edit, then `make plan` / `make apply` |
+| Timezone / weekly snapshots | `terraform.tfvars` | Default `Asia/Ho_Chi_Minh`, Sunday 22:00, 24 copies. `snapshot_weekly = false` or `snapshot_retain_weeks = 12`, then apply |
+| Allow deleting the VM | `terraform.tfvars` | Default on. Set `vm_deletion_protection = false`, `make apply`, then `make destroy` |
 | Moodle admin **username** | `moodle_admin_user` in tfvars | Only **before** the first apply |
 | Moodle / MariaDB **passwords** | — | Generated. Read with `make output`. Do not put them in tfvars. |
 | Real domain after the site has data | VM + one tfvars line | Step 3 (`change-domain.sh`), then set `moodle_domain` |
@@ -230,8 +235,10 @@ Uses `break-glass.pem` when it exists. AWS Session Manager without it:
 brew install --cask session-manager-plugin
 ```
 
-`make destroy school-b-aws` deletes the disk. Back up `/opt/moodle/data` first
-if you need it.
+`make destroy` will fail while protection is on (default). First set
+`vm_deletion_protection = false` in that site’s tfvars, `make apply`, then
+destroy. That also unlocks Delete in the AWS/GCP console. Back up
+`/opt/moodle/data` first if you need it.
 
 ---
 
@@ -242,6 +249,7 @@ if you need it.
 | Domain on first boot (empty site) | Set `moodle_domain` in tfvars **before** apply, apply, then point DNS at `public_ip`. |
 | ACME staging | `acme_staging = true` in tfvars |
 | Custom state bucket name | `TF_STATE_BUCKET=... make apply school-b-aws` on the first apply. Skip creation: `TF_SKIP_BUCKET=1`. Default: `absi-moodle-tfstate-<account>` or `absi-moodle-tfstate-<project_id>` in the same account as the keys. |
+| Turn off weekly snapshots | `snapshot_weekly = false` in tfvars, then apply |
 
 **AWS Local Zone** — opt in, then uncomment in tfvars (Hanoi has no `t3`):
 

@@ -92,3 +92,37 @@ variable "ssh_allowed_cidrs" {
   type        = list(string)
   default     = []
 }
+
+variable "timezone" {
+  description = "IANA timezone for the VM clock and the Sunday 22:00 snapshot. Asia/Ho_Chi_Minh is UTC+7 with no DST."
+  type        = string
+  default     = "Asia/Ho_Chi_Minh"
+
+  validation {
+    condition     = contains(["Asia/Ho_Chi_Minh"], var.timezone)
+    error_message = "timezone must be Asia/Ho_Chi_Minh (the snapshot UTC conversion is only defined for this zone)."
+  }
+}
+
+variable "snapshot_weekly" {
+  description = "Snapshot the instance every Sunday at 22:00 in var.timezone."
+  type        = bool
+  default     = true
+}
+
+variable "vm_deletion_protection" {
+  description = "Block TerminateInstances in the console and API. Set false, apply, then destroy when you really mean to delete the VM."
+  type        = bool
+  default     = true
+}
+
+variable "snapshot_retain_weeks" {
+  description = "How many weekly snapshots to keep."
+  type        = number
+  default     = 24
+
+  validation {
+    condition     = var.snapshot_retain_weeks >= 1 && var.snapshot_retain_weeks <= 52
+    error_message = "snapshot_retain_weeks must be between 1 and 52."
+  }
+}

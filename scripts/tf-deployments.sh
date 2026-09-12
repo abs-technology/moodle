@@ -37,7 +37,15 @@ cmd_list() {
         grep -q 'modules/moodle-aws' "$dir/main.tf" 2>/dev/null && cloud=aws
         grep -q 'modules/moodle-gcp' "$dir/main.tf" 2>/dev/null && cloud=gcp
 
+        # Remote state: terraform output needs the same credentials as apply.
+        # Without them AWS falls through to the machine profile (wrong account)
+        # and this line becomes "-". GCP often works anyway via ADC.
+        if [[ -f "$dir/terraform.tfvars" ]]; then
+            eval "$(cmd_env "$name")"
+        fi
+
         ip="$(terraform -chdir="$dir" output -raw public_ip 2>/dev/null || echo -)"
+        [[ -n "$ip" && "$ip" != "null" ]] || ip=-
 
         # tfvars first: change-domain.sh moves the live domain on the VM, and the
         # only record of that on this side is whoever updated moodle_domain.

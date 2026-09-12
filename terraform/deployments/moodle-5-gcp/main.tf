@@ -1,4 +1,4 @@
-# One customer deployment on GCP. Copied by `make tf-new`; DEPLOY is substituted
+# One customer deployment on GCP. Copied by `make tf-new`; moodle-5-gcp is substituted
 # with the directory name.
 terraform {
   required_version = ">= 1.10"
@@ -39,22 +39,22 @@ provider "google" {
 module "moodle" {
   source = "../../modules/moodle-gcp"
 
-  project_id        = var.project_id
-  credentials       = var.credentials
-  region            = var.region
-  zone              = var.zone
-  name              = var.name
-  machine_type      = var.machine_type
-  disk_gb           = var.disk_gb
-  subnet_cidr       = var.subnet_cidr
-  moodle_domain     = var.moodle_domain
-  acme_email        = var.acme_email
-  acme_staging      = var.acme_staging
-  moodle_admin_user = var.moodle_admin_user
-  ssh_allowed_cidrs     = var.ssh_allowed_cidrs
-  enable_apis           = var.enable_apis
-  timezone              = var.timezone
-  snapshot_weekly          = var.snapshot_weekly
-  snapshot_retain_weeks    = var.snapshot_retain_weeks
-  vm_deletion_protection   = var.vm_deletion_protection
+  project_id             = var.project_id
+  credentials            = var.credentials
+  region                 = var.region
+  zone                   = var.zone
+  name                   = var.name
+  machine_type           = var.machine_type
+  disk_gb                = var.disk_gb
+  subnet_cidr            = var.subnet_cidr
+  moodle_domain          = var.moodle_domain
+  acme_email             = var.acme_email
+  acme_staging           = var.acme_staging
+  moodle_admin_user      = var.moodle_admin_user
+  ssh_allowed_cidrs      = var.ssh_allowed_cidrs
+  enable_apis            = var.enable_apis
+  timezone               = var.timezone
+  snapshot_weekly        = var.snapshot_weekly
+  snapshot_retain_weeks  = var.snapshot_retain_weeks
+  vm_deletion_protection = var.vm_deletion_protection
 }

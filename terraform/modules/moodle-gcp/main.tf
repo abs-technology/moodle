@@ -123,13 +123,15 @@ module "bootstrap" {
   moodle_admin_password = random_password.moodle_admin.result
   mariadb_root_password = random_password.mariadb_root.result
   mariadb_password      = random_password.mariadb_user.result
+  timezone              = var.timezone
 }
 
 resource "google_compute_instance" "moodle" {
-  name         = var.name
-  zone         = var.zone
-  machine_type = var.machine_type
-  tags         = [var.name]
+  name                = var.name
+  zone                = var.zone
+  machine_type        = var.machine_type
+  tags                = [var.name]
+  deletion_protection = var.vm_deletion_protection
 
   boot_disk {
     initialize_params {
