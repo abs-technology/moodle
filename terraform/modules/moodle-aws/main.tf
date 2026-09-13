@@ -108,28 +108,64 @@ resource "aws_security_group" "moodle" {
     }
   }
 
-  ingress {
-    description = "HTTP, redirected to HTTPS by Traefik"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = local.alb ? [] : [1]
+
+    content {
+      description = "HTTP, redirected to HTTPS by Traefik"
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
-  ingress {
-    description = "HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = local.alb ? [] : [1]
+
+    content {
+      description = "HTTPS"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
-  ingress {
-    description = "HTTP/3 (QUIC)"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "udp"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = local.alb ? [] : [1]
+
+    content {
+      description = "HTTP/3 (QUIC)"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "udp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = local.alb ? [1] : []
+
+    content {
+      description     = "Moodle from the ALB"
+      from_port       = local.alb_backend_port
+      to_port         = local.alb_backend_port
+      protocol        = "tcp"
+      security_groups = [aws_security_group.alb[0].id]
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = local.alb_use_import ? [1] : []
+
+    content {
+      description     = "ACME HTTP-01 from the ALB"
+      from_port       = 8081
+      to_port         = 8081
+      protocol        = "tcp"
+      security_groups = [aws_security_group.alb[0].id]
+    }
   }
 
   ingress {
@@ -172,12 +208,29 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+data "aws_iam_policy_document" "acm_import" {
+  count = local.alb_use_import ? 1 : 0
+
+  statement {
+    actions   = ["acm:ImportCertificate", "acm:DescribeCertificate"]
+    resources = [aws_acm_certificate.imported[0].arn]
+  }
+}
+
+resource "aws_iam_role_policy" "acm_import" {
+  count  = local.alb_use_import ? 1 : 0
+  name   = "${var.name}-acm-import"
+  role   = aws_iam_role.ssm.id
+  policy = data.aws_iam_policy_document.acm_import[0].json
+}
+
 resource "aws_iam_instance_profile" "ssm" {
   name = "${var.name}-ssm"
   role = aws_iam_role.ssm.name
 }
 
 resource "aws_eip" "moodle" {
+  count  = local.alb ? 0 : 1
   domain = "vpc"
 
   # Local Zone có network border group riêng; cấp sai group thì không gắn được vào
@@ -190,14 +243,15 @@ resource "aws_eip" "moodle" {
 # The address is attached to an interface before the VM launches, so the VM boots
 # already holding its final public IP and the nip.io name resolves immediately.
 resource "aws_network_interface" "moodle" {
-  subnet_id       = aws_subnet.public.id
+  subnet_id       = local.alb ? aws_subnet.private[0].id : aws_subnet.public.id
   security_groups = [aws_security_group.moodle.id]
 
   tags = { Name = "${var.name}-eni" }
 }
 
 resource "aws_eip_association" "moodle" {
-  allocation_id        = aws_eip.moodle.id
+  count                = local.alb ? 0 : 1
+  allocation_id        = aws_eip.moodle[0].id
   network_interface_id = aws_network_interface.moodle.id
 }
 
@@ -222,8 +276,13 @@ resource "random_password" "mariadb_user" {
 }
 
 locals {
-  moodle_domain = var.enable_direct_ip ? aws_eip.moodle.public_ip : (
-    var.moodle_domain != "" ? var.moodle_domain : "moodle.${aws_eip.moodle.public_ip}.nip.io"
+  # try(): do not index alb[0] / eip[0] when that resource's count is 0.
+  public_ipv4 = coalesce(
+    try(aws_globalaccelerator_accelerator.alb[0].ip_sets[0].ip_addresses[0], null),
+    try(aws_eip.moodle[0].public_ip, null),
+  )
+  moodle_domain = var.enable_direct_ip ? local.public_ipv4 : (
+    var.moodle_domain != "" ? var.moodle_domain : "moodle.${local.public_ipv4}.nip.io"
   )
 
   # Debian AMIs ship without the SSM agent, and Session Manager is the only way in.
@@ -235,22 +294,36 @@ locals {
     systemctl enable --now amazon-ssm-agent
     rm -rf "$tmp"
   EOT
+
+  alb_acme_setup = !local.alb_use_import ? "" : templatefile("${path.module}/alb-acme-setup.sh.tftpl", {
+    acme_email          = var.acme_email
+    moodle_domain       = local.moodle_domain
+    acm_certificate_arn = aws_acm_certificate.imported[0].arn
+    region              = var.region
+    acme_staging        = var.acme_staging ? "yes" : "no"
+  })
 }
 
 module "bootstrap" {
   source = "../bootstrap"
 
-  moodle_domain         = local.moodle_domain
-  acme_email            = var.acme_email
-  acme_staging          = var.acme_staging
-  tls_certresolver      = var.enable_direct_ip ? "" : "le"
-  compose_relpath       = var.enable_direct_ip ? "ip/docker-compose.yml" : "traefik/docker-compose.yml"
+  moodle_domain    = local.moodle_domain
+  acme_email       = var.acme_email
+  acme_staging     = var.acme_staging
+  tls_certresolver = var.enable_global_alb || var.enable_direct_ip ? "" : "le"
+  compose_relpath = (
+    var.enable_global_alb ? "alb/docker-compose.yml" :
+    var.enable_direct_ip ? "ip/docker-compose.yml" :
+    "traefik/docker-compose.yml"
+  )
   moodle_site_name      = "ABS Technology Moodle LMS"
   moodle_admin_user     = var.moodle_admin_user
   moodle_admin_password = random_password.moodle_admin.result
   mariadb_root_password = random_password.mariadb_root.result
   mariadb_password      = random_password.mariadb_user.result
-  extra_bootstrap       = local.ssm_agent
+  extra_bootstrap       = join("\n", compact([local.ssm_agent, local.alb_acme_setup]))
+  compose_up_extra      = local.alb_use_import ? "--profile aws-le" : ""
+  issue_acm_cert        = local.alb_use_import ? file("${path.module}/../../../examples/alb/issue-acm-cert.sh") : ""
   timezone              = var.timezone
 }
 
@@ -263,9 +336,9 @@ resource "aws_instance" "moodle" {
   user_data_base64 = base64gzip(module.bootstrap.script)
   key_name         = local.break_glass ? aws_key_pair.break_glass[0].key_name : null
 
-  network_interface {
+  # Provider 6.x: network_interface is deprecated. Same ENI, device index 0.
+  primary_network_interface {
     network_interface_id = aws_network_interface.moodle.id
-    device_index         = 0
   }
 
   root_block_device {
@@ -290,7 +363,13 @@ resource "aws_instance" "moodle" {
 
   # Bootstrap needs egress the moment it starts, and data.aws_ami rolls forward
   # weekly, which would otherwise replace a VM holding live Moodle data.
-  depends_on = [aws_route_table_association.public, aws_eip_association.moodle]
+  # Traefik/IP need the EIP before first boot (nip.io). ALB needs NAT first.
+  depends_on = [
+    aws_route_table_association.public,
+    aws_eip_association.moodle,
+    aws_nat_gateway.alb,
+    aws_route_table_association.private,
+  ]
 
   lifecycle {
     ignore_changes = [user_data_base64, ami]

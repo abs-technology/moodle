@@ -59,19 +59,37 @@ variable "vpc_cidr" {
 }
 
 variable "subnet_cidr" {
-  description = "CIDR of the single public subnet."
+  description = "CIDR of the public subnet (Traefik / IP-direct, and the NAT/ALB subnet in AZ A on aws-alb)."
   type        = string
   default     = "10.21.1.0/24"
 }
 
 variable "enable_direct_ip" {
-  description = "Set by `make apply-ip`, not by `make apply`. Moodle on http://<public-ip> with no Traefik. change-domain.sh on the VM enables Traefik later."
+  description = "Set by `make apply aws-ip` / `gcp-ip`. Moodle on http://<public-ip> with no Traefik. change-domain.sh on the VM enables Traefik later."
   type        = bool
   default     = false
 }
 
+variable "enable_global_alb" {
+  description = "Set by `make apply aws-alb`. Global Accelerator (anycast) + ALB in front, Moodle :8080, NAT; VM has no public IP. No Traefik."
+  type        = bool
+  default     = false
+}
+
+variable "acm_certificate_arn" {
+  description = "Existing ACM certificate for the ALB HTTPS listener (same region). Empty on first boot: placeholder, then the VM imports Let's Encrypt for moodle.<anycast-ip>.nip.io. Ignored when enable_global_alb is false."
+  type        = string
+  default     = ""
+}
+
+variable "route53_zone_id" {
+  description = "Public hosted zone that already contains var.moodle_domain. When both are set, ACM issues a trusted cert and Terraform writes the DNS validation records. Ignored when acm_certificate_arn is set or enable_global_alb is false."
+  type        = string
+  default     = ""
+}
+
 variable "moodle_domain" {
-  description = "Public hostname. Empty derives moodle.<elastic-ip>.nip.io, which needs no DNS work. Ignored on apply-ip (wwwroot is the public IP)."
+  description = "Public hostname. Empty derives moodle.<public-or-anycast-ip>.nip.io, which needs no DNS work. Ignored on apply-ip (wwwroot is the public IP)."
   type        = string
   default     = ""
 }

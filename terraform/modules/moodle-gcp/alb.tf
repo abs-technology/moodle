@@ -1,5 +1,5 @@
 # Global external Application Load Balancer (EXTERNAL_MANAGED, not Classic).
-# apply-alb only: ALB → NEG :8080 → Moodle. No Traefik. AWS later.
+# gcp-alb only: ALB → NEG :8080 → Moodle. No Traefik. AWS is modules/moodle-aws/alb.tf.
 
 locals {
   alb              = var.enable_global_alb

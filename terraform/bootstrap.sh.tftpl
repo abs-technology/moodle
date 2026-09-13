@@ -77,7 +77,20 @@ cat >/opt/moodle/.env <<'ABSI_EOF_ENV'
 ${env_file}
 ABSI_EOF_ENV
 
+%{ if issue_acm_cert != "" ~}
+cat >/usr/local/sbin/issue-acm-cert.sh <<'ABSI_EOF_ACM'
+${issue_acm_cert}
+ABSI_EOF_ACM
+chmod 0755 /usr/local/sbin/issue-acm-cert.sh
+%{ endif ~}
+
 cd /opt/moodle
-docker compose up -d
+docker compose ${compose_up_extra} up -d
+%{ if issue_acm_cert != "" ~}
+if [ -f /etc/systemd/system/absi-alb-acme.timer ]; then
+  systemctl daemon-reload
+  systemctl enable --now absi-alb-acme.timer
+fi
+%{ endif ~}
 touch /opt/moodle/.bootstrapped
 echo "=== bootstrap done $(date -Is) ==="

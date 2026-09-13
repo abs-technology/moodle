@@ -128,5 +128,42 @@ locals {
     apply.
   EOT
 
-  readme = var.compose_relpath == "ip/docker-compose.yml" ? local.readme_ip : local.readme_traefik
+  readme_alb = <<-EOT
+    # Moodle on this host (ALB)
+
+    Deployed by Terraform. TLS terminates on the load balancer — GCP Global ALB
+    or AWS Global Accelerator + ALB. This VM has no public IP. Moodle listens
+    on :8080. There is no Traefik.
+
+        docker-compose.yml   MariaDB + Moodle :8080
+        .env                 domain and generated passwords, mode 600
+        data/                Moodle code, moodledata and backups
+
+        cd /opt/moodle && docker compose ps
+        docker compose logs -f moodle
+
+    SSH from the machine that ran Terraform:
+
+        make ssh gcp-alb <name>    # IAP
+        make ssh aws-alb <name>    # Session Manager
+
+    change-domain.sh does not apply here. The public name is set at first
+    apply (moodle.<anycast-or-global-ip>.nip.io, or moodle_domain in tfvars).
+
+    On AWS, ACM cannot issue for nip.io. A timer on this VM completes Let's
+    Encrypt HTTP-01 and imports the cert into ACM (replacing the placeholder).
+    First HTTPS minutes may warn in the browser; after that the name is trusted.
+
+    ## Terraform
+
+    Changes made here are never pushed back or overwritten. The bootstrap script
+    is under ignore_changes, so a VM holding live data is not replaced by an
+    apply.
+  EOT
+
+  readme = (
+    var.compose_relpath == "ip/docker-compose.yml" ? local.readme_ip :
+    var.compose_relpath == "alb/docker-compose.yml" ? local.readme_alb :
+    local.readme_traefik
+  )
 }

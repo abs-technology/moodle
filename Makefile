@@ -134,7 +134,7 @@ ifneq ($(filter create plan apply destroy ssh output,$(MAKECMDGOALS)),)
 	@:
 endif
 
-create: ## Terraform: make create aws-traefik|aws-ip|gcp-traefik|gcp-ip|gcp-alb <name>
+create: ## Terraform: make create aws-traefik|aws-ip|aws-alb|gcp-traefik|gcp-ip|gcp-alb <name>
 	@scripts/tf-deployments.sh create "$(TRACK)" "$(NAME)"
 
 plan: ## Terraform: make plan aws-traefik <name>

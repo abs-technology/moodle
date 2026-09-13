@@ -85,7 +85,7 @@ variable "enable_apis" {
 }
 
 variable "enable_global_alb" {
-  description = "Set by `make apply-alb`, not by `make apply`. ALB in front, managed cert, NEG, Cloud NAT; VM has no public IP. GCP now; AWS later."
+  description = "Set by `make apply gcp-alb`. ALB in front, managed cert, NEG, Cloud NAT; VM has no public IP."
   type        = bool
   default     = false
 }

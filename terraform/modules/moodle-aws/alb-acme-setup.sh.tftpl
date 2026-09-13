@@ -1,0 +1,36 @@
+apt-get install -y -qq unzip
+curl -fsSL -o /tmp/awscliv2.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+unzip -qo /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install --update
+rm -rf /tmp/aws /tmp/awscliv2.zip
+install -d -m 0755 /opt/moodle/acme
+printf 'ok\n' >/opt/moodle/acme/healthz
+cat >/etc/absi-alb-acme.env <<EOF
+ACME_EMAIL=${acme_email}
+MOODLE_DOMAIN=${moodle_domain}
+ACM_CERTIFICATE_ARN=${acm_certificate_arn}
+AWS_DEFAULT_REGION=${region}
+ACME_STAGING=${acme_staging}
+ACME_WEBROOT=/opt/moodle/acme
+EOF
+chmod 600 /etc/absi-alb-acme.env
+cat >/etc/systemd/system/absi-alb-acme.service <<'UNIT'
+[Unit]
+Description=Let's Encrypt into ACM for aws-alb
+After=docker.service
+Wants=docker.service
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/absi-alb-acme.env
+ExecStart=/usr/local/sbin/issue-acm-cert.sh
+UNIT
+cat >/etc/systemd/system/absi-alb-acme.timer <<'UNIT'
+[Unit]
+Description=Retry / renew aws-alb Let's Encrypt
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT

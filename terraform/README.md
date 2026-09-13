@@ -22,9 +22,10 @@ make tf-list
 |---|---|---|---|
 | `aws-traefik` / `gcp-traefik` | `templates/aws-traefik/` or `gcp-traefik/` | `frontend.traefik` | Traefik + Let's Encrypt on `moodle.<ip>.nip.io` |
 | `aws-ip` / `gcp-ip` | `templates/aws-ip/` or `gcp-ip/` | `frontend.ip` | Moodle on `http://<public-ip>` |
+| `aws-alb` | `templates/aws-alb/` | `frontend.alb` | Global Accelerator (anycast) + ALB → Moodle `:8080` |
 | `gcp-alb` | `templates/gcp-alb/` | `frontend.alb` | GCP Global ALB + Certificate Manager |
 
-`aws-alb` is not available yet. `make create aws-traefik school-b` writes
+`make create aws-traefik school-b` writes
 `terraform/deployments/school-b-aws/` so the same app name can exist on GCP
 (`school-b-gcp`). Later commands accept `school-b` or `school-b-aws`.
 
@@ -44,7 +45,7 @@ terraform/
 │   ├── moodle-aws/
 │   ├── moodle-gcp/
 │   └── bootstrap/
-├── templates/               aws-traefik/ gcp-traefik/ aws-ip/ gcp-ip/ gcp-alb/
+├── templates/               aws-traefik/ gcp-traefik/ aws-ip/ gcp-ip/ aws-alb/ gcp-alb/
 └── deployments/
     ├── horizonschool-aws/   customer A
     └── school-b-gcp/        customer B
@@ -75,7 +76,9 @@ Do this once on the machine you run Terraform from.
 **AWS** — an IAM user with EC2 plus
 `CreateRole`, `AttachRolePolicy`, `CreateInstanceProfile`, `PassRole`,
 and DLM (`dlm:*`, `iam:PassRole` for the `*-dlm` role).
-You will paste the key into tfvars in step 2 (or use `profile = "..."`).
+`aws-alb` also needs Elastic Load Balancing, Global Accelerator, ACM, and
+NAT Gateway. You will paste the key into tfvars in step 2 (or use
+`profile = "..."`).
 
 **GCP** — then you will set `project_id` in tfvars:
 
@@ -98,6 +101,7 @@ Example: a new AWS site named `school-b`. GCP is the same track with `gcp-`.
 ```bash
 make create aws-traefik school-b   # Traefik + Let's Encrypt on first boot
 make create aws-ip school-b        # Moodle only — open http://<public-ip>
+make create aws-alb school-b       # Global Accelerator + ALB (no public IP on the VM)
 make create gcp-alb school-b       # GCP Global ALB
 ```
 
@@ -164,7 +168,7 @@ make output aws-traefik school-b
 
 | Output | Use |
 |---|---|
-| `site_url` | Open in the browser — Traefik: `https://moodle.<ip>.nip.io`; IP-direct: `http://<ip>` |
+| `site_url` | Open in the browser — Traefik: `https://moodle.<ip>.nip.io`; IP-direct: `http://<ip>`; ALB: `https://moodle.<anycast-or-global-ip>.nip.io` |
 | `moodle_admin_user` | Moodle login (default `absi_admin`) |
 | `moodle_admin_password` | Moodle password |
 | `public_ip` | Write down — DNS in step 3 uses this. It does not change. |
@@ -180,6 +184,19 @@ curl -s  "$(terraform output -raw site_url)/readyz"  # ready
 
 Hand the nip.io URL to the customer. They can install courses now.
 
+**aws-alb / gcp-alb** — the VM has no public IP. `public_ip` is the anycast
+(global) address. `make ssh aws-alb <name>` is Session Manager (`brew install
+--cask session-manager-plugin`). `make ssh gcp-alb` is IAP.
+
+AWS cannot get an ACM-issued cert for `nip.io` (ACM is DNS-01 only). The
+site starts on a placeholder, then the VM runs Let's Encrypt HTTP-01 and
+imports the trusted cert onto the same ACM ARN (timer `absi-alb-acme`,
+log `/var/log/absi-alb-acme.log`). Wait a few minutes after `/readyz` is
+up. Staging: `acme_staging = true`. A cert you already own is still
+`moodle_domain` plus `route53_zone_id` or `acm_certificate_arn` before apply.
+GCP Certificate Manager issues nip.io on its own.
+`change-domain.sh` does not apply to ALB sites.
+
 ---
 
 ## 3 · IP-direct → nip.io + Let's Encrypt
@@ -191,10 +208,11 @@ rejected; the script asks for a real address or takes `--email`.
 make ssh aws-ip school-b
 cd /opt/moodle
 sudo ./change-domain.sh --nip
-# or: sudo ./change-domain.sh --nip --email you@school.com
+# or: sudo ./change-domain.sh --nip --name moodle --email you@school.com
 ```
 
-Type the new host (`moodle.<ip>.nip.io`) to confirm. Then **one line** in
+Type only the **site name** (e.g. `moodle`). The host is
+`<name>.<public-ip>.nip.io`. Then **one line** in
 `terraform/deployments/school-b-aws/terraform.tfvars` — do not apply:
 
 ```hcl
@@ -251,7 +269,7 @@ Do not run `make apply` just for that line. Flags and recovery:
 
 | You want | Where | How |
 |---|---|---|
-| New customer / new independent site | New directory | `make create aws-traefik other` (or `aws-ip` / `gcp-alb`) and start at step 2. Do not reuse this folder. |
+| New customer / new independent site | New directory | `make create aws-traefik other` (or `aws-ip` / `aws-alb` / `gcp-alb`) and start at step 2. Do not reuse this folder. |
 | Staging + production for one school | Two directories | `make create aws-traefik school-b-prod` and `school-b-staging` |
 | Region, instance size, SSH CIDRs, ACME email | `terraform.tfvars` | Edit, then `make plan aws-traefik school-b` / `make apply aws-traefik school-b` |
 | Timezone / weekly snapshots | `terraform.tfvars` | Default `Asia/Ho_Chi_Minh`, Sunday 22:00, 24 copies. `snapshot_weekly = false` or `snapshot_retain_weeks = 12`, then apply |
@@ -273,7 +291,8 @@ There is no default customer. Every command takes `<track> <name>`.
 make ssh aws-traefik school-b
 ```
 
-Uses `break-glass.pem` when it exists. AWS Session Manager without it:
+Uses `break-glass.pem` when it exists (Traefik / IP-direct). `aws-alb` is
+always Session Manager:
 
 ```bash
 brew install --cask session-manager-plugin
@@ -282,7 +301,7 @@ brew install --cask session-manager-plugin
 `make destroy` will fail while protection is on (default). First set
 `vm_deletion_protection = false` in that site’s tfvars, then
 `make apply <track> <name>`, then `make destroy <track> <name>`. That also
-unlocks Delete in the AWS/GCP console. Back up `/opt/moodle/data` first if you
+unlocks Delete in the AWS/GCP console (`aws-alb` uses the same flag on the ALB). Back up `/opt/moodle/data` first if you
 need it.
 
 ---
@@ -297,6 +316,7 @@ need it.
 | Turn off weekly snapshots | `snapshot_weekly = false` in tfvars, then apply |
 | New IP-direct site | New directory | `make create aws-ip school-b` (or `gcp-ip`), fill tfvars, `make apply aws-ip school-b`. Site is `http://<public-ip>`. Then `make ssh aws-ip school-b` and `sudo ./change-domain.sh --nip`. |
 | New ALB site (GCP) | New directory | `make create gcp-alb school-b`, fill tfvars, `make apply gcp-alb school-b`. ALB → NEG → Moodle `:8080`, no Traefik. |
+| New ALB site (AWS) | New directory | `make create aws-alb school-b`, fill tfvars, `make apply aws-alb school-b`. Anycast → ALB → Moodle `:8080`, no Traefik, VM has no public IP. `make ssh` is Session Manager. |
 
 **AWS Local Zone** — opt in, then uncomment in tfvars (Hanoi has no `t3`):
 

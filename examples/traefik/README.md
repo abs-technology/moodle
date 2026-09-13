@@ -169,13 +169,14 @@ sudo ./change-domain.sh --domain lms.example.com --letsencrypt
 ```
 
 On an IP-direct host (`make apply-ip`) the same script starts Traefik first.
-`--nip` is the no-DNS path: Let's Encrypt on `moodle.<public-ip>.nip.io`.
+`--nip` is the no-DNS path: Let's Encrypt on `<name>.<public-ip>.nip.io`.
 
 ```bash
 sudo ./change-domain.sh --nip
-# or: sudo ./change-domain.sh --nip --email you@school.com
+# or: sudo ./change-domain.sh --nip --name moodle --email you@school.com
 ```
 
+Type the site name only. The host is `<name>.<public-ip>.nip.io`.
 `ACME_EMAIL=admin@example.com` is rejected. The script prompts, or use `--email`.
 
 The script validates before it touches anything: the key must match the

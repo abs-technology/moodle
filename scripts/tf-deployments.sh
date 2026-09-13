@@ -40,8 +40,8 @@ Cú pháp (AWS; GCP đổi aws → gcp):
   make tf-list
 
 Ví dụ: make create aws-traefik school-b
+       make apply  aws-alb     school-b
        make apply  gcp-alb     moodle-alb
-aws-alb chưa có — dùng gcp-alb.
 EOF
 }
 
@@ -261,13 +261,10 @@ parse_track() {
             TRACK_KIND="${track#*-}"
             ;;
         *)
-            [[ -n "$track" ]] || die "Thiếu track (aws-traefik, aws-ip, gcp-alb, …)."
+            [[ -n "$track" ]] || die "Thiếu track (aws-traefik, aws-ip, aws-alb, gcp-alb, …)."
             die "Track '$track' không hợp lệ."
             ;;
     esac
-    if [[ "$TRACK_CLOUD" == aws && "$TRACK_KIND" == alb ]]; then
-        die "aws-alb chưa có. Dùng gcp-alb, hoặc đợi giai đoạn AWS."
-    fi
 }
 
 # Thư mục trên đĩa vẫn là <name>-aws / <name>-gcp để AWS và GCP không đụng nhau.
@@ -409,7 +406,8 @@ cmd_ssh() {
     (
         cd "$dir"
         if [[ "$TRACK_KIND" == alb ]]; then
-            eval "$($TF output -raw iap_ssh_command)"
+            # VM has no public IP. GCP = IAP, AWS = SSM (both are ssh_command).
+            eval "$($TF output -raw ssh_command)"
         elif [[ -f break-glass.pem ]]; then
             ssh -i break-glass.pem "admin@$($TF output -raw public_ip)"
         else

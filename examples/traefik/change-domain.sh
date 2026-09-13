@@ -4,7 +4,8 @@
 # starts Traefik (the site begins as HTTP on the public IP).
 #
 #   sudo ./change-domain.sh --nip
-#   sudo ./change-domain.sh --nip --email you@school.com
+#   sudo ./change-domain.sh --nip --name moodle --email you@school.com
+# --nip builds <name>.<public-ip>.nip.io. Type the site name only.
 #   sudo ./change-domain.sh --domain lms.example.com --cert fullchain.pem --key privkey.pem
 #   sudo ./change-domain.sh --domain lms.example.com --letsencrypt
 #
@@ -22,7 +23,7 @@ warn() { printf '%s[!]%s %s\n' "$YELLOW" "$NC" "$*" >&2; }
 die()  { printf '%s[x]%s %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
 
 new_domain=""; cert_src=""; key_src=""; use_le=no; use_nip=no; acme_email=""
-skip_backup=no; skip_data_backup=no; assume_yes=no; force=no
+nip_name=""; skip_backup=no; skip_data_backup=no; assume_yes=no; force=no
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -30,6 +31,7 @@ while [[ $# -gt 0 ]]; do
         --cert)              cert_src="${2:?}"; shift 2 ;;
         --key)               key_src="${2:?}"; shift 2 ;;
         --email)             acme_email="${2:?}"; shift 2 ;;
+        --name)              nip_name="${2:?}"; shift 2 ;;
         --letsencrypt)       use_le=yes; shift ;;
         --nip)               use_nip=yes; use_le=yes; shift ;;
         --skip-backup)       skip_backup=yes; shift ;;
@@ -48,6 +50,7 @@ if [[ "$use_nip" == yes ]]; then
     [[ -z "$new_domain$cert_src$key_src" ]] ||
         die "--nip cannot be combined with --domain, --cert or --key."
 else
+    [[ -z "$nip_name" ]] || die "--name is only used with --nip."
     [[ -n "$new_domain" ]] || die "--domain is required (or use --nip)."
     if [[ "$use_le" == yes ]]; then
         [[ -z "$cert_src$key_src" ]] || die "--letsencrypt and --cert/--key are mutually exclusive."
@@ -124,6 +127,43 @@ require_acme_email() {
     done
 }
 
+is_nip_name() {
+    [[ "$1" =~ ^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$ ]]
+}
+
+require_nip_name() {
+    local entered=""
+    if [[ -n "$nip_name" ]]; then
+        is_nip_name "$nip_name" || die "--name must be a lowercase DNS label (e.g. moodle, lms)."
+        return
+    fi
+    if [[ "$assume_yes" == yes ]]; then
+        nip_name=moodle
+        return
+    fi
+    cat <<EOF
+
+Type only the site name — not the full domain. This host builds:
+
+  <name>.${public_ip}.nip.io
+
+  moodle  ->  https://moodle.${public_ip}.nip.io
+  lms     ->  https://lms.${public_ip}.nip.io
+
+Lowercase letters, digits and dashes. Press Enter for moodle.
+
+EOF
+    while true; do
+        read -rp "Site name [moodle]: " entered
+        entered="${entered:-moodle}"
+        if is_nip_name "$entered"; then
+            nip_name="$entered"
+            return
+        fi
+        warn "Lowercase letters, digits and dashes only. Example: moodle"
+    done
+}
+
 old_domain="$(env_get MOODLE_DOMAIN)"
 [[ -n "$old_domain" ]] || die "MOODLE_DOMAIN not found in .env."
 [[ -f data/moodle/config.php ]] || die "data/moodle/config.php missing: Moodle is not installed yet."
@@ -138,7 +178,8 @@ fi
 public_ip="$(public_ipv4)"
 if [[ "$use_nip" == yes ]]; then
     [[ -n "$public_ip" ]] || die "Cannot detect the public IPv4 for --nip."
-    new_domain="moodle.${public_ip}.nip.io"
+    require_nip_name
+    new_domain="${nip_name}.${public_ip}.nip.io"
 fi
 
 [[ "$old_domain" != "$new_domain" ]] || die "Already serving $new_domain."
@@ -235,8 +276,13 @@ cat <<SUMMARY
 SUMMARY
 
 if [[ "$assume_yes" != yes ]]; then
-    read -rp "Type the new domain to confirm: " answer
-    [[ "$answer" == "$new_domain" ]] || die "Aborted."
+    if [[ "$use_nip" == yes ]]; then
+        read -rp "Type the site name to confirm ($nip_name): " answer
+        [[ "$answer" == "$nip_name" ]] || die "Aborted."
+    else
+        read -rp "Type the new domain to confirm: " answer
+        [[ "$answer" == "$new_domain" ]] || die "Aborted."
+    fi
 fi
 
 # Moodle 5.x serves from public/ but keeps the CLI shims at the root, so the two

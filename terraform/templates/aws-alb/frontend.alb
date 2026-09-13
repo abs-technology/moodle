@@ -1,0 +1,2 @@
+# Marker: this directory is an ALB site (AWS Global Accelerator + ALB).
+# Use make plan|apply|ssh aws-alb <name>. Do not mix with aws-traefik / aws-ip.

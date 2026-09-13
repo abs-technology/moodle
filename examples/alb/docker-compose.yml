@@ -1,4 +1,4 @@
-# apply-alb only. No Traefik: the GCP Global ALB terminates TLS and the NEG
+# aws-alb / gcp-alb only. No Traefik: the load balancer terminates TLS and
 # talks HTTP to Moodle :8080. make apply *-traefik uses examples/traefik/.
 services:
   mariadb:
@@ -65,6 +65,19 @@ services:
       timeout: 10s
       retries: 5
       start_period: 90s
+    networks:
+      - moodle_network
+
+  # aws-alb Let's Encrypt HTTP-01. GCP does not start this profile.
+  acme:
+    profiles: ["aws-le"]
+    image: nginx:1.27-alpine
+    container_name: abs-acme
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    volumes:
+      - ./acme:/usr/share/nginx/html:ro
     networks:
       - moodle_network
 

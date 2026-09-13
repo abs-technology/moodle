@@ -1,5 +1,5 @@
-# One customer Moodle on a public IP (no Traefik). Copied by `make new-ip`.
-# Copied by `make create aws-ip <name>`.
+# One customer Moodle behind AWS Global Accelerator + ALB.
+# Copied by `make create aws-alb <name>`.
 terraform {
   required_version = ">= 1.10"
 
@@ -63,5 +63,7 @@ module "moodle" {
   snapshot_weekly        = var.snapshot_weekly
   snapshot_retain_weeks  = var.snapshot_retain_weeks
   vm_deletion_protection = var.vm_deletion_protection
-  enable_direct_ip       = true
+  acm_certificate_arn    = var.acm_certificate_arn
+  route53_zone_id        = var.route53_zone_id
+  enable_global_alb      = true
 }

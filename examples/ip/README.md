@@ -30,8 +30,10 @@ nip.io + Let's Encrypt (no DNS work). `admin@example.com` is rejected:
 ```bash
 cd /opt/moodle
 sudo ./change-domain.sh --nip
-# or: sudo ./change-domain.sh --nip --email you@school.com
+# or: sudo ./change-domain.sh --nip --name moodle --email you@school.com
 ```
+
+Type the site name only (`moodle`). The host becomes `<name>.<public-ip>.nip.io`.
 
 That serves `https://moodle.<public-ip>.nip.io`. Then set `moodle_domain` in
 that site’s `terraform.tfvars` to the same host. Do not apply.

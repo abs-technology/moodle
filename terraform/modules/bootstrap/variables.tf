@@ -18,7 +18,7 @@ variable "tls_certresolver" {
 }
 
 variable "compose_relpath" {
-  description = "Path under examples/. apply = traefik/; apply-alb = alb/; apply-ip = ip/."
+  description = "Path under examples/. traefik, alb, or ip compose file."
   type        = string
   default     = "traefik/docker-compose.yml"
 
@@ -61,6 +61,18 @@ variable "mariadb_password" {
 
 variable "extra_bootstrap" {
   description = "Shell run before Docker is installed. AWS uses it for the SSM agent."
+  type        = string
+  default     = ""
+}
+
+variable "compose_up_extra" {
+  description = "Extra docker compose arguments before `up -d` (e.g. --profile aws-le)."
+  type        = string
+  default     = ""
+}
+
+variable "issue_acm_cert" {
+  description = "Contents of issue-acm-cert.sh. Empty skips installing it."
   type        = string
   default     = ""
 }
