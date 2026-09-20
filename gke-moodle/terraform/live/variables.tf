@@ -129,7 +129,7 @@ variable "moodle_image_repository" {
 
 variable "moodle_image_tag" {
   type    = string
-  default = "5.2.2-r5"
+  default = "5.2.3"
 }
 
 variable "moodle_admin_email" {

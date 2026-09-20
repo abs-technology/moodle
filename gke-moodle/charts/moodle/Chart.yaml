@@ -3,7 +3,7 @@ name: moodle
 description: ABS Technology Moodle on GKE (abstechnology/moodle-standard). Not the Bitnami chart.
 type: application
 version: 0.1.1
-appVersion: "5.2.2-r5"
+appVersion: "5.2.3"
 keywords:
   - moodle
   - lms

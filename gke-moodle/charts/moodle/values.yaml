@@ -9,7 +9,7 @@ namespace: moodle
 
 image:
   repository: abstechnology/moodle-standard
-  tag: "5.2.2-r5"
+  tag: "5.2.3"
   pullPolicy: IfNotPresent
   pullSecrets: []
 

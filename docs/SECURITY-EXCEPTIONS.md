@@ -1,7 +1,7 @@
 # Security exceptions — Docker Scout critical CVEs
 
 Image: `abstechnology/moodle-standard` (Debian 12 / bookworm base)  
-Applies to: Moodle **5.2.2** and later builds on `debian:12-slim` until Debian ships fixes.
+Applies to: Moodle **5.2.3** and later builds on `debian:12-slim` until Debian ships fixes.
 
 ## How to read Scout numbers
 

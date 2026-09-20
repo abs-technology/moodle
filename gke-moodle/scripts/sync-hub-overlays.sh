@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copy image scripts the GKE chart overlays onto the Hub image.
-# Hub 5.2.2-r5 is VM/Marketplace-oriented; these files are the contract.
+# Hub 5.2.3 is VM/Marketplace-oriented; these files are the contract.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

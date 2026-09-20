@@ -51,7 +51,7 @@ Cloud SQL Auth Proxy. The sidecar listens on `127.0.0.1:3306`.
 Do **not** kubectl-patch the live Deployment. Change `charts/moodle` (or
 rebuild the image), then `helm upgrade`.
 
-| Hub 5.2.2-r5 behavior | GKE contract |
+| Hub 5.2.3 behavior | GKE contract |
 |---|---|
 | Do not pin `dnsPolicy: None` + `169.254.20.10` | Chart sets `ClusterFirst` |
 | NetworkPolicy vs kube-dns ClusterIP | DPv2 matches after DNAT — `allowAllDns` |

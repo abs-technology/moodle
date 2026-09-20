@@ -80,7 +80,7 @@ with Let's Encrypt and bring-your-own-certificate variants. The essentials:
 
 ```yaml
 moodle:
-  image: abstechnology/moodle-standard:5.2.2-r5
+  image: abstechnology/moodle-standard:5.2.3
   environment:
     - MOODLE_WWWROOT=https://lms.example.com
     - MOODLE_SSLPROXY=yes

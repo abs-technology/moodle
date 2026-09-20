@@ -40,7 +40,7 @@ pd_storage_class = "standard-rwo"
 
 # --- Moodle image / site ---
 moodle_image_repository = "abstechnology/moodle-standard"
-moodle_image_tag        = "5.2.2-r5"
+moodle_image_tag        = "5.2.3"
 moodle_admin_email      = "henry@absi.edu.vn"
 
 # --- SRE / security ---
