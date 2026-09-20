@@ -3,11 +3,11 @@
 # (required before binary_authorization_enforce = true).
 set -euo pipefail
 
-SRC="${SRC:-abstechnology/moodle-standard:5.2.3}"
+SRC="${SRC:-abstechnology/moodle-standard:5.2.3-r1}"
 PROJECT="${PROJECT:?set PROJECT}"
 REGION="${REGION:-asia-southeast1}"
 REPO="${REPO:-moodle}"
-TAG="${TAG:-5.2.3}"
+TAG="${TAG:-5.2.3-r1}"
 
 DEST="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/moodle-standard:${TAG}"
 

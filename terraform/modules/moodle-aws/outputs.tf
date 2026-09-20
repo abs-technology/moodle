@@ -44,7 +44,7 @@ output "bootstrap_log_command" {
 }
 
 output "moodle_admin_user" {
-  value = var.moodle_admin_user
+  value = "admin"
 }
 
 output "moodle_admin_password" {

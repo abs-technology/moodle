@@ -48,7 +48,7 @@ output "admin_password_secret" {
 }
 
 output "moodle_admin_user" {
-  value = "absi_admin"
+  value = "admin"
 }
 
 output "moodle_admin_password" {

@@ -93,9 +93,9 @@ variable "acme_staging" {
 }
 
 variable "moodle_admin_user" {
-  description = "Moodle administrator account created on first boot."
+  description = "Unused. Moodle login is always username admin after first install."
   type        = string
-  default     = "absi_admin"
+  default     = "admin"
 }
 
 variable "ssh_allowed_cidrs" {

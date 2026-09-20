@@ -18,6 +18,19 @@ load_config
 # FUNCTION DEFINITIONS
 # ============================================================================
 
+# Marker written after first install (or after a one-shot env sync) so later
+# restarts do not rewrite admin credentials / site name from the environment.
+_mark_environment_overrides_applied() {
+    local env_applied_marker="$MOODLE_DATA_DIR/.absi_env_applied"
+    local env_hash_file="$MOODLE_DATA_DIR/.absi_env_hash"
+    local current_env_hash
+    current_env_hash=$(echo "${MOODLE_REVERSEPROXY}:${MOODLE_SSLPROXY}" | md5sum | cut -d' ' -f1)
+    mkdir -p "$MOODLE_DATA_DIR" 2>/dev/null || true
+    touch "$env_applied_marker"
+    echo "$current_env_hash" > "$env_hash_file"
+    chown "$APP_USER:$APP_GROUP" "$env_applied_marker" "$env_hash_file" 2>/dev/null || true
+}
+
 # Apply environment variable overrides to the Moodle DATABASE only.
 # config.php is generated exactly once (see generate_moodle_config) and is
 # intentionally NEVER rewritten on subsequent container starts - the operator
@@ -30,15 +43,14 @@ apply_environment_overrides() {
     # Calculate current environment hash for proxy settings
     local current_env_hash=$(echo "${MOODLE_REVERSEPROXY}:${MOODLE_SSLPROXY}" | md5sum | cut -d' ' -f1)
     
-    if [[ -f "$env_applied_marker" && -f "$env_hash_file" ]]; then
-        local stored_hash=$(cat "$env_hash_file" 2>/dev/null)
-        if [[ "$current_env_hash" == "$stored_hash" ]]; then
-            info "Environment variables unchanged. Preserving system stability."
-            debug "Skipping environment overrides to maintain stable configuration"
-            return 0
-        else
-            info "Environment variables changed. Re-applying configuration..."
-        fi
+    # Marker is the only gate. Proxy flags (sslproxy / reverseproxy) live in
+    # config.php, which change-domain.sh edits itself. Re-applying DB overrides
+    # just because those flags flipped would reset the admin password after a
+    # domain move — do not do that.
+    if [[ -f "$env_applied_marker" ]]; then
+        info "Environment overrides already applied at install. Restart leaves the database as-is."
+        debug "Skipping environment overrides (marker $env_applied_marker)"
+        return 0
     fi
     
     info "Syncing environment overrides to the Moodle database (config.php is left untouched)..."
@@ -46,11 +58,7 @@ apply_environment_overrides() {
     # Only sync DB-side settings if Moodle is actually installed (config.php present).
     if [[ -f "$MOODLE_CONF_FILE" ]]; then
         apply_database_overrides
-        
-        # Mark environment variables as applied and save current hash
-        touch "$env_applied_marker"
-        echo "$current_env_hash" > "$env_hash_file"
-        chown "$APP_USER:$APP_GROUP" "$env_applied_marker" "$env_hash_file"
+        _mark_environment_overrides_applied
         info "Environment DB overrides applied successfully. Hash: $current_env_hash"
     else
         debug "No config.php found, skipping environment overrides"
@@ -72,43 +80,34 @@ apply_database_overrides() {
         return 1
     fi
     
-    # Update admin user settings
-    update_admin_user
-    
-    # Update site settings
-    update_site_settings
+    # Credential / site-name sync must never take the container down.
+    if ! update_admin_user; then
+        warn "Admin user env sync failed; Moodle will still start"
+    fi
+    if ! update_site_settings; then
+        warn "Site settings env sync failed; Moodle will still start"
+    fi
 }
 
-# Update admin user with environment variables
+# Sync password/email onto the Moodle admin row. The username is always
+# `admin` (set at install) and is never renamed afterwards.
 update_admin_user() {
-    info "Updating admin user with environment variables..."
-    
-    # Check if admin user exists
-    local admin_exists=$(echo "SELECT COUNT(*) FROM mdl_user WHERE username = 'admin';" | \
-        mariadb_remote_execute "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
-        "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" 2>/dev/null || echo "0")
-    
-    if [ "$admin_exists" -gt 0 ]; then
-        info "Updating existing admin user: ${MOODLE_USERNAME}"
-        
-        # Generate password hash (Moodle uses password_hash with PASSWORD_DEFAULT)
-        local password_hash=$(php -r "echo password_hash('${MOODLE_PASSWORD}', PASSWORD_DEFAULT);")
-        
-        mariadb_remote_execute "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
-            "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" <<EOF
-UPDATE mdl_user SET 
-    username = '${MOODLE_USERNAME}',
+    info "Updating admin user credentials (username stays 'admin')"
+
+    local password_hash
+    password_hash=$(php -r "echo password_hash('${MOODLE_PASSWORD}', PASSWORD_DEFAULT);")
+
+    mariadb_remote_execute "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
+        "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" <<EOF
+UPDATE mdl_user SET
     password = '${password_hash}',
     email = '${MOODLE_EMAIL}',
     firstname = 'Admin',
     lastname = 'User',
     timemodified = UNIX_TIMESTAMP()
-WHERE username = 'admin' OR (username = '${MOODLE_USERNAME}' AND auth = 'manual');
+WHERE username = 'admin' AND deleted = 0;
 EOF
-        debug "Admin user updated successfully"
-    else
-        warn "No admin user found in database to update"
-    fi
+    debug "Admin user credentials updated successfully"
 }
 
 # Update site settings with environment variables
@@ -1549,7 +1548,7 @@ else
             info "Installing Moodle database using $install_db_script ..."
             php "$install_db_script" \
                 --lang=en \
-                --adminuser="${MOODLE_USERNAME}" \
+                --adminuser=admin \
                 --adminpass="${MOODLE_PASSWORD}" \
                 --adminemail="${MOODLE_EMAIL}" \
                 --fullname="${MOODLE_SITE_NAME}" \
@@ -1564,6 +1563,10 @@ else
         info "Moodle initialization completed."
     fi
     rmdir "$MOODLE_DATA_DIR/.gke-schema.lock" 2>/dev/null || true
+
+    # Install created username `admin` and applied password / email / site name.
+    # Mark env as consumed so the next restart does not touch the admin row.
+    _mark_environment_overrides_applied
 
     # Bypass publicpaths security check after fresh installation
     bypass_moodle_security_checks

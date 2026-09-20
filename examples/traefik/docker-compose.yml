@@ -60,7 +60,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.2.3
+    image: abstechnology/moodle-standard:5.2.3-r1
     container_name: abs-moodle
     restart: unless-stopped
     # No published ports: Traefik is the only way in.

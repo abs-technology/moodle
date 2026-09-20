@@ -112,7 +112,7 @@ export MARIADB_COLLATE="${MARIADB_COLLATE:-utf8mb4_unicode_ci}"
 # MOODLE APPLICATION CONFIGURATION
 # ============================================================================
 
-export MOODLE_USERNAME="${MOODLE_USERNAME:-absi_admin}"
+export MOODLE_USERNAME="${MOODLE_USERNAME:-admin}"
 export MOODLE_PASSWORD="${MOODLE_PASSWORD:-password}"
 export MOODLE_EMAIL="${MOODLE_EMAIL:-henry@absi.edu.vn}"
 export MOODLE_SITE_NAME="${MOODLE_SITE_NAME:-Absi Technology Moodle LMS}"

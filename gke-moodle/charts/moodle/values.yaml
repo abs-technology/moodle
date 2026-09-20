@@ -9,7 +9,7 @@ namespace: moodle
 
 image:
   repository: abstechnology/moodle-standard
-  tag: "5.2.3"
+  tag: "5.2.3-r1"
   pullPolicy: IfNotPresent
   pullSecrets: []
 
@@ -43,7 +43,7 @@ moodle:
   siteName: "ABS Technology Moodle LMS"
   siteFullname: "ABS Technology Learning Management System"
   siteShortname: "ABS-LMS"
-  adminUser: "absi_admin"
+  adminUser: "admin"
   adminEmail: "henry@absi.edu.vn"
   cronEnabled: "no"
   cronMinutes: "1"

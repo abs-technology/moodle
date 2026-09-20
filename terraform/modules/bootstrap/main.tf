@@ -14,7 +14,7 @@ locals {
     ${local.acme_caserver}
     TRAEFIK_HTTP3=true
 
-    MOODLE_USERNAME=${var.moodle_admin_user}
+    MOODLE_USERNAME=admin
     MOODLE_PASSWORD=${var.moodle_admin_password}
     MOODLE_EMAIL=${var.acme_email}
     MOODLE_SITE_NAME=${var.moodle_site_name}

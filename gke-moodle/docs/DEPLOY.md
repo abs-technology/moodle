@@ -118,7 +118,7 @@ kubectl -n moodle get deploy,po,svc,gateway,httproute
 curl -sS "$(terraform -chdir=terraform/live output -raw site_url)/readyz"
 ```
 
-Admin: `absi_admin` / `terraform -chdir=terraform/live output -raw moodle_admin_password`.
+Admin: `admin` / `terraform -chdir=terraform/live output -raw moodle_admin_password`.
 
 ## Later
 

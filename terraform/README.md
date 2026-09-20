@@ -178,10 +178,10 @@ make output aws-traefik school-b
 | Output | Use |
 |---|---|
 | `site_url` | Open in the browser — Traefik: `https://moodle.<ip>.nip.io`; IP-direct: `http://<ip>`; ALB: `https://moodle.<anycast-or-global-ip>.nip.io` |
-| `moodle_admin_user` | Moodle login (default `absi_admin`) |
+| `moodle_admin_user` | Moodle web login — always `admin` (different account from the SSH user `admin`) |
 | `moodle_admin_password` | Moodle password |
 | `public_ip` | Write down — DNS in step 3 uses this. It does not change. |
-| SSH user | Always `admin` (not the Moodle user) |
+| SSH user | OS login `admin` — not the Moodle account, even though both are named `admin` |
 
 If the site is not up yet, from `terraform/deployments/school-b-aws/`:
 
@@ -298,7 +298,7 @@ Do not run `make apply` just for that line. Flags and recovery:
 | Guest OS | `os` in tfvars | `debian-13` (default), `debian-12`, or `ubuntu-24.04`. Only before the first apply. |
 | Timezone / weekly snapshots | `terraform.tfvars` | Default `Asia/Ho_Chi_Minh`, Sunday 22:00, 24 copies. `snapshot_weekly = false` or `snapshot_retain_weeks = 12`, then apply |
 | Allow deleting the VM | `terraform.tfvars` | Default on. Set `vm_deletion_protection = false`, `make apply <track> <name>`, then `make destroy <track> <name>` |
-| Moodle admin **username** | `moodle_admin_user` in tfvars | Only **before** the first apply |
+| Moodle admin **username** | — | Always `admin` after first install. Not taken from tfvars. |
 | Moodle / MariaDB **passwords** | — | Generated. Read with `make output <track> <name>`. Do not put them in tfvars. |
 | IP-direct → nip.io + Let's Encrypt | VM + one tfvars line | Section 3 (`--nip` / `--email`), then set `moodle_domain` |
 | Real domain after the site has data | VM + one tfvars line | Section 4 (`change-domain.sh`), then set `moodle_domain` |
