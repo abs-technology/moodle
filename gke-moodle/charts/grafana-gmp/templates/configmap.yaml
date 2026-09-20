@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-gmp-config
+  labels:
+    app.kubernetes.io/name: grafana-gmp
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Google Managed Prometheus
+        uid: gmp
+        type: prometheus
+        access: proxy
+        url: http://127.0.0.1:9090
+        isDefault: true
+        jsonData:
+          httpMethod: POST
+          timeInterval: 30s
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: moodle
+        orgId: 1
+        folder: Moodle
+        type: file
+        disableDeletion: true
+        options:
+          path: /grafana-dashboards
+  moodle.json: |
+    {
+      "title": "Moodle / GKE",
+      "uid": "moodle-gke",
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "30s",
+      "tags": ["moodle", "gke"],
+      "templating": { "list": [] },
+      "time": { "from": "now-6h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Moodle CPU (cores)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "gmp" },
+          "targets": [{
+            "refId": "A",
+            "expr": "sum(rate(kubernetes_io:container_cpu_core_usage_time{namespace_name=\"moodle\",container_name=\"moodle\"}[5m]))"
+          }]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Moodle memory (bytes)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "gmp" },
+          "targets": [{
+            "refId": "A",
+            "expr": "sum(kubernetes_io:container_memory_used_bytes{namespace_name=\"moodle\",container_name=\"moodle\"})"
+          }]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Moodle replicas ready",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "gmp" },
+          "targets": [{
+            "refId": "A",
+            "expr": "kubernetes_io:deployment_ready_replicas{namespace_name=\"moodle\",deployment_name=\"moodle\"}"
+          }]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Cloud SQL CPU",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "gmp" },
+          "targets": [{
+            "refId": "A",
+            "expr": "avg(cloudsql_googleapis_com:database_cpu_utilization{database_id=~\".*:moodle-.*\"})"
+          }]
+        }
+      ]
+    }

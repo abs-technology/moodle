@@ -12,6 +12,27 @@ data "aws_availability_zones" "available" {
 locals {
   availability_zone = var.availability_zone != "" ? var.availability_zone : data.aws_availability_zones.available.names[0]
   break_glass       = length(var.ssh_allowed_cidrs) > 0
+  # Keep keys in sync with modules/moodle-gcp (same var.os values).
+  os = {
+    "debian-13" = {
+      ami_owners = ["136693071363"]
+      ami_name   = "debian-13-amd64-*"
+      ssm_arch   = "debian_amd64"
+      ssh_user   = "admin"
+    }
+    "debian-12" = {
+      ami_owners = ["136693071363"]
+      ami_name   = "debian-12-amd64-*"
+      ssm_arch   = "debian_amd64"
+      ssh_user   = "admin"
+    }
+    "ubuntu-24.04" = {
+      ami_owners = ["099720109477"]
+      ami_name   = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
+      ssm_arch   = "debian_amd64"
+      ssh_user   = "ubuntu"
+    }
+  }[var.os]
 }
 
 # Khoá sinh tại chỗ, ghi ra break-glass.pem để không phải quản lý key pair thủ công.
@@ -37,13 +58,13 @@ data "aws_availability_zone" "selected" {
   name = local.availability_zone
 }
 
-data "aws_ami" "debian13" {
+data "aws_ami" "os" {
   most_recent = true
-  owners      = ["136693071363"] # Debian
+  owners      = local.os.ami_owners
 
   filter {
     name   = "name"
-    values = ["debian-13-amd64-*"]
+    values = [local.os.ami_name]
   }
 
   filter {
@@ -289,7 +310,7 @@ locals {
   ssm_agent = <<-EOT
     tmp=$(mktemp -d)
     curl -fsSL -o "$tmp/amazon-ssm-agent.deb" \
-      "https://s3.${var.region}.amazonaws.com/amazon-ssm-${var.region}/latest/debian_amd64/amazon-ssm-agent.deb"
+      "https://s3.${var.region}.amazonaws.com/amazon-ssm-${var.region}/latest/${local.os.ssm_arch}/amazon-ssm-agent.deb"
     dpkg -i "$tmp/amazon-ssm-agent.deb"
     systemctl enable --now amazon-ssm-agent
     rm -rf "$tmp"
@@ -328,7 +349,7 @@ module "bootstrap" {
 }
 
 resource "aws_instance" "moodle" {
-  ami                  = data.aws_ami.debian13.id
+  ami                  = data.aws_ami.os.id
   instance_type        = var.instance_type
   iam_instance_profile = aws_iam_instance_profile.ssm.name
   # EC2 caps user_data at 16 KB and the bootstrap payload is past that. cloud-init
@@ -344,7 +365,7 @@ resource "aws_instance" "moodle" {
   root_block_device {
     volume_size = var.disk_gb
     volume_type = "gp3"
-    encrypted   = true
+    encrypted   = var.root_volume_encrypted
   }
 
   disable_api_termination = var.vm_deletion_protection

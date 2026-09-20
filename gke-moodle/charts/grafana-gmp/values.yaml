@@ -1,0 +1,27 @@
+projectId: ""
+grafanaUrl: ""
+
+image:
+  grafana: grafana/grafana:11.6.3
+  frontend: gke.gcr.io/prometheus-engine/frontend:v0.15.3-gke.0
+
+serviceAccount:
+  name: grafana
+  annotations: {}
+
+existingSecret: grafana
+adminUserKey: admin-user
+adminPasswordKey: admin-password
+
+gateway:
+  name: moodle
+  namespace: moodle
+  hostname: ""
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

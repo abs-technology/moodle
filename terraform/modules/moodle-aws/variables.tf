@@ -46,10 +46,27 @@ variable "instance_type" {
   default     = "t3.medium"
 }
 
+variable "os" {
+  description = "Guest OS for a new VM. First boot only: ami is ignore_changes, so changing this later does not replace a live site. debian-13, debian-12, or ubuntu-24.04."
+  type        = string
+  default     = "debian-13"
+
+  validation {
+    condition     = contains(["debian-13", "debian-12", "ubuntu-24.04"], var.os)
+    error_message = "os must be debian-13, debian-12, or ubuntu-24.04."
+  }
+}
+
 variable "disk_gb" {
   description = "Root volume size. Moodle code plus moodledata needs ~5 GB to start."
   type        = number
   default     = 30
+}
+
+variable "root_volume_encrypted" {
+  description = "Encrypt the root EBS volume. Customer sites stay true. aws-marketplace must be false — Marketplace AMI products reject encrypted snapshots."
+  type        = bool
+  default     = true
 }
 
 variable "vpc_cidr" {
@@ -112,7 +129,7 @@ variable "moodle_admin_user" {
 }
 
 variable "ssh_allowed_cidrs" {
-  description = "Mở SSH cho các CIDR này và sinh break-glass.pem. Danh sách rỗng thì chỉ vào được bằng SSM. Xác thực luôn là key-only, Debian AMI tắt sẵn password auth."
+  description = "Mở SSH cho các CIDR này và sinh break-glass.pem. Danh sách rỗng thì chỉ vào được bằng SSM. Xác thực luôn là key-only (Debian admin / Ubuntu ubuntu)."
   type        = list(string)
   default     = []
 }
@@ -148,5 +165,16 @@ variable "snapshot_retain_weeks" {
   validation {
     condition     = var.snapshot_retain_weeks >= 1 && var.snapshot_retain_weeks <= 52
     error_message = "snapshot_retain_weeks must be between 1 and 52."
+  }
+}
+
+variable "tf_state_bucket" {
+  description = "Optional remote-state bucket. scripts/tf-deployments.sh reads this on first plan/apply. Empty = absi-moodle-tfstate-<deployment> (no account id in the name)."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.tf_state_bucket == "" || can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.tf_state_bucket))
+    error_message = "tf_state_bucket must be empty or a 3–63 character [a-z0-9-] name."
   }
 }

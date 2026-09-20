@@ -44,6 +44,7 @@ module "moodle" {
   zone                   = var.zone
   name                   = var.name
   machine_type           = var.machine_type
+  os                     = var.os
   disk_gb                = var.disk_gb
   subnet_cidr            = var.subnet_cidr
   moodle_domain          = var.moodle_domain

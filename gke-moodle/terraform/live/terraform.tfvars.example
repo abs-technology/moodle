@@ -1,0 +1,50 @@
+# Copy to terraform.tfvars and edit. Every live variable is listed with the
+# value Terraform will use if you leave it as-is.
+
+# --- project ---
+project_id = "your-gcp-project"
+name       = "moodle"
+region     = "asia-southeast1"
+zone       = "asia-southeast1-b"
+
+# --- network ---
+nodes_cidr    = "10.20.0.0/20"
+pods_cidr     = "10.84.0.0/14"
+services_cidr = "10.88.0.0/20"
+master_cidr   = "172.16.0.32/28"
+master_authorized_cidrs = [
+  {
+    cidr = "0.0.0.0/0"
+    name = "temporary-open"
+  },
+]
+
+# --- GKE Standard (regional, nodes in every listed zone) ---
+node_locations    = ["asia-southeast1-a", "asia-southeast1-b", "asia-southeast1-c"]
+node_machine_type = "n2-standard-4"
+min_nodes         = 3
+max_nodes         = 12
+
+# --- Cloud SQL Enterprise Plus MySQL 8.4 ---
+sql_tier            = "db-perf-optimized-N-8"
+sql_disk_gb         = 100
+sql_max_connections = 1000
+
+# --- storage ---
+# filestore = NFS RWX (~1 TiB min, multi-replica). pd = GCE disk (50 GiB, 1 replica).
+storage_backend  = "filestore"
+filestore_tier   = "ZONAL"
+filestore_gb     = 1024
+pd_size_gb       = 50
+pd_storage_class = "standard-rwo"
+
+# --- Moodle image / site ---
+moodle_image_repository = "abstechnology/moodle-standard"
+moodle_image_tag        = "5.2.2-r5"
+moodle_admin_email      = "henry@absi.edu.vn"
+
+# --- SRE / security ---
+notification_email           = ""
+binary_authorization_enforce = false
+deletion_protection          = true
+enable_cmek                  = false

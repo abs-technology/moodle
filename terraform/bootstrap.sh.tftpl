@@ -23,15 +23,22 @@ apt-get install -y -qq ca-certificates curl gnupg
 ${extra_bootstrap}
 
 install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/debian/gpg |
+. /etc/os-release
+docker_os=debian
+fallback=bookworm
+if [ "$${ID:-}" = ubuntu ]; then
+  docker_os=ubuntu
+  fallback=jammy
+fi
+curl -fsSL "https://download.docker.com/linux/$${docker_os}/gpg" |
   gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
 chmod a+r /etc/apt/keyrings/docker.gpg
 
-codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+codename=$VERSION_CODENAME
 # Fall back when Docker has not published a suite for this release yet.
-curl -fsI "https://download.docker.com/linux/debian/dists/$codename/Release" >/dev/null 2>&1 ||
-  codename=bookworm
-echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $codename stable" \
+curl -fsI "https://download.docker.com/linux/$${docker_os}/dists/$codename/Release" >/dev/null 2>&1 ||
+  codename=$fallback
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$${docker_os} $codename stable" \
   >/etc/apt/sources.list.d/docker.list
 
 apt-get update -qq

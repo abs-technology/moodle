@@ -1,0 +1,45 @@
+# Copied to terraform/deployments/<name>-aws/terraform.tfvars by `make create aws-marketplace`.
+# Builder only — not a customer site. Then: make apply aws-marketplace <name>
+#
+# https://docs.aws.amazon.com/marketplace/latest/userguide/best-practices-for-building-your-amis.html
+# Launch permission for 679593333241 is added automatically. AccessARN in
+# Seller Portal is marketplace_access_arn (role abs-ami-marketplace-role).
+
+# --- identity (required, unique in the AWS account) ---
+name = "school-b-aws"
+# Optional S3 state bucket. Empty = absi-moodle-tfstate-<deployment>.
+# tf_state_bucket = "absi-moodle-tfstate-school-b-aws"
+
+# --- credentials (or set profile / AWS_* env instead) ---
+access_key = "AKIA..."
+secret_key = "..."
+# profile    = "school-b"
+
+# --- Marketplace placement (keep us-east-1) ---
+region        = "us-east-1"
+instance_type = "c7i.large"
+os            = "debian-13" # debian-13 | debian-12 | ubuntu-24.04 (first boot only)
+# vpc_cidr    = "10.21.0.0/16"
+# subnet_cidr = "10.21.1.0/24"
+
+# --- access ---
+ssh_allowed_cidrs = ["0.0.0.0/0"]
+
+# --- site (same first boot as aws-ip: http://<public-ip>) ---
+acme_email = "admin@example.com"
+
+# --- snapshots off on a builder ---
+snapshot_weekly = false
+
+# --- AMI (second apply, after curl http://<ip>/readyz is 200) ---
+# Apply with true: delete authorized_keys on the VM, then snapshot.
+create_ami = false
+# ami_name   = "abs-moodle-5-2-2"
+
+# AccessARN: existing seller role (name, not the full ARN — output prints the ARN).
+marketplace_role_name     = "abs-ami-marketplace-role"
+manage_marketplace_role   = false
+# manage_marketplace_role = true   # only if this account does not have the role yet
+
+# --- protection. Set false, apply, then destroy the builder after you have ami_id. ---
+# vm_deletion_protection = true

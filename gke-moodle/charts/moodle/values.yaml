@@ -1,0 +1,206 @@
+# ABS Moodle — values for GKE Standard + Cloud SQL + Global Gateway.
+# Overlay generated bits from: terraform -chdir=terraform/live output -json helm_values
+# See docs/DEPLOY.md. Terraform does not install this chart.
+
+nameOverride: ""
+fullnameOverride: ""
+
+namespace: moodle
+
+image:
+  repository: abstechnology/moodle-standard
+  tag: "5.2.2-r5"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# Replica count when autoscaling is off. With KEDA/HPA, this is the floor.
+# filestore (RWX) can scale; pd (RWO) must stay at 1.
+replicaCount: 2
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+serviceAccount:
+  create: true
+  name: moodle
+  annotations: {}
+
+# Workload Identity: Terraform sets iam.gke.io/gcp-service-account.
+
+cloudSql:
+  enabled: true
+  # project:region:instance
+  instanceConnectionName: ""
+  proxyImage: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.18.2
+  port: 3306
+
+moodle:
+  wwwroot: ""
+  sslProxy: "yes"
+  reverseProxy: "no"
+  cluster: "yes"
+  siteName: "ABS Technology Moodle LMS"
+  siteFullname: "ABS Technology Learning Management System"
+  siteShortname: "ABS-LMS"
+  adminUser: "absi_admin"
+  adminEmail: "henry@absi.edu.vn"
+  cronEnabled: "no"
+  cronMinutes: "1"
+  database:
+    type: mysqli
+    host: "127.0.0.1"
+    port: "3306"
+    name: moodle
+    user: moodle
+  php:
+    memoryLimit: 256M
+    maxInputVars: "5000"
+    maxFileUploads: "20"
+    postMaxSize: 64M
+    uploadMaxFilesize: 64M
+    maxExecutionTime: "300"
+
+# Existing secret keys (create with kubectl — see docs/DEPLOY.md).
+existingSecret: moodle
+existingSecretKeys:
+  databasePassword: MOODLE_DATABASE_PASSWORD
+  adminPassword: MOODLE_PASSWORD
+
+service:
+  type: ClusterIP
+  port: 8080
+
+persistence:
+  enabled: true
+  # filestore = NFS RWX (API min ~1 TiB). pd = GCE PD RWO (1 replica).
+  mode: filestore
+  storageClass: moodle-filestore
+  size: 1Ti
+  accessMode: ReadWriteMany
+  volumeName: moodle-moodledata
+  # Terraform-owned PVC (Filestore). Empty = chart creates the claim.
+  existingClaim: ""
+  annotations: {}
+
+gateway:
+  enabled: true
+  name: moodle
+  gatewayClassName: gke-l7-global-external-managed
+  # Reserved global address name (not the IP).
+  namedAddress: ""
+  hostname: ""
+  certMap: ""
+  httpRedirect: true
+
+backendPolicy:
+  enabled: true
+  timeoutSec: 300
+  securityPolicy: ""
+
+healthCheckPolicy:
+  enabled: true
+  checkIntervalSec: 15
+  timeoutSec: 10
+  healthyThreshold: 2
+  unhealthyThreshold: 3
+  requestPath: /readyz
+
+autoscaling:
+  # hpa | keda | none — default none so Helm works before KEDA is installed.
+  mode: none
+  minReplicas: 2
+  maxReplicas: 20
+  cpuUtilization: 60
+  memoryUtilization: 75
+  # Cloud Monitoring request-count scaler (optional). Empty filter disables it.
+  stackdriver:
+    enabled: false
+    projectId: ""
+    filter: ""
+    targetValue: "80"
+    alignmentPeriodSeconds: "60"
+
+keda:
+  pollingInterval: 30
+  cooldownPeriod: 300
+
+cronjob:
+  enabled: true
+  schedule: "*/1 * * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+networkPolicy:
+  enabled: true
+  # GCP HTTP(S) LB + Gateway health checks (container-native NEG).
+  healthCheckCidrs:
+    - 35.191.0.0/16
+    - 130.211.0.0/22
+  # Terraform overlays services CIDR + pods CIDR (post-DNAT kube-dns).
+  dnsCidrs: []
+  # Required on GKE Dataplane V2 — do not turn off to "tighten" DNS.
+  allowAllDns: true
+  # Cloud SQL private IP / peering range — Terraform overlays.
+  extraEgressCidrs: []
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 10
+  # First boot copies html onto Filestore; later starts skip tree walks.
+  failureThreshold: 180
+  timeoutSeconds: 5
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+podSecurityContext:
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+    # Image apache2 listens on 80/443 for Moodle wwwroot self-check.
+    # File cap_net_bind_service is ignored when allowPrivilegeEscalation=false.
+    add: ["NET_BIND_SERVICE"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

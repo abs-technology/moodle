@@ -3,6 +3,8 @@
 
 # --- identity (required, unique in the AWS account) ---
 name = "school-b-aws"
+# Optional S3 state bucket. Empty = absi-moodle-tfstate-<deployment>.
+# tf_state_bucket = "absi-moodle-tfstate-school-b-aws"
 
 # --- credentials (or set profile / AWS_* env instead) ---
 access_key = "AKIA..."
@@ -11,6 +13,7 @@ secret_key = "..."
 
 # --- placement ---
 region = "ap-southeast-1"
+os     = "debian-13" # debian-13 | debian-12 | ubuntu-24.04 (first boot only)
 # Local Zone: opt the zone group in first; no t3 family.
 # availability_zone = "ap-southeast-1-han-1a"
 # instance_type     = "c7i.large"

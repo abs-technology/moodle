@@ -1,6 +1,7 @@
 output "site_url" { value = module.moodle.site_url }
 output "public_ip" { value = module.moodle.public_ip }
 output "instance_id" { value = module.moodle.instance_id }
+output "ssh_user" { value = module.moodle.ssh_user }
 output "ssh_command" { value = module.moodle.ssh_command }
 output "bootstrap_log_command" { value = module.moodle.bootstrap_log_command }
 output "moodle_admin_user" { value = module.moodle.moodle_admin_user }

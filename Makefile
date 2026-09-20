@@ -108,16 +108,15 @@ shell: ## Vào shell container moodle
 	@docker compose exec moodle bash
 
 # Một khách hàng = một thư mục dưới terraform/deployments/ = một state riêng.
-# Cú pháp thống nhất 3 kiểu (AWS; GCP đổi aws → gcp):
-#   make create aws-traefik|aws-ip|aws-alb <name>
-#   make plan|apply|destroy|ssh|output <track> <name>
+# Cú pháp: make <verb> <track> <name>
+# Tracks: aws-traefik aws-ip aws-alb aws-marketplace gcp-traefik gcp-ip gcp-alb
 #   make tf-list
 # Xem terraform/README.md.
 
 TF ?= terraform
 export TF
 
-TRACKS   := aws-traefik aws-ip aws-alb gcp-traefik gcp-ip gcp-alb
+TRACKS   := aws-traefik aws-ip aws-alb aws-marketplace gcp-traefik gcp-ip gcp-alb
 TF_VERBS := create plan apply destroy ssh output tf-list deploys
 TRACK    := $(firstword $(filter $(TRACKS),$(MAKECMDGOALS)))
 NAME     := $(filter-out $(TF_VERBS) $(TRACKS),$(MAKECMDGOALS))
@@ -134,25 +133,25 @@ ifneq ($(filter create plan apply destroy ssh output,$(MAKECMDGOALS)),)
 	@:
 endif
 
-create: ## Terraform: make create aws-traefik|aws-ip|aws-alb|gcp-traefik|gcp-ip|gcp-alb <name>
+create: ## Terraform: make create <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
 	@scripts/tf-deployments.sh create "$(TRACK)" "$(NAME)"
 
-plan: ## Terraform: make plan aws-traefik <name>
+plan: ## Terraform: make plan <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
 	@scripts/tf-deployments.sh plan "$(TRACK)" "$(NAME)"
 
-apply: ## Terraform: make apply aws-traefik <name>
+apply: ## Terraform: make apply <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
 	@scripts/tf-deployments.sh apply "$(TRACK)" "$(NAME)"
 
-destroy: ## Terraform: make destroy aws-traefik <name>
+destroy: ## Terraform: make destroy <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
 	@scripts/tf-deployments.sh destroy "$(TRACK)" "$(NAME)"
 
-ssh: ## Terraform: make ssh aws-traefik <name>
+ssh: ## Terraform: make ssh <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
 	@scripts/tf-deployments.sh ssh "$(TRACK)" "$(NAME)"
 
-output: ## Terraform: make output aws-traefik <name> (kể cả mật khẩu)
+output: ## Terraform: make output <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb (cả mật khẩu)
 	@scripts/tf-deployments.sh output "$(TRACK)" "$(NAME)"
 
-tf-list: ## Terraform: liệt kê deployment (track = cloud + type, IP, domain)
+tf-list: ## Terraform: liệt kê deployment (TRACK IP DOMAIN) — mọi track trên
 	@scripts/tf-deployments.sh list
 
 deploys: tf-list ## alias của tf-list

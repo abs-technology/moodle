@@ -1,0 +1,43 @@
+{{- if .Values.gateway.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "moodle.fullname" . }}-https
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.name }}
+      sectionName: https
+  {{- if .Values.gateway.hostname }}
+  hostnames:
+    - {{ .Values.gateway.hostname | quote }}
+  {{- end }}
+  rules:
+    - backendRefs:
+        - name: {{ include "moodle.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- if .Values.gateway.httpRedirect }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "moodle.fullname" . }}-http-redirect
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.name }}
+      sectionName: http
+  {{- if .Values.gateway.hostname }}
+  hostnames:
+    - {{ .Values.gateway.hostname | quote }}
+  {{- end }}
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+{{- end }}
+{{- end }}

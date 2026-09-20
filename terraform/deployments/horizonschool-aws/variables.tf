@@ -46,6 +46,17 @@ variable "instance_type" {
   default     = "t3.medium"
 }
 
+variable "os" {
+  description = "Guest OS for a new VM. First boot only: ami is ignore_changes, so changing this later does not replace a live site. debian-13, debian-12, or ubuntu-24.04."
+  type        = string
+  default     = "debian-13"
+
+  validation {
+    condition     = contains(["debian-13", "debian-12", "ubuntu-24.04"], var.os)
+    error_message = "os must be debian-13, debian-12, or ubuntu-24.04."
+  }
+}
+
 variable "disk_gb" {
   description = "Root volume size. Moodle code plus moodledata needs ~5 GB to start."
   type        = number

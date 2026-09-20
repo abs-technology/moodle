@@ -1,0 +1,12 @@
+apiVersion: v2
+name: moodle
+description: ABS Technology Moodle on GKE (abstechnology/moodle-standard). Not the Bitnami chart.
+type: application
+version: 0.1.1
+appVersion: "5.2.2-r5"
+keywords:
+  - moodle
+  - lms
+  - gke
+sources:
+  - https://github.com/absi-tech/absi-tech-moodle

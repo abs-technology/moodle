@@ -1,0 +1,108 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "moodle.fullname" . }}-bootstrap
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+data:
+  prepare-fs.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    echo "nfs mount:"
+    mount | grep -E ' /nfs |nfs' || true
+    ls -la /nfs || true
+    mkdir -p /nfs/html /nfs/data
+    chown 1000:1000 /nfs/html /nfs/data
+    chmod 775 /nfs/html /nfs/data
+    ls -la /nfs
+    echo "filesystem ready"
+  wait-sql.sh: |
+    #!/bin/bash
+    # TCP to the Auth Proxy is not enough: the proxy accepts localhost
+    # before sqladmin DNS works. Wait for a real mysqli handshake.
+    set -euo pipefail
+    host="${MOODLE_DATABASE_HOST:-127.0.0.1}"
+    port="${MOODLE_DATABASE_PORT_NUMBER:-3306}"
+    echo "waiting for mysqli ${host}:${port}"
+    for _ in $(seq 1 90); do
+      if php -r '
+        $m = @new mysqli(
+          getenv("MOODLE_DATABASE_HOST") ?: "127.0.0.1",
+          getenv("MOODLE_DATABASE_USER"),
+          getenv("MOODLE_DATABASE_PASSWORD"),
+          getenv("MOODLE_DATABASE_NAME"),
+          (int) (getenv("MOODLE_DATABASE_PORT_NUMBER") ?: 3306)
+        );
+        if ($m->connect_error) { fwrite(STDERR, $m->connect_error."\n"); exit(1); }
+      '; then
+        echo "sql handshake ok"
+        exit 0
+      fi
+      sleep 5
+    done
+    echo "timeout waiting for mysqli ${host}:${port}"
+    exit 1
+  wait-install.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    html=/nfs/html
+    data=/nfs/data
+    lock="${data}/.gke-schema.lock"
+    config="${html}/config.php"
+    mkdir -p "$html" "$data"
+    if [[ -f "$config" ]]; then
+      rm -rf "$lock"
+      echo "config.php present"
+      exit 0
+    fi
+    # Cron (and any WAIT_ONLY caller) must not install: it skips entrypoint
+    # source copy. Only web pods take the NFS lock.
+    if [[ "${WAIT_ONLY:-0}" == "1" ]]; then
+      waited=0
+      while [[ ! -f "$config" ]]; do
+        echo "waiting for web pod to finish first-time install..."
+        sleep 5
+        waited=$((waited + 5))
+        if (( waited >= 2400 )); then
+          echo "timeout waiting for ${config}"
+          exit 1
+        fi
+      done
+      rm -rf "$lock"
+      echo "config.php present"
+      exit 0
+    fi
+    waited=0
+    while ! mkdir "$lock" 2>/dev/null; do
+      echo "waiting for first-time install..."
+      sleep 5
+      waited=$((waited + 5))
+      if [[ -f "$config" ]]; then
+        rm -rf "$lock"
+        exit 0
+      fi
+      if [[ -d "$lock" ]]; then
+        lock_age=$(( $(date +%s) - $(stat -c %Y "$lock" 2>/dev/null || echo 0) ))
+        if (( lock_age >= 90 )); then
+          echo "stealing stale install lock (age ${lock_age}s)"
+          rm -rf "$lock"
+        fi
+      fi
+      if (( waited >= 2400 )); then
+        echo "stealing stale install lock after ${waited}s"
+        rm -rf "$lock"
+      fi
+    done
+    echo "this pod will run install_database"
+    exit 0
+  # Hub image overlays — keep in sync via scripts/sync-hub-overlays.sh
+  entrypoint.sh: |
+{{ .Files.Get "files/entrypoint.sh" | indent 4 }}
+  moodle.sh: |
+{{ .Files.Get "files/moodle.sh" | indent 4 }}
+  mariadb.sh: |
+{{ .Files.Get "files/mariadb.sh" | indent 4 }}
+  mariadb-lib.sh: |
+{{ .Files.Get "files/mariadb-lib.sh" | indent 4 }}
+  moodle-run.sh: |
+{{ .Files.Get "files/moodle-run.sh" | indent 4 }}

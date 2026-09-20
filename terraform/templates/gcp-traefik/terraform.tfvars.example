@@ -6,11 +6,14 @@ name = "school-b-gcp"
 
 # --- project ---
 project_id = "my-gcp-project"
+# Optional GCS state bucket. Empty = absi-moodle-tfstate-<deployment>.
+# tf_state_bucket = "absi-moodle-tfstate-school-b-gcp"
 # credentials = "/path/to/sa-key.json"
 
 # --- placement ---
 region = "asia-southeast1"
 zone   = "asia-southeast1-a"
+os     = "debian-13" # debian-13 | debian-12 | ubuntu-24.04 (first boot only)
 
 # --- access ---
 # Setting this disables OS Login; SSH uses break-glass.pem.

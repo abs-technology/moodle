@@ -39,6 +39,8 @@ docker compose up -d
 
 Current stack pin: **Moodle 5.2.2** · image **`abstechnology/moodle-standard:5.2.2-r5`** · **PHP 8.4** · compose MariaDB **11.8.9**. Version source of truth: [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock).
 
+GKE (Cloud SQL MySQL 8.4, Global ALB) is a **separate** stack: [`gke-moodle/`](gke-moodle/README.md). Terraform there is **infra only**; Moodle is Helm by hand. It does not use `terraform/` VM deployments.
+
 <div align="center">
 
 ### [🌐 **Live Demo**](https://abs.education) • [📚 **Documentation**](https://abs.education/mod/page/view.php?id=410) • [💬 **Support**](https://abs.education/mod/page/view.php?id=410)

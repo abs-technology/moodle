@@ -1,2 +1,0 @@
-# Marker: this directory is an ALB site (GCP now, AWS later).
-# Use make plan-alb / apply-alb / ssh-alb. Do not use make plan / apply / ssh.

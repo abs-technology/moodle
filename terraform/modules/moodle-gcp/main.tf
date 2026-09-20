@@ -53,6 +53,21 @@ resource "google_compute_firewall" "icmp" {
 
 locals {
   break_glass = length(var.ssh_allowed_cidrs) > 0
+  # Keep keys in sync with modules/moodle-aws (same var.os values).
+  os = {
+    "debian-13" = {
+      image    = "debian-cloud/debian-13"
+      ssh_user = "admin"
+    }
+    "debian-12" = {
+      image    = "debian-cloud/debian-12"
+      ssh_user = "admin"
+    }
+    "ubuntu-24.04" = {
+      image    = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
+      ssh_user = "ubuntu"
+    }
+  }[var.os]
 }
 
 # Khoá sinh tại chỗ, ghi ra break-glass.pem để vào được VM mà không cần gcloud
@@ -163,7 +178,7 @@ resource "google_compute_instance" "moodle" {
 
   boot_disk {
     initialize_params {
-      image = "debian-cloud/debian-13"
+      image = local.os.image
       size  = var.disk_gb
       type  = "pd-balanced"
     }
@@ -188,7 +203,7 @@ resource "google_compute_instance" "moodle" {
       enable-oslogin = local.break_glass ? "FALSE" : "TRUE"
     },
     local.break_glass ? {
-      ssh-keys = "admin:${trimspace(tls_private_key.break_glass[0].public_key_openssh)} break-glass"
+      ssh-keys = "${local.os.ssh_user}:${trimspace(tls_private_key.break_glass[0].public_key_openssh)} break-glass"
     } : {}
   )
 
@@ -206,6 +221,9 @@ resource "google_compute_instance" "moodle" {
 
   # Bootstrap changes must not silently replace a VM holding live Moodle data.
   lifecycle {
-    ignore_changes = [metadata["startup-script"]]
+    ignore_changes = [
+      metadata["startup-script"],
+      boot_disk[0].initialize_params[0].image,
+    ]
   }
 }

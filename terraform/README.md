@@ -23,6 +23,7 @@ make tf-list
 | `aws-traefik` / `gcp-traefik` | `templates/aws-traefik/` or `gcp-traefik/` | `frontend.traefik` | Traefik + Let's Encrypt on `moodle.<ip>.nip.io` |
 | `aws-ip` / `gcp-ip` | `templates/aws-ip/` or `gcp-ip/` | `frontend.ip` | Moodle on `http://<public-ip>` |
 | `aws-alb` | `templates/aws-alb/` | `frontend.alb` | Global Accelerator (anycast) + ALB → Moodle `:8080` |
+| `aws-marketplace` | `templates/aws-marketplace/` | `frontend.marketplace` | us-east-1 builder (aws-ip stack, unencrypted root) → AMI |
 | `gcp-alb` | `templates/gcp-alb/` | `frontend.alb` | GCP Global ALB + Certificate Manager |
 
 `make create aws-traefik school-b` writes
@@ -45,7 +46,7 @@ terraform/
 │   ├── moodle-aws/
 │   ├── moodle-gcp/
 │   └── bootstrap/
-├── templates/               aws-traefik/ gcp-traefik/ aws-ip/ gcp-ip/ aws-alb/ gcp-alb/
+├── templates/               aws-traefik/ gcp-traefik/ aws-ip/ gcp-ip/ aws-alb/ aws-marketplace/ gcp-alb/
 └── deployments/
     ├── horizonschool-aws/   customer A
     └── school-b-gcp/        customer B
@@ -77,8 +78,11 @@ Do this once on the machine you run Terraform from.
 `CreateRole`, `AttachRolePolicy`, `CreateInstanceProfile`, `PassRole`,
 and DLM (`dlm:*`, `iam:PassRole` for the `*-dlm` role).
 `aws-alb` also needs Elastic Load Balancing, Global Accelerator, ACM, and
-NAT Gateway. You will paste the key into tfvars in step 2 (or use
-`profile = "..."`).
+NAT Gateway. `aws-marketplace` uses the same EC2/IAM/DLM rights as `aws-ip`
+plus `ec2:CreateSnapshot`, `ec2:RegisterImage`,
+`ec2:GetEbsEncryptionByDefault`, and SSM `SendCommand` /
+`GetCommandInvocation` (to delete `authorized_keys` before the snapshot). You will paste the key into tfvars in
+step 2 (or use `profile = "..."`).
 
 **GCP** — then you will set `project_id` in tfvars:
 
@@ -102,6 +106,7 @@ Example: a new AWS site named `school-b`. GCP is the same track with `gcp-`.
 make create aws-traefik school-b   # Traefik + Let's Encrypt on first boot
 make create aws-ip school-b        # Moodle only — open http://<public-ip>
 make create aws-alb school-b       # Global Accelerator + ALB (no public IP on the VM)
+make create aws-marketplace ami-builder  # us-east-1 unencrypted AMI (not a customer site)
 make create gcp-alb school-b       # GCP Global ALB
 ```
 
@@ -127,6 +132,7 @@ acme_email = "admin@school-b.com"    # real public email, not .test / .local
 access_key = "AKIA..."
 secret_key = "..."
 region     = "ap-southeast-1"
+os         = "debian-13"             # debian-12 or ubuntu-24.04; first boot only
 ssh_allowed_cidrs = ["0.0.0.0/0"]    # writes break-glass.pem; needed for make ssh
 ```
 
@@ -138,6 +144,7 @@ project_id = "their-gcp-project"
 acme_email = "admin@school-b.com"
 region     = "asia-southeast1"
 zone       = "asia-southeast1-a"
+os         = "debian-13"             # debian-12 or ubuntu-24.04; first boot only
 ssh_allowed_cidrs = ["0.0.0.0/0"]
 ```
 
@@ -146,6 +153,7 @@ ssh_allowed_cidrs = ["0.0.0.0/0"]
 | `moodle_domain` | First boot uses `moodle.<ip>.nip.io`. Do not set this to “move” a live site. |
 | `acme_staging` | Only for repeated test applies (certs are not trusted). |
 | `availability_zone` / `instance_type` | AWS Local Zone only — see Optional. |
+| `os` | Default `debian-13`. Set before the first apply. A later change does not replace the VM. |
 
 Do not copy another customer’s `terraform.tfvars`. Keys and `name` must be this
 site’s.
@@ -156,8 +164,9 @@ site’s.
 make apply aws-traefik school-b   # or: make apply aws-ip school-b
 ```
 
-Read the plan, type `yes`. First apply also creates the state bucket in **this
-customer’s** AWS account / GCP project, writes `backend.tf`, and turns on a
+Read the plan, type `yes`. First apply also creates a **per-deployment** state
+bucket in the VM region (`absi-moodle-tfstate-<name>`, or `tf_state_bucket`
+in tfvars), writes `backend.tf`, and turns on a
 weekly snapshot at Sunday 22:00 Asia/Ho_Chi_Minh (keep 24 weeks). The VM
 clock is the same timezone. Wait 4–6
 minutes.
@@ -196,6 +205,20 @@ up. Staging: `acme_staging = true`. A cert you already own is still
 `moodle_domain` plus `route53_zone_id` or `acm_certificate_arn` before apply.
 GCP Certificate Manager issues nip.io on its own.
 `change-domain.sh` does not apply to ALB sites.
+
+**aws-marketplace** — builder only, not a customer site. Same first boot as
+`aws-ip` (`http://<public-ip>`), in **us-east-1**, root volume **unencrypted**
+(Marketplace rejects encrypted snapshots). Instance type defaults to
+`c7i.large`. After `/readyz` is 200, set `create_ami = true` and apply again:
+Terraform removes `authorized_keys` under `/root/.ssh` and `/home/*/.ssh`
+(SSM), stops the VM, snapshots the root volume, and registers an AMI with
+`imds_support = v2.0`. [AMI build guide](https://docs.aws.amazon.com/marketplace/latest/userguide/best-practices-for-building-your-amis.html).
+If plan fails on EBS default encryption, turn that off in us-east-1 first.
+The AMI and its snapshot are shared with the Marketplace ingestion account
+`679593333241`. AccessARN is role `abs-ami-marketplace-role` — use output
+`marketplace_access_arn` (the full `arn:aws:iam::…:role/abs-ami-marketplace-role`)
+in Seller Portal. Set `manage_marketplace_role = true` only if that role does
+not already exist in the account.
 
 ---
 
@@ -236,7 +259,7 @@ on the VM.
 
 ```bash
 cd terraform/deployments/school-b-aws
-scp -i break-glass.pem fullchain.pem privkey.pem admin@<IP>:/tmp/
+scp -i break-glass.pem fullchain.pem privkey.pem admin@<IP>:/tmp/   # Ubuntu: ubuntu@
 ```
 
 3. Cut over (everyone is signed out; nip.io stops):
@@ -272,6 +295,7 @@ Do not run `make apply` just for that line. Flags and recovery:
 | New customer / new independent site | New directory | `make create aws-traefik other` (or `aws-ip` / `aws-alb` / `gcp-alb`) and start at step 2. Do not reuse this folder. |
 | Staging + production for one school | Two directories | `make create aws-traefik school-b-prod` and `school-b-staging` |
 | Region, instance size, SSH CIDRs, ACME email | `terraform.tfvars` | Edit, then `make plan aws-traefik school-b` / `make apply aws-traefik school-b` |
+| Guest OS | `os` in tfvars | `debian-13` (default), `debian-12`, or `ubuntu-24.04`. Only before the first apply. |
 | Timezone / weekly snapshots | `terraform.tfvars` | Default `Asia/Ho_Chi_Minh`, Sunday 22:00, 24 copies. `snapshot_weekly = false` or `snapshot_retain_weeks = 12`, then apply |
 | Allow deleting the VM | `terraform.tfvars` | Default on. Set `vm_deletion_protection = false`, `make apply <track> <name>`, then `make destroy <track> <name>` |
 | Moodle admin **username** | `moodle_admin_user` in tfvars | Only **before** the first apply |
@@ -312,11 +336,12 @@ need it.
 |---|---|
 | Domain on first boot (empty site) | Set `moodle_domain` in tfvars **before** apply, apply, then point DNS at `public_ip`. |
 | ACME staging | `acme_staging = true` in tfvars |
-| Custom state bucket name | `TF_STATE_BUCKET=... make apply aws-traefik school-b` on the first apply. Skip creation: `TF_SKIP_BUCKET=1`. Default: `absi-moodle-tfstate-<account>` or `absi-moodle-tfstate-<project_id>` in the same account as the keys. |
+| Custom state bucket name | `tf_state_bucket = "..."` in tfvars (first plan/apply). Or `TF_STATE_BUCKET=...`. Skip creation: `TF_SKIP_BUCKET=1`. Default: `absi-moodle-tfstate-<deployment>` — no project/account in the name. Existing `backend.tf` is never rewritten. |
 | Turn off weekly snapshots | `snapshot_weekly = false` in tfvars, then apply |
 | New IP-direct site | New directory | `make create aws-ip school-b` (or `gcp-ip`), fill tfvars, `make apply aws-ip school-b`. Site is `http://<public-ip>`. Then `make ssh aws-ip school-b` and `sudo ./change-domain.sh --nip`. |
 | New ALB site (GCP) | New directory | `make create gcp-alb school-b`, fill tfvars, `make apply gcp-alb school-b`. ALB → NEG → Moodle `:8080`, no Traefik. |
 | New ALB site (AWS) | New directory | `make create aws-alb school-b`, fill tfvars, `make apply aws-alb school-b`. Anycast → ALB → Moodle `:8080`, no Traefik, VM has no public IP. `make ssh` is Session Manager. |
+| Marketplace AMI | New directory | `make create aws-marketplace ami-builder`. us-east-1, `c7i.large`, unencrypted root. Apply, wait for `/readyz`, set `create_ami = true`, apply again. AMI is shared with `679593333241`. |
 
 **AWS Local Zone** — opt in, then uncomment in tfvars (Hanoi has no `t3`):
 

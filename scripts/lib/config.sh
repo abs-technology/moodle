@@ -119,6 +119,8 @@ export MOODLE_SITE_NAME="${MOODLE_SITE_NAME:-Absi Technology Moodle LMS}"
 export MOODLE_SITE_FULLNAME="${MOODLE_SITE_FULLNAME:-Absi Technology Learning Management System}"
 export MOODLE_SITE_SHORTNAME="${MOODLE_SITE_SHORTNAME:-ABSI-LMS}"
 export MOODLE_CRON_MINUTES="${MOODLE_CRON_MINUTES:-1}"
+# no — skip in-container cron (GKE CronJob / one replica). yes by default (VM/compose).
+export MOODLE_CRON_ENABLED="${MOODLE_CRON_ENABLED:-yes}"
 export MOODLE_HOST="${MOODLE_HOST:-localhost}"
 export MOODLE_REVERSEPROXY="${MOODLE_REVERSEPROXY:-no}"
 export MOODLE_SSLPROXY="${MOODLE_SSLPROXY:-no}"

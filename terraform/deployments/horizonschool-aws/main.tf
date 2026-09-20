@@ -56,6 +56,7 @@ module "moodle" {
   profile                = var.profile
   availability_zone      = var.availability_zone
   instance_type          = var.instance_type
+  os                     = var.os
   disk_gb                = var.disk_gb
   vpc_cidr               = var.vpc_cidr
   subnet_cidr            = var.subnet_cidr

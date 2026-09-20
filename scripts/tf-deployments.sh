@@ -21,9 +21,10 @@ info() { printf '%s==>%s %s\n' "$GREEN" "$NC" "$*"; }
 warn() { printf '%s[!]%s %s\n' "$YELLOW" "$NC" "$*" >&2; }
 die()  { printf '%s[x]%s %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
 
-# Tên bucket state được suy ra từ account (AWS) hoặc project (GCP) của chính
-# deployment, nên state luôn nằm cùng chỗ với hạ tầng. Đặt TF_STATE_BUCKET nếu bạn
-# muốn tên khác, nhưng hãy giữ nguyên tắc một bucket cho một account.
+# Mỗi deployment một bucket state, cùng region/location với VM.
+# Tên: tf_state_bucket trong tfvars, rồi TF_STATE_BUCKET, rồi
+# absi-moodle-tfstate-<deployment> (không ghép project/account).
+# backend.tf đã có thì không ghi đè.
 
 DEPLOYMENTS=terraform/deployments
 
@@ -31,12 +32,12 @@ usage_cli() {
     cat >&2 <<'EOF'
 Cú pháp (AWS; GCP đổi aws → gcp):
 
-  make create  aws-traefik|aws-ip|aws-alb <name>
-  make plan    aws-traefik|aws-ip|aws-alb <name>
-  make apply   aws-traefik|aws-ip|aws-alb <name>
-  make destroy aws-traefik|aws-ip|aws-alb <name>
-  make ssh     aws-traefik|aws-ip|aws-alb <name>
-  make output  aws-traefik|aws-ip|aws-alb <name>
+  make create  aws-traefik|aws-ip|aws-alb|aws-marketplace <name>
+  make plan    aws-traefik|aws-ip|aws-alb|aws-marketplace <name>
+  make apply   aws-traefik|aws-ip|aws-alb|aws-marketplace <name>
+  make destroy aws-traefik|aws-ip|aws-alb|aws-marketplace <name>
+  make ssh     aws-traefik|aws-ip|aws-alb|aws-marketplace <name>
+  make output  aws-traefik|aws-ip|aws-alb|aws-marketplace <name>
   make tf-list
 
 Ví dụ: make create aws-traefik school-b
@@ -77,16 +78,60 @@ cmd_list() {
     done
 }
 
+# S3/GCS: 3–63 ký tự, [a-z0-9-].
+state_bucket_name() {
+    local prefix="$1" suffix="$2" name
+    suffix="$(printf '%s' "$suffix" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/-+/-/g; s/^-//; s/-$//')"
+    [[ -n "$suffix" ]] || die "Tên deployment không dùng được làm tên bucket."
+    name="${prefix}${suffix}"
+    (( ${#name} <= 63 )) || die "Tên bucket $name vượt 63 ký tự. Đặt tf_state_bucket trong terraform.tfvars."
+    echo "$name"
+}
+
+# tfvars > TF_STATE_BUCKET > absi-moodle-tfstate-<deployment>
+pick_state_bucket() {
+    local dir="$1" name="$2" bucket
+    bucket="$(tfvar "$dir" tf_state_bucket)"
+    if [[ -z "$bucket" && -n "${TF_STATE_BUCKET:-}" ]]; then
+        bucket="$TF_STATE_BUCKET"
+    fi
+    if [[ -z "$bucket" ]]; then
+        bucket="$(state_bucket_name "absi-moodle-tfstate-" "$name")"
+    else
+        (( ${#bucket} <= 63 )) || die "Tên bucket $bucket vượt 63 ký tự."
+    fi
+    echo "$bucket"
+}
+
+bucket_region_aws() {
+    local bucket="$1" fallback="$2" loc
+    loc="$(aws s3api get-bucket-location --bucket "$bucket" --query LocationConstraint --output text 2>/dev/null || true)"
+    if [[ -z "$loc" || "$loc" == "None" || "$loc" == "null" ]]; then
+        echo "${fallback:-us-east-1}"
+        return
+    fi
+    echo "$loc"
+}
+
 ensure_bucket_aws() {
     local bucket="$1" region="$2"
-    # head-bucket trả JSON ở CLI mới, và ở đây chỉ cần exit code.
+    # head-bucket trả JSON ở CLI mới, và ở đây chỉ cần exit code. 301 khi
+    # AWS_REGION khác region thật của bucket — GetBucketLocation vẫn được.
     if aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
+        return 0
+    fi
+    if aws s3api get-bucket-location --bucket "$bucket" >/dev/null 2>&1; then
         return 0
     fi
 
     info "Tạo bucket state s3://$bucket ($region)"
-    aws s3api create-bucket --bucket "$bucket" --region "$region" \
-        --create-bucket-configuration "LocationConstraint=$region" >/dev/null
+    # us-east-1 không nhận LocationConstraint.
+    if [[ "$region" == "us-east-1" ]]; then
+        aws s3api create-bucket --bucket "$bucket" --region us-east-1 >/dev/null
+    else
+        aws s3api create-bucket --bucket "$bucket" --region "$region" \
+            --create-bucket-configuration "LocationConstraint=$region" >/dev/null
+    fi
 
     # State holds the generated Moodle and MariaDB passwords in plaintext.
     aws s3api put-public-access-block --bucket "$bucket" \
@@ -183,25 +228,19 @@ cmd_backend() {
 
     case "$(cloud_of "$dir")" in
     aws)
-        local acct region
+        local region
         region="$(tfvar "$dir" region)"
         [[ -n "$region" ]] || die "Thiếu region trong $dir/terraform.tfvars"
-        if [[ -n "${TF_STATE_BUCKET:-}" ]]; then
-            bucket="$TF_STATE_BUCKET"; acct="do TF_STATE_BUCKET chỉ định"
-        else
-            # Tên bucket lấy theo account, nên không thể trỏ nhầm sang account khác.
-            acct="$(aws sts get-caller-identity --query Account --output text)" ||
-                die "Không xác thực được với AWS bằng credential trong $dir/terraform.tfvars"
-            bucket="absi-moodle-tfstate-$acct"
-        fi
+        bucket="$(pick_state_bucket "$dir" "$name")"
         [[ "${TF_SKIP_BUCKET:-}" == 1 ]] || ensure_bucket_aws "$bucket" "$region"
+        region="$(bucket_region_aws "$bucket" "$region")"
         cat >"$dir/backend.tf" <<EOF
-# Sinh tự động bởi scripts/tf-deployments.sh. Bucket nằm cùng account với hạ tầng
-# ($acct), vì cả hai đều dùng credential trong terraform.tfvars của deployment này.
+# Sinh tự động bởi scripts/tf-deployments.sh. Một bucket cho đúng deployment này,
+# cùng region với VM. Tên: tf_state_bucket / TF_STATE_BUCKET / absi-moodle-tfstate-<name>.
 terraform {
   backend "s3" {
     bucket       = "$bucket"
-    key          = "deployments/$name.tfstate"
+    key          = "terraform.tfstate"
     region       = "$region"
     encrypt      = true
     use_lockfile = true
@@ -214,12 +253,12 @@ EOF
         project="$(tfvar "$dir" project_id)"
         region="$(tfvar "$dir" region)"
         [[ -n "$project" ]] || die "Thiếu project_id trong $dir/terraform.tfvars"
-        bucket="${TF_STATE_BUCKET:-absi-moodle-tfstate-$project}"
+        bucket="$(pick_state_bucket "$dir" "$name")"
         [[ "${TF_SKIP_BUCKET:-}" == 1 ]] ||
             ensure_bucket_gcp "$bucket" "$project" "${region:-asia-southeast1}"
         cat >"$dir/backend.tf" <<EOF
-# Sinh tự động bởi scripts/tf-deployments.sh, trong project $project — cùng project
-# với hạ tầng, vì project_id lấy từ terraform.tfvars của chính deployment này.
+# Sinh tự động bởi scripts/tf-deployments.sh. Một bucket cho đúng deployment này,
+# trong project $project. Tên: tf_state_bucket / TF_STATE_BUCKET / absi-moodle-tfstate-<name>.
 terraform {
   backend "gcs" {
     bucket = "$bucket"
@@ -234,14 +273,16 @@ EOF
 
 is_alb() { [[ -f "$1/frontend.alb" ]]; }
 is_ip()  { [[ -f "$1/frontend.ip" ]]; }
+is_marketplace() { [[ -f "$1/frontend.marketplace" ]]; }
 is_traefik() {
     [[ -f "$1/frontend.traefik" ]] && return 0
     # Sites created before frontend.traefik: no other marker means Traefik.
-    ! is_alb "$1" && ! is_ip "$1"
+    ! is_alb "$1" && ! is_ip "$1" && ! is_marketplace "$1"
 }
 
 kind_of() {
     if is_alb "$1"; then echo alb
+    elif is_marketplace "$1"; then echo marketplace
     elif is_ip "$1"; then echo ip
     else echo traefik
     fi
@@ -256,12 +297,12 @@ cloud_guess() {
 parse_track() {
     local track="${1:-}"
     case "$track" in
-        aws-traefik|aws-ip|aws-alb|gcp-traefik|gcp-ip|gcp-alb)
+        aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb)
             TRACK_CLOUD="${track%-*}"
             TRACK_KIND="${track#*-}"
             ;;
         *)
-            [[ -n "$track" ]] || die "Thiếu track (aws-traefik, aws-ip, aws-alb, gcp-alb, …)."
+            [[ -n "$track" ]] || die "Thiếu track (aws-traefik, aws-ip, aws-alb, aws-marketplace, gcp-alb, …)."
             die "Track '$track' không hợp lệ."
             ;;
     esac
@@ -329,10 +370,14 @@ cmd_new() {
     cp "$tmpl/terraform.tfvars.example" "$dir/terraform.tfvars"
     cp "terraform/modules/moodle-$cloud/variables.tf" "$dir/variables.tf"
     case "$kind" in
-        alb)     cp "$tmpl/frontend.alb" "$dir/frontend.alb" ;;
-        ip)      cp "$tmpl/frontend.ip" "$dir/frontend.ip" ;;
-        traefik) cp "$tmpl/frontend.traefik" "$dir/frontend.traefik" ;;
-        *)       die "kind phải là traefik, ip hoặc alb." ;;
+        alb)          cp "$tmpl/frontend.alb" "$dir/frontend.alb" ;;
+        ip)           cp "$tmpl/frontend.ip" "$dir/frontend.ip" ;;
+        marketplace)  cp "$tmpl/frontend.marketplace" "$dir/frontend.marketplace"
+                      cp "$tmpl/marketplace.tf" "$dir/marketplace.tf"
+                      cp "$tmpl/scrub-ssh.sh" "$dir/scrub-ssh.sh"
+                      cp "$tmpl/scrub-ssh-remote.py" "$dir/scrub-ssh-remote.py" ;;
+        traefik)      cp "$tmpl/frontend.traefik" "$dir/frontend.traefik" ;;
+        *)            die "kind phải là traefik, ip, alb hoặc marketplace." ;;
     esac
 
     sed -i.bak -e "s|DEPLOY|$name|g" "$dir/main.tf"
@@ -405,14 +450,8 @@ cmd_ssh() {
     eval "$(cmd_env "$name")"
     (
         cd "$dir"
-        if [[ "$TRACK_KIND" == alb ]]; then
-            # VM has no public IP. GCP = IAP, AWS = SSM (both are ssh_command).
-            eval "$($TF output -raw ssh_command)"
-        elif [[ -f break-glass.pem ]]; then
-            ssh -i break-glass.pem "admin@$($TF output -raw public_ip)"
-        else
-            eval "$($TF output -raw ssh_command)"
-        fi
+        # ssh_command already picks SSM / IAP / break-glass and the OS user.
+        eval "$($TF output -raw ssh_command)"
     )
 }
 

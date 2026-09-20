@@ -16,12 +16,22 @@ output "instance_id" {
   value = aws_instance.moodle.id
 }
 
+output "root_volume_id" {
+  description = "Root EBS volume. aws-marketplace snapshots this for the unencrypted AMI."
+  value       = aws_instance.moodle.root_block_device[0].volume_id
+}
+
+output "ssh_user" {
+  description = "OS login user for break-glass SSH (admin on Debian, ubuntu on Ubuntu)."
+  value       = local.os.ssh_user
+}
+
 output "ssh_command" {
   description = "SSM is the path when the VM has no public IP (aws-alb) or when ssh_allowed_cidrs is empty."
   value = local.alb || !local.break_glass ? (
     "aws ssm start-session --region ${var.region} --target ${aws_instance.moodle.id}"
     ) : (
-    "ssh -i break-glass.pem admin@${aws_eip.moodle[0].public_ip}"
+    "ssh -i break-glass.pem ${local.os.ssh_user}@${aws_eip.moodle[0].public_ip}"
   )
 }
 
@@ -29,7 +39,7 @@ output "bootstrap_log_command" {
   value = local.alb || !local.break_glass ? (
     "aws ssm start-session --region ${var.region} --target ${aws_instance.moodle.id} --document-name AWS-StartInteractiveCommand --parameters command='sudo tail -f /var/log/absi-moodle-bootstrap.log'"
     ) : (
-    "ssh -i break-glass.pem admin@${aws_eip.moodle[0].public_ip} sudo tail -f /var/log/absi-moodle-bootstrap.log"
+    "ssh -i break-glass.pem ${local.os.ssh_user}@${aws_eip.moodle[0].public_ip} sudo tail -f /var/log/absi-moodle-bootstrap.log"
   )
 }
 
