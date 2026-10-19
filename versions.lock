@@ -9,4 +9,4 @@ MOODLE_DOWNLOAD_URL := https://packaging.moodle.org/stable503/moodle-5.3.tgz
 MOODLE_LAYOUT := 5
 PHP_VERSION := 8.4
 BASE_IMAGE := debian:13-slim
-DOCKER_TAG := 5.3.0-r1
+DOCKER_TAG := 5.3.0-r2

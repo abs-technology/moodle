@@ -31,10 +31,26 @@ fi
 [[ -z "$_banner_release" ]] && _banner_release="unknown"
 _banner_php=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.4")
 
+# Moodle publishes x.y.0 on the series page and later point releases at
+# /x.y/x.y.z. Built from the running release so a version bump updates this
+# URL without editing the banner.
+_banner_notes_url="https://moodledev.io/general/releases"
+_banner_ver=$(printf '%s' "${_banner_release}" | awk '{print $1}')
+if [[ "${_banner_ver}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+    if [[ "${BASH_REMATCH[3]}" == "0" ]]; then
+        _banner_notes_url="https://moodledev.io/general/releases/${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+    else
+        _banner_notes_url="https://moodledev.io/general/releases/${BASH_REMATCH[1]}.${BASH_REMATCH[2]}/${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+    fi
+elif [[ "${_banner_ver}" =~ ^([0-9]+)\.([0-9]+) ]]; then
+    _banner_notes_url="https://moodledev.io/general/releases/${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+fi
+
 echo ""
 echo " ══════════════════════════════════════════════"
 echo "  🎓 ABSI TECHNOLOGY MOODLE LMS 🎓              "
 echo "     Version: ${_banner_release}"
+echo "     Release notes: ${_banner_notes_url}"
 echo "     PHP Version: ${_banner_php}"
 echo "     Apache Version: 2.4                       "
 echo " ══════════════════════════════════════════════"
