@@ -180,7 +180,7 @@ make output aws-traefik school-b
 | Output | Use |
 |---|---|
 | `site_url` | Open in the browser — Traefik: `https://<nip_name>.<ip>.nip.io`; IP-direct: `http://<ip>`; ALB: `https://<nip_name>.<anycast-or-global-ip>.nip.io` |
-| `moodle_admin_user` | Moodle web login — always `admin` (different account from the SSH user `admin`) |
+| `moodle_admin_user` | Moodle web login — always `admin`. Bootstrap writes that username; tfvars are ignored. Different account from the SSH user `admin`. |
 | `moodle_admin_password` | Moodle password |
 | `public_ip` | Write down — DNS in step 3 uses this. It does not change. |
 | SSH user | OS login `admin` — not the Moodle account, even though both are named `admin` |
@@ -302,7 +302,7 @@ Do not run `make apply` just for that line. Flags and recovery:
 | Guest OS | `os` in tfvars | `debian-13` (default), `debian-12`, or `ubuntu-24.04`. Only before the first apply. |
 | Timezone / weekly snapshots | `terraform.tfvars` | Default `Asia/Ho_Chi_Minh`, Sunday 22:00, 24 copies. `snapshot_weekly = false` or `snapshot_retain_weeks = 12`, then apply |
 | Allow deleting the VM | `terraform.tfvars` | Default on. Set `vm_deletion_protection = false`, `make apply <track> <name>`, then `make destroy <track> <name>` |
-| Moodle admin **username** | — | Always `admin` after first install. Not taken from tfvars. |
+| Moodle admin **username** | — | Always `admin`. Bootstrap writes `MOODLE_USERNAME=admin`; the image reads it only on first install. Not taken from tfvars. Changing it later does not rename the user. |
 | Moodle / MariaDB **passwords** | — | Generated. Read with `make output <track> <name>`. Do not put them in tfvars. |
 | IP-direct → nip.io + Let's Encrypt | VM + one tfvars line | Section 3 (`--nip` / `--email`), then set `moodle_domain` |
 | Real domain after the site has data | VM + one tfvars line | Section 4 (`change-domain.sh`), then set `moodle_domain` |

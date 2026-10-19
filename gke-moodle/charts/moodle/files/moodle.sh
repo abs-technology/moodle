@@ -89,10 +89,20 @@ apply_database_overrides() {
     fi
 }
 
-# Sync password/email onto the Moodle admin row. The username is always
-# `admin` (set at install) and is never renamed afterwards.
+# Moodle PARAM_USERNAME. Rejected here so a bad value never reaches
+# --adminuser or the one-shot SQL sync.
+require_moodle_username() {
+    if [[ ! "${MOODLE_USERNAME}" =~ ^[a-z0-9._@-]{1,100}$ ]] || [[ "${MOODLE_USERNAME}" == "guest" ]]; then
+        error "MOODLE_USERNAME='${MOODLE_USERNAME}' is not a valid Moodle username (lowercase letters, digits, . _ @ -; not guest)."
+        exit 1
+    fi
+}
+
+# Sync password/email onto the admin row created at first install.
+# MOODLE_USERNAME is applied only then; later restarts do not rename it.
 update_admin_user() {
-    info "Updating admin user credentials (username stays 'admin')"
+    require_moodle_username
+    info "Updating admin user credentials (username stays '${MOODLE_USERNAME}')"
 
     local password_hash
     password_hash=$(php -r "echo password_hash('${MOODLE_PASSWORD}', PASSWORD_DEFAULT);")
@@ -105,7 +115,7 @@ UPDATE mdl_user SET
     firstname = 'Admin',
     lastname = 'User',
     timemodified = UNIX_TIMESTAMP()
-WHERE username = 'admin' AND deleted = 0;
+WHERE username = '${MOODLE_USERNAME}' AND deleted = 0;
 EOF
     debug "Admin user credentials updated successfully"
 }
@@ -1545,10 +1555,11 @@ else
         install_db_script=$(moodle_cli_script "install_database.php" "$MOODLE_DIR" 2>/dev/null) || install_db_script=""
 
         if [[ -n "$install_db_script" ]]; then
-            info "Installing Moodle database using $install_db_script ..."
+            require_moodle_username
+            info "Installing Moodle database using $install_db_script (admin user: ${MOODLE_USERNAME}) ..."
             php "$install_db_script" \
                 --lang=en \
-                --adminuser=admin \
+                --adminuser="${MOODLE_USERNAME}" \
                 --adminpass="${MOODLE_PASSWORD}" \
                 --adminemail="${MOODLE_EMAIL}" \
                 --fullname="${MOODLE_SITE_NAME}" \
@@ -1564,7 +1575,7 @@ else
     fi
     rmdir "$MOODLE_DATA_DIR/.gke-schema.lock" 2>/dev/null || true
 
-    # Install created username `admin` and applied password / email / site name.
+    # Install created MOODLE_USERNAME and applied password / email / site name.
     # Mark env as consumed so the next restart does not touch the admin row.
     _mark_environment_overrides_applied
 

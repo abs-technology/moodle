@@ -14,6 +14,10 @@ locals {
     ${local.acme_caserver}
     TRAEFIK_HTTP3=true
 
+    # The image applies these only on first install, then leaves the account
+    # alone. Keep the username literal admin (do not use var.moodle_admin_user):
+    # marketplace, GCP and AWS outputs all tell the operator to log in as admin.
+    # The password is the generated secret, same as before.
     MOODLE_USERNAME=admin
     MOODLE_PASSWORD=${var.moodle_admin_password}
     MOODLE_EMAIL=${var.acme_email}
