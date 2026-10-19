@@ -1,0 +1,17 @@
+# Serve TLS from a certificate you already own.
+#
+# Copy to tls.yml and put the pair in ../certs:
+#   certs/cert.pem   full chain, leaf first
+#   certs/key.pem    private key, no passphrase
+#
+# Leave it as .example while TLS_CERTRESOLVER=le, or Traefik logs
+# "failed to find any PEM data in certificate input" on every reload.
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/traefik/certs/cert.pem
+        keyFile: /etc/traefik/certs/key.pem
+  certificates:
+    - certFile: /etc/traefik/certs/cert.pem
+      keyFile: /etc/traefik/certs/key.pem

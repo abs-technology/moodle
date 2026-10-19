@@ -1,0 +1,3 @@
+# Marker: this directory is a Traefik site (TLS on the VM public IP).
+# Use make plan-traefik / apply-traefik / ssh-traefik (or make plan / apply / ssh).
+# Do not use make plan-ip / apply-ip or make plan-alb / apply-alb.

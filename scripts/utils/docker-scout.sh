@@ -14,7 +14,7 @@
 #   - Chỉ push khi gate ĐẠT (via --result-file; không dùng raw Hub --exit-code).
 #   - Org policy copyleft-license bị ignore (GPL hàng trăm pkg trên Debian).
 #   - Raw Critical trên quickview có thể > 0 khi distro chưa vá — xem
-#     docs/SECURITY-EXCEPTIONS.md (perl / libaprutil trên bookworm).
+#     docs/SECURITY-EXCEPTIONS.md (raw criticals on debian:13-slim / trixie).
 #
 # Subcommands:
 #   build         Build image (kèm SBOM + provenance).
@@ -294,7 +294,7 @@ cmd_build() {
     esac
 
     # --no-cache: bỏ toàn bộ layer cache để luôn pull patches mới nhất từ
-    # bookworm-security. Build chậm hơn nhưng đảm bảo không sót CVE cũ.
+    # trixie-security. Build chậm hơn nhưng đảm bảo không sót CVE cũ.
     if [[ "$NO_CACHE" == "yes" ]]; then
         args+=( --no-cache )
     fi

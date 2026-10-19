@@ -5,6 +5,7 @@ set -o pipefail
 
 . /scripts/lib/logging.sh
 . /scripts/lib/config.sh
+. /scripts/lib/validations.sh
 . /scripts/lib/service.sh
 . /scripts/lib/moodle_paths.sh
 
@@ -62,11 +63,13 @@ monitor_cron() {
     done
 }
 
-# Start initial cron
-start_cron
-
-# Start cron monitor in background
-monitor_cron &
+# Start initial cron (disabled on GKE: one CronJob, not N keep-alive processes).
+if is_boolean_yes "${MOODLE_CRON_ENABLED:-yes}"; then
+    start_cron
+    monitor_cron &
+else
+    info "In-container Moodle cron disabled (MOODLE_CRON_ENABLED=no)"
+fi
 
 info "** Starting PHP-FPM **"
 php-fpm${PHP_VERSION} -F & # Chạy PHP-FPM ở background

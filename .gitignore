@@ -6,8 +6,31 @@ data/moodledata/*
 !data/moodle/.gitkeep
 !data/moodledata/.gitkeep
 
+# Same layout under the deployment examples, created on first boot
+examples/*/data/
+
 # Environment file with sensitive information
 .env
+
+# Credentials — SSH keys, TLS keys, certificates
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
+
+# Terraform — state holds the generated Moodle/MariaDB passwords in plaintext.
+# .terraform.lock.hcl is intentionally tracked.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+# Every tfvars at any depth: they carry cloud credentials and per-customer data.
+# Only the committed templates are exempt.
+*.tfvars
+*.tfvars.*
+!*.tfvars.example
 
 # Docker volumes data
 volumes/

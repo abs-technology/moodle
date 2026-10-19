@@ -23,7 +23,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.2.2-r2
+    image: abstechnology/moodle-standard:5.3.0
     container_name: abs-moodle
     restart: unless-stopped
     ports:
@@ -34,13 +34,11 @@ services:
       - MOODLE_USERNAME=${MOODLE_USERNAME}
       - MOODLE_PASSWORD=${MOODLE_PASSWORD}
       - MOODLE_EMAIL=${MOODLE_EMAIL}
-      
       # Moodle Site Configuration
       - MOODLE_SITE_NAME=${MOODLE_SITE_NAME}
       - MOODLE_SITE_FULLNAME=${MOODLE_SITE_FULLNAME}
       - MOODLE_SITE_SHORTNAME=${MOODLE_SITE_SHORTNAME}
       - MOODLE_CRON_MINUTES=${MOODLE_CRON_MINUTES}
-      
       # Database Configuration
       - MOODLE_DATABASE_TYPE=${MOODLE_DATABASE_TYPE}
       - MOODLE_DATABASE_HOST=${MOODLE_DATABASE_HOST}
@@ -48,7 +46,6 @@ services:
       - MOODLE_DATABASE_USER=${MARIADB_USER}
       - MOODLE_DATABASE_PASSWORD=${MARIADB_PASSWORD}
       - MOODLE_DATABASE_NAME=${MARIADB_DATABASE}
-      
       # PHP Configuration Limits
       - PHP_MEMORY_LIMIT=${PHP_MEMORY_LIMIT}
       - PHP_MAX_INPUT_VARS=${PHP_MAX_INPUT_VARS}
@@ -56,27 +53,26 @@ services:
       - PHP_POST_MAX_SIZE=${PHP_POST_MAX_SIZE}
       - PHP_UPLOAD_MAX_FILESIZE=${PHP_UPLOAD_MAX_FILESIZE}
       - PHP_MAX_EXECUTION_TIME=${PHP_MAX_EXECUTION_TIME}
-      
       # MariaDB Connection Configuration
       - MARIADB_HOST=${MOODLE_DATABASE_HOST}
       - MARIADB_PORT_NUMBER=${MOODLE_DATABASE_PORT_NUMBER}
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_PASSWORD=${MARIADB_PASSWORD}
-      
-      # Proxy Configuration
-      - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
+      # Proxy / load balancer — see docs/LOAD-BALANCING.md. Behind Traefik, GCP
+      # or AWS set MOODLE_WWWROOT + MOODLE_SSLPROXY=yes and leave
+      # MOODLE_REVERSEPROXY=no (they forward the original Host header).
+      - MOODLE_WWWROOT=${MOODLE_WWWROOT:-}
       - MOODLE_SSLPROXY=${MOODLE_SSLPROXY}
-
+      - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
+      - MOODLE_CLUSTER=${MOODLE_CLUSTER:-no}
       # First-boot performance (see env.example)
       - MOODLE_BOOTSTRAP_H5P=${MOODLE_BOOTSTRAP_H5P:-background}
       - MOODLE_OPTIMIZE_COMPOSER=${MOODLE_OPTIMIZE_COMPOSER:-auto}
       - MOODLE_FIX_DATA_PERMS=${MOODLE_FIX_DATA_PERMS:-no}
-
       # Upgrade behavior (see env.example for details)
       - MOODLE_AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE:-no}
       - MOODLE_BACKUP_DIR=${MOODLE_BACKUP_DIR:-/var/www/moodle-backups}
       - MOODLE_UPGRADE_RETENTION=${MOODLE_UPGRADE_RETENTION:-5}
-
     volumes:
       - ./data/moodle:/var/www/html
       - ./data/moodledata:/var/www/moodledata
@@ -84,12 +80,15 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
+    # /healthz bypasses Moodle, so it stays 200 regardless of MOODLE_WWWROOT,
+    # MOODLE_SSLPROXY or which node the request lands on. Use /readyz on the
+    # load balancer when unhealthy nodes should be drained instead.
     healthcheck:
-      test: ["CMD", "sh", "-c", "if [ \"$$MOODLE_SSLPROXY\" = \"yes\" ]; then curl -f -k https://localhost:8443/login/index.php; else curl -f http://localhost:8080/login/index.php; fi"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s
     networks:
       - moodle_network
 

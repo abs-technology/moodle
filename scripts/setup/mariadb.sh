@@ -12,6 +12,31 @@ load_config
 
 info "Starting MariaDB Client setup for Absi Technology..."
 
+# Cloud SQL / managed MySQL: Terraform already created the database and
+# user. There is no empty-password root — waiting as root loops on 1045.
+if [[ -z "${MARIADB_ROOT_PASSWORD:-}" ]]; then
+    check_app_user() {
+        php -r '
+          $m = @new mysqli(
+            getenv("MOODLE_DATABASE_HOST") ?: "127.0.0.1",
+            getenv("MOODLE_DATABASE_USER"),
+            getenv("MOODLE_DATABASE_PASSWORD"),
+            getenv("MOODLE_DATABASE_NAME"),
+            (int) (getenv("MOODLE_DATABASE_PORT_NUMBER") ?: 3306)
+          );
+          if ($m->connect_error) { fwrite(STDERR, $m->connect_error."\n"); exit(1); }
+        '
+    }
+    info "No MARIADB_ROOT_PASSWORD — waiting as ${MARIADB_USER} via PHP mysqli"
+    if ! retry_while "check_app_user" 60 5; then
+        error "Database server did not become ready!"
+        exit 1
+    fi
+    info "Database server is ready."
+    info "MariaDB client setup finished."
+    exit 0
+fi
+
 # 1. Wait for MariaDB to be ready
 check_db_server_connection() {
     echo "SELECT 1" | mariadb_remote_execute \

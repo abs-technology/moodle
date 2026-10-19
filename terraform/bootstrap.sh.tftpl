@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Installs Docker and starts Moodle from the published image. Nothing is cloned
+# or built here: the compose file and .env arrive as instance metadata.
+set -euo pipefail
+exec >>/var/log/absi-moodle-bootstrap.log 2>&1
+echo "=== bootstrap $(date -Is) ==="
+
+# GCP re-runs this whole file every boot; AWS user_data only once.
+# Timezone is cheap and must stay correct even if someone later switches the VM to UTC.
+timedatectl set-timezone '${timezone}'
+echo "timezone $(timedatectl show -p Timezone --value)"
+
+# GCP re-runs startup scripts on every boot.
+if [ -f /opt/moodle/.bootstrapped ]; then
+  echo "already bootstrapped"
+  exit 0
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq ca-certificates curl gnupg
+
+${extra_bootstrap}
+
+install -m 0755 -d /etc/apt/keyrings
+. /etc/os-release
+docker_os=debian
+fallback=bookworm
+if [ "$${ID:-}" = ubuntu ]; then
+  docker_os=ubuntu
+  fallback=jammy
+fi
+curl -fsSL "https://download.docker.com/linux/$${docker_os}/gpg" |
+  gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+
+codename=$VERSION_CODENAME
+# Fall back when Docker has not published a suite for this release yet.
+curl -fsI "https://download.docker.com/linux/$${docker_os}/dists/$codename/Release" >/dev/null 2>&1 ||
+  codename=$fallback
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$${docker_os} $codename stable" \
+  >/etc/apt/sources.list.d/docker.list
+
+apt-get update -qq
+apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
+systemctl enable --now docker
+
+# uid 1000 is the unprivileged user inside the image; it cannot chown these.
+install -d -o 1000 -g 1000 \
+  /opt/moodle/data/moodle /opt/moodle/data/moodledata /opt/moodle/data/moodle-backups
+
+# Traefik mounts both read-only; empty is fine, missing is not.
+install -d /opt/moodle/dynamic /opt/moodle/certs
+
+cat >/opt/moodle/docker-compose.yml <<'ABSI_EOF_COMPOSE'
+${compose_file}
+ABSI_EOF_COMPOSE
+
+%{ if traefik_compose != "" ~}
+# IP-direct first boot. change-domain.sh copies this over docker-compose.yml.
+cat >/opt/moodle/docker-compose.traefik.yml <<'ABSI_EOF_TRAEFIK'
+${traefik_compose}
+ABSI_EOF_TRAEFIK
+%{ endif ~}
+
+# Always present so --ip can leave Traefik on a domain-first VM.
+cat >/opt/moodle/docker-compose.ip.yml <<'ABSI_EOF_IP'
+${ip_compose}
+ABSI_EOF_IP
+
+# Template và hướng dẫn để đổi sang cert tự có, ngay trên máy.
+cat >/opt/moodle/dynamic/tls.yml.example <<'ABSI_EOF_TLS'
+${tls_example}
+ABSI_EOF_TLS
+
+cat >/opt/moodle/README.md <<'ABSI_EOF_README'
+${readme}
+ABSI_EOF_README
+
+# Đổi domain trên site đã có dữ liệu là thao tác nhiều bước; để sẵn script.
+cat >/opt/moodle/change-domain.sh <<'ABSI_EOF_CHANGEDOMAIN'
+${change_domain}
+ABSI_EOF_CHANGEDOMAIN
+chmod 0755 /opt/moodle/change-domain.sh
+
+touch /opt/moodle/.env
+chmod 600 /opt/moodle/.env
+cat >/opt/moodle/.env <<'ABSI_EOF_ENV'
+${env_file}
+ABSI_EOF_ENV
+
+%{ if issue_acm_cert != "" ~}
+cat >/usr/local/sbin/issue-acm-cert.sh <<'ABSI_EOF_ACM'
+${issue_acm_cert}
+ABSI_EOF_ACM
+chmod 0755 /usr/local/sbin/issue-acm-cert.sh
+%{ endif ~}
+
+cd /opt/moodle
+docker compose ${compose_up_extra} up -d
+%{ if issue_acm_cert != "" ~}
+if [ -f /etc/systemd/system/absi-alb-acme.timer ]; then
+  systemctl daemon-reload
+  systemctl enable --now absi-alb-acme.timer
+fi
+%{ endif ~}
+touch /opt/moodle/.bootstrapped
+echo "=== bootstrap done $(date -Is) ==="

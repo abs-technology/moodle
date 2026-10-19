@@ -36,7 +36,8 @@ export BUILDKIT_IMAGE SBOM_SCANNER ATTESTATIONS
 
 DATA_DIRS := data/moodle data/moodledata data/moodle-backups
 
-.PHONY: help build push inspect-manifest scan policy cves-critical fix login tag-latest up down remove logs shell
+.PHONY: help build push inspect-manifest scan policy cves-critical fix login tag-latest up down remove logs shell \
+	create delete plan apply destroy ssh output tf-list deploys
 
 help: ## Lệnh có sẵn
 	@printf 'Image : %s\n' "$(IMG_FULL)"
@@ -105,3 +106,62 @@ logs: ## Xem log moodle
 
 shell: ## Vào shell container moodle
 	@docker compose exec moodle bash
+
+# Một khách hàng = một thư mục dưới terraform/deployments/ = một state riêng.
+# Cú pháp: make <verb> <track> <name>
+# Tracks: aws-traefik aws-ip aws-alb aws-marketplace gcp-traefik gcp-ip gcp-alb
+#   make tf-list
+# Xem terraform/README.md.
+
+TF ?= terraform
+export TF
+
+TRACKS   := aws-traefik aws-ip aws-alb aws-marketplace gcp-traefik gcp-ip gcp-alb
+TF_VERBS := create delete plan apply destroy ssh output tf-list deploys
+TRACK    := $(firstword $(filter $(TRACKS),$(MAKECMDGOALS)))
+NAME     := $(filter-out $(TF_VERBS) $(TRACKS),$(MAKECMDGOALS))
+DEPLOYS  := $(notdir $(patsubst %/,%,$(wildcard terraform/deployments/*/)))
+
+$(TRACKS) $(DEPLOYS):
+	@:
+.PHONY: $(TRACKS) $(DEPLOYS)
+
+# create nhận tên chưa có thư mục; delete/plan/apply/… nhận tên ngắn (school-b)
+# hoặc đủ hậu tố (school-b-aws). Cả hai không phải target thật.
+ifneq ($(filter create delete plan apply destroy ssh output,$(MAKECMDGOALS)),)
+%:
+	@:
+endif
+
+create: ## Terraform: make create <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
+	@scripts/tf-deployments.sh create "$(TRACK)" "$(NAME)"
+
+delete: ## Terraform: xóa thư mục + bucket state — chỉ hỏi y/n khi state trống.
+	@scripts/tf-deployments.sh delete "$(TRACK)" "$(NAME)"
+
+plan: ## Terraform: make plan <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
+	@scripts/tf-deployments.sh plan "$(TRACK)" "$(NAME)"
+
+apply: ## Terraform: make apply <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
+	@scripts/tf-deployments.sh apply "$(TRACK)" "$(NAME)"
+
+destroy: ## Terraform: make destroy <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
+	@scripts/tf-deployments.sh destroy "$(TRACK)" "$(NAME)"
+
+ssh: ## Terraform: make ssh <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
+	@scripts/tf-deployments.sh ssh "$(TRACK)" "$(NAME)"
+
+output: ## Terraform: make output <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb (cả mật khẩu)
+	@scripts/tf-deployments.sh output "$(TRACK)" "$(NAME)"
+
+tf-list: ## Terraform: liệt kê deployment (TRACK IP DOMAIN) — mọi track trên
+	@scripts/tf-deployments.sh list
+
+deploys: tf-list ## alias của tf-list
+
+# Lệnh cũ (new-traefik / apply-alb / …) — chỉ báo cú pháp mới.
+.PHONY: new new-traefik new-ip new-alb plan-traefik plan-ip plan-alb \
+	apply-traefik apply-ip apply-alb ssh-traefik ssh-ip ssh-alb
+new new-traefik new-ip new-alb plan-traefik plan-ip plan-alb \
+apply-traefik apply-ip apply-alb ssh-traefik ssh-ip ssh-alb:
+	@scripts/tf-deployments.sh legacy $@

@@ -45,8 +45,11 @@ fi
 compose_tag=$(grep -E 'image:.*moodle-standard:' "$ROOT/docker-compose.yml" | head -1 | sed 's/.*://')
 check_eq "docker-compose tag" "$DOCKER_TAG" "$compose_tag"
 
+df_from=$(awk '/^FROM /{print $2; exit}' "$ROOT/Dockerfile")
+check_eq "Dockerfile FROM" "${BASE_IMAGE:-debian:13-slim}" "$df_from"
+
 if grep -qE 'public/admin/cli' "$ROOT/scripts/moodle-run.sh" "$ROOT/scripts/setup/moodle.sh" 2>/dev/null; then
-    err "Scripts reference wrong CLI path public/admin/cli (Moodle 5.2 uses admin/cli at root)"
+    err "Scripts reference wrong CLI path public/admin/cli (Moodle 5.x uses admin/cli at root)"
 fi
 
 if (( errors == 0 )); then

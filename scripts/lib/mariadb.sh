@@ -14,6 +14,11 @@ mariadb_remote_execute() {
     local -a extra_opts=("${@:6}")
 
     local -a args=("-h" "$hostname" "-P" "$port" "--connect-timeout=5")
+    # Oracle mysql client: MySQL 8.4 caching_sha2_password. mariadb-client
+    # does not have this flag — do not pass it there.
+    if mysql --help 2>/dev/null | grep -q -- '--get-server-public-key'; then
+        args+=("--get-server-public-key")
+    fi
     args+=("-N" "-u" "$user")
     [[ -n "$pass" ]] && args+=("-p$pass") # Pass only if not empty
     [[ -n "$db" ]] && args+=("$db") # DB name only if not empty
@@ -22,6 +27,29 @@ mariadb_remote_execute() {
     local mysql_cmd
     mysql_cmd="$(</dev/stdin)"
     debug "Executing SQL command on ${hostname}:${port}:\n$mysql_cmd"
+    # Hub / Debian image: /usr/bin/mysql is MariaDB 10.x and cannot do
+    # MySQL 8.4 caching_sha2_password (ERROR 1045). PHP mysqli can.
+    if mysql --version 2>/dev/null | grep -qi MariaDB; then
+        MYSQL_HOST="$hostname" MYSQL_PORT="$port" MYSQL_DB="$db" \
+        MYSQL_USER="$user" MYSQL_PWD="$pass" MYSQL_SQL="$mysql_cmd" php -r '
+          $m = @new mysqli(
+            getenv("MYSQL_HOST"),
+            getenv("MYSQL_USER"),
+            getenv("MYSQL_PWD"),
+            getenv("MYSQL_DB") ?: null,
+            (int) getenv("MYSQL_PORT")
+          );
+          if ($m->connect_error) { fwrite(STDERR, $m->connect_error."\n"); exit(1); }
+          if (!$m->multi_query(getenv("MYSQL_SQL"))) { fwrite(STDERR, $m->error."\n"); exit(1); }
+          do {
+            if ($r = $m->store_result()) {
+              while ($row = $r->fetch_row()) { echo implode("\t", $row), "\n"; }
+              $r->free();
+            }
+          } while ($m->more_results() && $m->next_result());
+        '
+        return
+    fi
     mysql "${args[@]}" <<<"$mysql_cmd"
 }
 
