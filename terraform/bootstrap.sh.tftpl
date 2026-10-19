@@ -63,6 +63,11 @@ ${traefik_compose}
 ABSI_EOF_TRAEFIK
 %{ endif ~}
 
+# Always present so --ip can leave Traefik on a domain-first VM.
+cat >/opt/moodle/docker-compose.ip.yml <<'ABSI_EOF_IP'
+${ip_compose}
+ABSI_EOF_IP
+
 # Template và hướng dẫn để đổi sang cert tự có, ngay trên máy.
 cat >/opt/moodle/dynamic/tls.yml.example <<'ABSI_EOF_TLS'
 ${tls_example}

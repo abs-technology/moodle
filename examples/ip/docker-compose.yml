@@ -26,7 +26,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.2.3-r1
+    image: abstechnology/moodle-standard:5.3.0
     container_name: abs-moodle
     restart: unless-stopped
     ports:
@@ -46,12 +46,15 @@ services:
       - MARIADB_PORT_NUMBER=3306
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_PASSWORD=${MARIADB_PASSWORD}
-      # Direct HTTP on the public IP. sslproxy stays off until change-domain.sh
-      # puts Traefik in front and rewrites wwwroot to https://...
-      - MOODLE_WWWROOT=http://${MOODLE_DOMAIN}
       - MOODLE_SSLPROXY=no
       - MOODLE_REVERSEPROXY=no
       - MOODLE_CLUSTER=no
+      - PHP_MEMORY_LIMIT=${PHP_MEMORY_LIMIT:-512M}
+      - PHP_MAX_INPUT_VARS=${PHP_MAX_INPUT_VARS:-5000}
+      - PHP_MAX_FILE_UPLOADS=${PHP_MAX_FILE_UPLOADS:-200}
+      - PHP_POST_MAX_SIZE=${PHP_POST_MAX_SIZE:-2G}
+      - PHP_UPLOAD_MAX_FILESIZE=${PHP_UPLOAD_MAX_FILESIZE:-2G}
+      - PHP_MAX_EXECUTION_TIME=${PHP_MAX_EXECUTION_TIME:-600}
     volumes:
       - ./data/moodle:/var/www/html
       - ./data/moodledata:/var/www/moodledata

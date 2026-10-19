@@ -106,9 +106,19 @@ variable "route53_zone_id" {
 }
 
 variable "moodle_domain" {
-  description = "Public hostname. Empty derives moodle.<public-or-anycast-ip>.nip.io, which needs no DNS work. Ignored on apply-ip (wwwroot is the public IP)."
+  description = "Public hostname. Empty derives <nip_name>.<public-or-anycast-ip>.nip.io, which needs no DNS work. Ignored on apply-ip (wwwroot is the public IP)."
   type        = string
   default     = ""
+}
+
+variable "nip_name" {
+  description = "First label of the auto nip.io host: <nip_name>.<ip>.nip.io. Default moodle. Ignored when moodle_domain is set or on IP-direct."
+  type        = string
+  default     = "moodle"
+  validation {
+    condition     = can(regex("^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$", var.nip_name))
+    error_message = "nip_name must be a lowercase DNS label (e.g. moodle, lms)."
+  }
 }
 
 variable "acme_email" {

@@ -303,7 +303,7 @@ locals {
     try(aws_eip.moodle[0].public_ip, null),
   )
   moodle_domain = var.enable_direct_ip ? local.public_ipv4 : (
-    var.moodle_domain != "" ? var.moodle_domain : "moodle.${local.public_ipv4}.nip.io"
+    var.moodle_domain != "" ? var.moodle_domain : "${var.nip_name}.${local.public_ipv4}.nip.io"
   )
 
   # Debian AMIs ship without the SSM agent, and Session Manager is the only way in.

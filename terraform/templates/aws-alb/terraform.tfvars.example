@@ -24,10 +24,11 @@ ssh_allowed_cidrs = ["0.0.0.0/0"]
 # --- site ---
 # Used as the Moodle admin email. TLS is ACM on the ALB, not Let's Encrypt.
 acme_email = "admin@example.com"
-# Empty = moodle.<anycast-ip>.nip.io. ACM cannot issue that name; the VM
-# completes Let's Encrypt HTTP-01 and imports it (a few minutes after boot).
+# First boot: https://<nip_name>.<anycast-ip>.nip.io  (change or keep moodle)
+nip_name = "moodle"
+# ACM cannot issue nip.io; the VM completes Let's Encrypt HTTP-01 and imports it.
 # Own cert: set moodle_domain and route53_zone_id or acm_certificate_arn
-# before the first apply. Do not set moodle_domain to move a live site.
+# before the first apply. Do not use moodle_domain to move a live site.
 # moodle_domain       = "lms.example.com"
 # route53_zone_id     = "Z0123456789ABCDEFGHIJ"
 # acm_certificate_arn = "arn:aws:acm:ap-southeast-1:123456789012:certificate/..."

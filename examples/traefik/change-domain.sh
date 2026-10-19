@@ -8,6 +8,8 @@
 # --nip builds <name>.<public-ip>.nip.io. Type the site name only.
 #   sudo ./change-domain.sh --domain lms.example.com --cert fullchain.pem --key privkey.pem
 #   sudo ./change-domain.sh --domain lms.example.com --letsencrypt
+#   sudo ./change-domain.sh --ip
+# --ip leaves Traefik and serves HTTP on the current public IP (Host wwwroot).
 #
 # Changing MOODLE_DOMAIN alone is not enough. The image writes config.php once
 # at install and never rewrites it, and Moodle stores absolute URLs throughout
@@ -22,8 +24,9 @@ info() { printf '%s==>%s %s\n' "$GREEN" "$NC" "$*"; }
 warn() { printf '%s[!]%s %s\n' "$YELLOW" "$NC" "$*" >&2; }
 die()  { printf '%s[x]%s %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
 
-new_domain=""; cert_src=""; key_src=""; use_le=no; use_nip=no; acme_email=""
+new_domain=""; cert_src=""; key_src=""; use_le=no; use_nip=no; use_ip=no; acme_email=""
 nip_name=""; skip_backup=no; skip_data_backup=no; assume_yes=no; force=no
+ip_compose=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -34,11 +37,12 @@ while [[ $# -gt 0 ]]; do
         --name)              nip_name="${2:?}"; shift 2 ;;
         --letsencrypt)       use_le=yes; shift ;;
         --nip)               use_nip=yes; use_le=yes; shift ;;
+        --ip)                use_ip=yes; shift ;;
         --skip-backup)       skip_backup=yes; shift ;;
         --skip-data-backup)  skip_data_backup=yes; shift ;;
         --force)             force=yes; shift ;;
         -y|--yes)            assume_yes=yes; shift ;;
-        -h|--help)           sed -n '2,12p' "$0" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help)           sed -n '2,14p' "$0" | sed 's/^# \?//'; exit 0 ;;
         *)                   die "Unknown argument: $1" ;;
     esac
 done
@@ -46,16 +50,19 @@ done
 [[ $EUID -eq 0 ]]        || die "Run with sudo: config.php and data/ belong to uid 1000."
 [[ -f docker-compose.yml && -f .env ]] || die "Run this from the compose directory."
 
-if [[ "$use_nip" == yes ]]; then
+if [[ "$use_ip" == yes ]]; then
+    [[ -z "$new_domain$cert_src$key_src$nip_name" && "$use_nip" == no && "$use_le" == no ]] ||
+        die "--ip cannot be combined with --domain, --nip, --cert, --key or --letsencrypt."
+elif [[ "$use_nip" == yes ]]; then
     [[ -z "$new_domain$cert_src$key_src" ]] ||
         die "--nip cannot be combined with --domain, --cert or --key."
 else
     [[ -z "$nip_name" ]] || die "--name is only used with --nip."
-    [[ -n "$new_domain" ]] || die "--domain is required (or use --nip)."
+    [[ -n "$new_domain" ]] || die "--domain is required (or use --nip / --ip)."
     if [[ "$use_le" == yes ]]; then
         [[ -z "$cert_src$key_src" ]] || die "--letsencrypt and --cert/--key are mutually exclusive."
     else
-        [[ -n "$cert_src" && -n "$key_src" ]] || die "Give --cert and --key, --letsencrypt, or --nip."
+        [[ -n "$cert_src" && -n "$key_src" ]] || die "Give --cert and --key, --letsencrypt, --nip, or --ip."
     fi
 fi
 
@@ -81,6 +88,39 @@ enable_sslproxy() {
         return
     fi
     die "Could not find \$CFG->sslproxy in config.php"
+}
+
+disable_sslproxy() {
+    local f=data/moodle/config.php
+    if grep -qE '^// \$CFG->sslproxy = ' "$f"; then
+        return
+    fi
+    if grep -qE '^\$CFG->sslproxy = ' "$f"; then
+        sed -i 's|^\$CFG->sslproxy = .*|// \$CFG->sslproxy = true;|' "$f"
+        return
+    fi
+    die "Could not find \$CFG->sslproxy in config.php"
+}
+
+# IP-direct: comment the fixed wwwroot so the Host fallback in config.php runs.
+clear_wwwroot() {
+    local f=data/moodle/config.php
+    grep -qF 'empty($CFG->wwwroot)' "$f" ||
+        die "config.php has no Host fallback. Refusing to clear wwwroot."
+    if grep -qE '^\$CFG->wwwroot = ' "$f"; then
+        sed -i "s|^\$CFG->wwwroot = .*|// \$CFG->wwwroot = 'https://your-domain.com';   // <-- đổi thành tên miền thật|" "$f"
+    fi
+}
+
+find_ip_compose() {
+    local latest=""
+    if [[ -f docker-compose.ip.yml ]]; then
+        echo docker-compose.ip.yml
+        return 0
+    fi
+    latest="$(ls -1dt backups/*/docker-compose.yml.ip 2>/dev/null | head -1 || true)"
+    [[ -n "$latest" && -f "$latest" ]] || return 1
+    echo "$latest"
 }
 
 env_get() { sed -n "s/^$1=//p" .env | head -1; }
@@ -169,24 +209,61 @@ old_domain="$(env_get MOODLE_DOMAIN)"
 [[ -f data/moodle/config.php ]] || die "data/moodle/config.php missing: Moodle is not installed yet."
 
 promote_traefik=no
-if ! has_traefik; then
+demote_traefik=no
+if [[ "$use_ip" == yes ]]; then
+    has_traefik || die "Already IP-direct. This host has no Traefik."
+    demote_traefik=yes
+elif ! has_traefik; then
     [[ -f docker-compose.traefik.yml ]] ||
         die "This stack has no Traefik and no docker-compose.traefik.yml to enable. ALB sites are not moved with this script."
     promote_traefik=yes
 fi
 
 public_ip="$(public_ipv4)"
-if [[ "$use_nip" == yes ]]; then
+if [[ "$use_ip" == yes ]]; then
+    [[ -n "$public_ip" ]] || die "Cannot detect the public IPv4 for --ip."
+    ip_compose="$(find_ip_compose)" ||
+        die "Missing docker-compose.ip.yml. Copy examples/ip/docker-compose.yml here (or restore backups/*/docker-compose.yml.ip)."
+    new_domain="$public_ip"
+elif [[ "$use_nip" == yes ]]; then
     [[ -n "$public_ip" ]] || die "Cannot detect the public IPv4 for --nip."
     require_nip_name
     new_domain="${nip_name}.${public_ip}.nip.io"
 fi
 
-[[ "$old_domain" != "$new_domain" ]] || die "Already serving $new_domain."
+if [[ "$use_ip" != yes && "$old_domain" == "$new_domain" ]]; then
+    die "Already serving $new_domain."
+fi
 
-old_wwwroot="$(sed -n "s/^\$CFG->wwwroot = '\\(.*\\)';/\\1/p" data/moodle/config.php | head -1)"
-[[ -n "$old_wwwroot" ]] || die "Could not read \$CFG->wwwroot from config.php."
-new_wwwroot="https://${new_domain}"
+# Uncommented assignment only. IP-direct leaves wwwroot empty and uses Host.
+read_wwwroot() {
+    sed -n "s/^\$CFG->wwwroot = '\\(.*\\)';/\\1/p" data/moodle/config.php | head -1
+}
+
+set_wwwroot() {
+    local url="$1"
+    local f=data/moodle/config.php
+    if grep -qE '^\$CFG->wwwroot = ' "$f"; then
+        sed -i "s|^\$CFG->wwwroot = .*|\$CFG->wwwroot = '${url}';|" "$f"
+        return
+    fi
+    if grep -qE '^// \$CFG->wwwroot = ' "$f"; then
+        sed -i "s|^// \$CFG->wwwroot = .*|\$CFG->wwwroot = '${url}';|" "$f"
+        return
+    fi
+    die "Could not write \$CFG->wwwroot in config.php"
+}
+
+old_wwwroot="$(read_wwwroot)"
+if [[ -z "$old_wwwroot" ]]; then
+    old_wwwroot="http://${old_domain}"
+    info "No fixed wwwroot in config.php. Database rewrite will use $old_wwwroot"
+fi
+if [[ "$use_ip" == yes ]]; then
+    new_wwwroot="http://${new_domain}"
+else
+    new_wwwroot="https://${new_domain}"
+fi
 
 if [[ "$use_le" == yes ]]; then
     require_acme_email
@@ -196,7 +273,7 @@ fi
 # Validate everything before touching the running site.
 # ---------------------------------------------------------------------------
 
-if [[ "$use_le" == no ]]; then
+if [[ "$use_ip" != yes && "$use_le" == no ]]; then
     [[ -r "$cert_src" ]] || die "Cannot read $cert_src"
     [[ -r "$key_src"  ]] || die "Cannot read $key_src"
 
@@ -242,11 +319,13 @@ fi
 
 # Let's Encrypt answers the HTTP-01 challenge on this host, and Traefik will not
 # serve the new router until the name points here either way.
-resolved="$(getent ahostsv4 "$new_domain" 2>/dev/null | awk 'NR==1{print $1}' || true)"
-if [[ -n "$public_ip" && "$resolved" != "$public_ip" ]]; then
-    warn "$new_domain resolves to ${resolved:-nothing}, this host is $public_ip."
-    warn "Point the A record first, or TLS will fail after the switch."
-    [[ "$force" == yes ]] || die "Re-run with --force to proceed anyway."
+if [[ "$use_ip" != yes ]]; then
+    resolved="$(getent ahostsv4 "$new_domain" 2>/dev/null | awk 'NR==1{print $1}' || true)"
+    if [[ -n "$public_ip" && "$resolved" != "$public_ip" ]]; then
+        warn "$new_domain resolves to ${resolved:-nothing}, this host is $public_ip."
+        warn "Point the A record first, or TLS will fail after the switch."
+        [[ "$force" == yes ]] || die "Re-run with --force to proceed anyway."
+    fi
 fi
 
 # tool_replace stops with "cannotfit" when the replacement is longer than the
@@ -266,8 +345,16 @@ cat <<SUMMARY
 
   Domain        $old_domain  ->  $new_domain
   wwwroot       $old_wwwroot  ->  $new_wwwroot
-  Frontend      $([[ "$promote_traefik" == yes ]] && echo "IP HTTP -> Traefik" || echo "Traefik (already running)")
-  Certificate   $([[ "$use_le" == yes ]] && echo "Let's Encrypt ($acme_email)" || echo "$cert_src")
+  Frontend      $(
+    if [[ "$demote_traefik" == yes ]]; then echo "Traefik -> IP HTTP"
+    elif [[ "$promote_traefik" == yes ]]; then echo "IP HTTP -> Traefik"
+    else echo "Traefik (already running)"
+    fi)
+  Certificate   $(
+    if [[ "$use_ip" == yes ]]; then echo "none (HTTP on the public IP)"
+    elif [[ "$use_le" == yes ]]; then echo "Let's Encrypt ($acme_email)"
+    else echo "$cert_src"
+    fi)
   Backup        $([[ "$skip_backup" == yes ]] && echo "skipped" || echo "database + config.php$([[ "$skip_data_backup" == yes ]] && echo "" || echo " + moodledata")")
 
   $old_wwwroot stops working. The database rewrite cannot be undone
@@ -276,7 +363,10 @@ cat <<SUMMARY
 SUMMARY
 
 if [[ "$assume_yes" != yes ]]; then
-    if [[ "$use_nip" == yes ]]; then
+    if [[ "$use_ip" == yes ]]; then
+        read -rp "Type the public IP to confirm ($new_domain): " answer
+        [[ "$answer" == "$new_domain" ]] || die "Aborted."
+    elif [[ "$use_nip" == yes ]]; then
         read -rp "Type the site name to confirm ($nip_name): " answer
         [[ "$answer" == "$nip_name" ]] || die "Aborted."
     else
@@ -348,23 +438,39 @@ trap 'warn "Failed partway through. Site may be in maintenance mode; backup is i
 info "Enabling maintenance mode"
 compose exec -T moodle php "$maintenance_cli" --enable
 
-info "Rewriting wwwroot in config.php"
-matches="$(grep -c '^\$CFG->wwwroot = ' data/moodle/config.php || true)"
-[[ "$matches" == 1 ]] || die "Expected exactly one wwwroot assignment in config.php, found $matches. Fix it by hand."
-sed -i "s|^\$CFG->wwwroot = .*|\$CFG->wwwroot = '${new_wwwroot}';|" data/moodle/config.php
-info "Enabling sslproxy in config.php"
-enable_sslproxy
+if [[ "$use_ip" == yes ]]; then
+    info "Clearing fixed wwwroot in config.php (Host fallback)"
+    clear_wwwroot
+    info "Disabling sslproxy in config.php"
+    disable_sslproxy
+else
+    info "Rewriting wwwroot in config.php"
+    set_wwwroot "$new_wwwroot"
+    info "Enabling sslproxy in config.php"
+    enable_sslproxy
+fi
 
 if [[ "$promote_traefik" == yes ]]; then
     info "Enabling Traefik (replacing the IP-direct compose file)"
     mkdir -p "$backup_dir"
     cp docker-compose.yml "$backup_dir/docker-compose.yml.ip"
+    [[ -f docker-compose.ip.yml ]] || cp docker-compose.yml docker-compose.ip.yml
     cp docker-compose.traefik.yml docker-compose.yml
+elif [[ "$demote_traefik" == yes ]]; then
+    info "Leaving Traefik (restoring the IP-direct compose file)"
+    mkdir -p "$backup_dir"
+    cp docker-compose.yml "$backup_dir/docker-compose.yml.traefik"
+    [[ -f docker-compose.traefik.yml ]] || cp docker-compose.yml docker-compose.traefik.yml
+    cp "$ip_compose" docker-compose.yml
+    [[ -f docker-compose.ip.yml ]] || cp "$ip_compose" docker-compose.ip.yml
 fi
 
 info "Updating .env and the certificate source"
 env_set MOODLE_DOMAIN "$new_domain"
-if [[ "$use_le" == yes ]]; then
+if [[ "$use_ip" == yes ]]; then
+    env_set TLS_CERTRESOLVER ""
+    rm -f dynamic/tls.yml
+elif [[ "$use_le" == yes ]]; then
     env_set ACME_EMAIL "$acme_email"
     env_set TLS_CERTRESOLVER le
     # tls.yml pointing at an empty certs/ makes Traefik log a PEM error on every reload.
@@ -392,7 +498,11 @@ TLS
 fi
 
 info "Recreating the stack"
-compose up -d
+if [[ "$demote_traefik" == yes ]]; then
+    docker stop abs-traefik >/dev/null 2>&1 || true
+    docker rm abs-traefik >/dev/null 2>&1 || true
+fi
+compose up -d --remove-orphans
 
 info "Waiting for Moodle to answer"
 for _ in $(seq 1 60); do
@@ -427,8 +537,12 @@ tail -6 "$replace_log"
 # The no-reply sender is a bare address, so it survives with the old host.
 noreply="$(compose exec -T moodle php "$cfg_cli" --name=noreplyaddress 2>/dev/null | tr -d '\r' || true)"
 if [[ "$noreply" == *"@$old_domain" ]]; then
-    info "Moving the no-reply sender to the new domain"
-    compose exec -T moodle php "$cfg_cli" --name=noreplyaddress --set="noreply@$new_domain"
+    if [[ "$use_ip" == yes ]]; then
+        warn "Leaving no-reply as $noreply (an IP is not a valid mail host)."
+    else
+        info "Moving the no-reply sender to the new domain"
+        compose exec -T moodle php "$cfg_cli" --name=noreplyaddress --set="noreply@$new_domain"
+    fi
 fi
 
 info "Purging caches and sessions"
@@ -444,24 +558,39 @@ trap - ERR
 # Verify
 # ---------------------------------------------------------------------------
 
-# A first Let's Encrypt issue for the new name takes up to a minute, during which
-# Traefik answers with its own self-signed default certificate.
-info "Waiting for the new address to answer"
-code=000
-for _ in $(seq 1 12); do
-    code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://$new_domain/login/index.php" 2>/dev/null || echo 000)"
-    [[ "$code" == 200 ]] && break
-    sleep 10
-done
-
-echo | openssl s_client -servername "$new_domain" -connect "$new_domain:443" 2>/dev/null |
-    openssl x509 -noout -issuer -subject -dates || warn "Could not read the certificate."
-
-if [[ "$code" == 200 ]]; then
-    info "https://$new_domain/login/index.php -> 200. Done."
+if [[ "$use_ip" == yes ]]; then
+    info "Waiting for http://$new_domain to answer"
+    code=000
+    for _ in $(seq 1 12); do
+        code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "http://$new_domain/readyz" 2>/dev/null || echo 000)"
+        [[ "$code" == 200 ]] && break
+        sleep 5
+    done
+    if [[ "$code" == 200 ]]; then
+        info "http://$new_domain/readyz -> 200. Done."
+    else
+        warn "http://$new_domain/readyz -> $code. Check: docker compose logs moodle"
+    fi
 else
-    warn "https://$new_domain/login/index.php -> $code after two minutes."
-    warn "Check: docker compose logs traefik"
+    # A first Let's Encrypt issue for the new name takes up to a minute, during which
+    # Traefik answers with its own self-signed default certificate.
+    info "Waiting for the new address to answer"
+    code=000
+    for _ in $(seq 1 12); do
+        code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://$new_domain/login/index.php" 2>/dev/null || echo 000)"
+        [[ "$code" == 200 ]] && break
+        sleep 10
+    done
+
+    echo | openssl s_client -servername "$new_domain" -connect "$new_domain:443" 2>/dev/null |
+        openssl x509 -noout -issuer -subject -dates || warn "Could not read the certificate."
+
+    if [[ "$code" == 200 ]]; then
+        info "https://$new_domain/login/index.php -> 200. Done."
+    else
+        warn "https://$new_domain/login/index.php -> $code after two minutes."
+        warn "Check: docker compose logs traefik"
+    fi
 fi
 
 [[ "$skip_backup" == yes ]] || info "Backup kept in $backup_dir"

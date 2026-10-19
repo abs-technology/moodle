@@ -3,6 +3,7 @@
 # with its own state object, so no apply can reach another customer's stack.
 #
 #   make create aws-traefik school-b
+#   make delete aws-traefik school-b   # local dir + state bucket; y/n after state empty
 #   make plan|apply|destroy|ssh|output aws-traefik school-b
 #   make tf-list
 set -Eeuo pipefail
@@ -33,6 +34,7 @@ usage_cli() {
 Cú pháp (AWS; GCP đổi aws → gcp):
 
   make create  aws-traefik|aws-ip|aws-alb|aws-marketplace <name>
+  make delete  aws-traefik|aws-ip|aws-alb|aws-marketplace <name>
   make plan    aws-traefik|aws-ip|aws-alb|aws-marketplace <name>
   make apply   aws-traefik|aws-ip|aws-alb|aws-marketplace <name>
   make destroy aws-traefik|aws-ip|aws-alb|aws-marketplace <name>
@@ -41,6 +43,7 @@ Cú pháp (AWS; GCP đổi aws → gcp):
   make tf-list
 
 Ví dụ: make create aws-traefik school-b
+       make delete aws-traefik school-b
        make apply  aws-alb     school-b
        make apply  gcp-alb     moodle-alb
 EOF
@@ -168,6 +171,69 @@ ensure_bucket_gcp() {
         --uniform-bucket-level-access \
         --public-access-prevention
     gcloud storage buckets update "gs://$bucket" --versioning
+}
+
+# Tên thật đang dùng — backend.tf, không phải default trong tfvars (backend không bị ghi đè).
+state_bucket_of() {
+    local dir="$1"
+    [[ -f "$dir/backend.tf" ]] || return 0
+    sed -n 's/^[[:space:]]*bucket[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$dir/backend.tf" | head -1
+}
+
+gcp_adc_cli() {
+    local token
+    if [[ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]] &&
+       token="$(gcloud auth application-default print-access-token 2>/dev/null)"; then
+        export CLOUDSDK_AUTH_ACCESS_TOKEN="$token"
+    fi
+}
+
+delete_state_bucket_aws() {
+    local bucket="$1"
+    if ! aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1 &&
+       ! aws s3api get-bucket-location --bucket "$bucket" >/dev/null 2>&1; then
+        info "Không có s3://$bucket"
+        return 0
+    fi
+    info "Xóa bucket state s3://$bucket"
+    python3 - "$bucket" <<'PY'
+import json, subprocess, sys
+
+bucket = sys.argv[1]
+
+def check(*args):
+    subprocess.check_call(args)
+
+while True:
+    raw = subprocess.check_output(
+        ["aws", "s3api", "list-object-versions", "--bucket", bucket, "--output", "json"]
+    )
+    data = json.loads(raw or b"{}")
+    objs = []
+    for v in data.get("Versions") or []:
+        objs.append({"Key": v["Key"], "VersionId": v["VersionId"]})
+    for m in data.get("DeleteMarkers") or []:
+        objs.append({"Key": m["Key"], "VersionId": m["VersionId"]})
+    if not objs:
+        break
+    for i in range(0, len(objs), 1000):
+        payload = json.dumps({"Objects": objs[i:i + 1000], "Quiet": True})
+        check("aws", "s3api", "delete-objects", "--bucket", bucket, "--delete", payload)
+check("aws", "s3api", "delete-bucket", "--bucket", bucket)
+PY
+}
+
+delete_state_bucket_gcp() {
+    local bucket="$1"
+    gcp_adc_cli
+    if ! gcloud storage buckets describe "gs://$bucket" >/dev/null 2>&1; then
+        info "Không có gs://$bucket"
+        return 0
+    fi
+    info "Xóa bucket state gs://$bucket"
+    # gcloud cũ không có --force trên buckets delete: xóa hết version rồi mới xóa bucket.
+    gcloud storage rm --recursive --all-versions "gs://${bucket}/**" || true
+    gcloud storage buckets delete "gs://$bucket" --quiet
 }
 
 # Đọc một giá trị chuỗi từ terraform.tfvars của deployment.
@@ -402,6 +468,98 @@ cmd_create() {
     cmd_new "$dir_name" "$TRACK_CLOUD" "$TRACK_KIND" "$track" "$app"
 }
 
+confirm_yn() {
+    local prompt="$1" answer=""
+    if [[ -r /dev/tty ]]; then
+        read -r -p "$prompt" answer </dev/tty || true
+    else
+        read -r -p "$prompt" answer || true
+    fi
+    case "$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')" in
+        y|yes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# State must be empty (never applied, or already destroyed) before y/n.
+assert_tf_destroyed() {
+    local name="$1" dir="$2" track="$3" app="$4" list=""
+
+    if [[ ! -f "$dir/backend.tf" && ! -f "$dir/terraform.tfstate" &&
+          ! -f "$dir/.terraform/terraform.tfstate" ]]; then
+        info "Chưa apply — không có resource Terraform."
+        return 0
+    fi
+
+    info "Đang kiểm tra terraform state (phải trống sau destroy)…"
+    eval "$(cmd_env "$name")"
+    if [[ -f "$dir/backend.tf" ]]; then
+        $TF -chdir="$dir" init -input=false -no-color ||
+            die "Không đọc được state. Không xóa thư mục."
+    fi
+    list="$($TF -chdir="$dir" state list -no-color)" ||
+        die "Không đọc được state. Không xóa thư mục."
+    if [[ -n "$list" ]]; then
+        echo
+        echo "Còn resource trên cloud:"
+        printf '%s\n' "$list" | sed 's/^/    /'
+        echo
+        die "Chạy make destroy $track $app trước. Chỉ hỏi xóa thư mục khi state trống."
+    fi
+    info "State trống — resource đã destroy."
+}
+
+# Undo make create: local directory + this deployment's state bucket.
+# Only after assert_tf_destroyed. Bucket name comes from backend.tf.
+cmd_delete() {
+    local track="${1:-}" app="${2:-}" name dir bucket bucket_uri=""
+    need_track_name "$track" "$app"
+    name="$(resolve_dir "$app")"
+    dir="$DEPLOYMENTS/$name"
+
+    [[ "$dir" == "$DEPLOYMENTS/"* && "$dir" != "$DEPLOYMENTS/" && "$dir" != "$DEPLOYMENTS" ]] ||
+        die "Từ chối xóa đường dẫn ngoài $DEPLOYMENTS: $dir"
+    [[ -d "$dir" && -f "$dir/main.tf" ]] || die "Không phải thư mục deployment: $dir"
+
+    assert_tf_destroyed "$name" "$dir" "$track" "$app"
+
+    bucket="$(state_bucket_of "$dir")"
+    if [[ -n "$bucket" ]]; then
+        [[ "$bucket" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] ||
+            die "Tên bucket không hợp lệ: $bucket"
+        case "$(cloud_of "$dir")" in
+            aws) bucket_uri="s3://$bucket" ;;
+            gcp) bucket_uri="gs://$bucket" ;;
+        esac
+    fi
+
+    echo
+    echo "Sẽ xóa thư mục local do make create (và mọi file trong đó):"
+    echo "  $dir"
+    ls -1A "$dir" | sed 's/^/    /'
+    echo
+    if [[ -n "$bucket_uri" ]]; then
+        echo "Sẽ xóa bucket state:"
+        echo "  $bucket_uri"
+    else
+        echo "Chưa có backend.tf — không có bucket state để xóa."
+    fi
+    echo
+    confirm_yn "Xóa thư mục${bucket_uri:+ và $bucket_uri}? [y/n] " || { echo "Đã hủy."; exit 1; }
+
+    if [[ -n "$bucket" ]]; then
+        eval "$(cmd_env "$name")"
+        case "$(cloud_of "$dir")" in
+            aws) delete_state_bucket_aws "$bucket" ;;
+            gcp) delete_state_bucket_gcp "$bucket" ;;
+            *) die "Không nhận ra cloud để xóa bucket." ;;
+        esac
+    fi
+
+    rm -rf "$dir"
+    info "Đã xóa $dir${bucket_uri:+ và $bucket_uri}"
+}
+
 with_tf() {
     local name="$1"; shift
     local dir="$DEPLOYMENTS/$name"
@@ -463,6 +621,7 @@ cmd_legacy() {
 case "${1:-}" in
     list|tf-list)    cmd_list ;;
     create)          shift; cmd_create "$@" ;;
+    delete)          shift; cmd_delete "$@" ;;
     plan)            shift; cmd_plan "$@" ;;
     apply)           shift; cmd_apply "$@" ;;
     destroy)         shift; cmd_destroy "$@" ;;

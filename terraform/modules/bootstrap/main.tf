@@ -23,6 +23,13 @@ locals {
     MARIADB_USER=abs_moodle_user
     MARIADB_PASSWORD=${var.mariadb_password}
     MARIADB_DATABASE=abs_moodle_db
+
+    PHP_MEMORY_LIMIT=512M
+    PHP_MAX_INPUT_VARS=5000
+    PHP_MAX_FILE_UPLOADS=200
+    PHP_POST_MAX_SIZE=2G
+    PHP_UPLOAD_MAX_FILESIZE=2G
+    PHP_MAX_EXECUTION_TIME=600
   EOT
 
   readme_traefik = <<-EOT
@@ -65,6 +72,10 @@ locals {
 
         sudo ./change-domain.sh --domain lms.example.com --letsencrypt
 
+    Back to HTTP on the current public IP (Traefik off, wwwroot follows Host):
+
+        sudo ./change-domain.sh --ip
+
     cert.pem must be the full chain with the leaf first, key.pem must have no
     passphrase, and the domain must appear in the certificate SAN. The script
     refuses the change otherwise.
@@ -89,7 +100,8 @@ locals {
     # Moodle on this host (IP-direct)
 
     Deployed by Terraform. First boot is MariaDB + Moodle only — no Traefik and
-    no load balancer. Open the site at http://<this-host-public-ip>.
+    no load balancer. Open the site at http://<this-host-public-ip>. wwwroot
+    is not pinned to that IP; a new public IP (or AMI clone) still works.
 
         docker-compose.yml           Moodle on :80
         docker-compose.traefik.yml   used by change-domain.sh, do not start it
@@ -117,9 +129,13 @@ locals {
 
         sudo ./change-domain.sh --domain lms.example.com --letsencrypt
 
-    The script starts Traefik, rewrites wwwroot from http://IP to https://...,
-    and replaces stored URLs in the database. Everyone is signed out. After
-    that, http://IP stops being the site address.
+    Back to HTTP on the current public IP:
+
+        sudo ./change-domain.sh --ip
+
+    The script starts Traefik, writes a fixed https://... wwwroot, and
+    replaces stored URLs in the database. Everyone is signed out. After
+    that, http://IP stops being the site address. `--ip` reverses it.
 
     ## Terraform
 

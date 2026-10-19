@@ -37,7 +37,7 @@ export BUILDKIT_IMAGE SBOM_SCANNER ATTESTATIONS
 DATA_DIRS := data/moodle data/moodledata data/moodle-backups
 
 .PHONY: help build push inspect-manifest scan policy cves-critical fix login tag-latest up down remove logs shell \
-	create plan apply destroy ssh output tf-list deploys
+	create delete plan apply destroy ssh output tf-list deploys
 
 help: ## Lệnh có sẵn
 	@printf 'Image : %s\n' "$(IMG_FULL)"
@@ -117,7 +117,7 @@ TF ?= terraform
 export TF
 
 TRACKS   := aws-traefik aws-ip aws-alb aws-marketplace gcp-traefik gcp-ip gcp-alb
-TF_VERBS := create plan apply destroy ssh output tf-list deploys
+TF_VERBS := create delete plan apply destroy ssh output tf-list deploys
 TRACK    := $(firstword $(filter $(TRACKS),$(MAKECMDGOALS)))
 NAME     := $(filter-out $(TF_VERBS) $(TRACKS),$(MAKECMDGOALS))
 DEPLOYS  := $(notdir $(patsubst %/,%,$(wildcard terraform/deployments/*/)))
@@ -126,15 +126,18 @@ $(TRACKS) $(DEPLOYS):
 	@:
 .PHONY: $(TRACKS) $(DEPLOYS)
 
-# create nhận tên chưa có thư mục; plan/apply/… nhận tên ngắn (school-b) hoặc
-# đủ hậu tố (school-b-aws). Cả hai không phải target thật.
-ifneq ($(filter create plan apply destroy ssh output,$(MAKECMDGOALS)),)
+# create nhận tên chưa có thư mục; delete/plan/apply/… nhận tên ngắn (school-b)
+# hoặc đủ hậu tố (school-b-aws). Cả hai không phải target thật.
+ifneq ($(filter create delete plan apply destroy ssh output,$(MAKECMDGOALS)),)
 %:
 	@:
 endif
 
 create: ## Terraform: make create <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
 	@scripts/tf-deployments.sh create "$(TRACK)" "$(NAME)"
+
+delete: ## Terraform: xóa thư mục + bucket state — chỉ hỏi y/n khi state trống.
+	@scripts/tf-deployments.sh delete "$(TRACK)" "$(NAME)"
 
 plan: ## Terraform: make plan <track> <name>  aws-traefik|aws-ip|aws-alb|aws-marketplace|gcp-traefik|gcp-ip|gcp-alb
 	@scripts/tf-deployments.sh plan "$(TRACK)" "$(NAME)"

@@ -56,6 +56,7 @@ module "moodle" {
   vpc_cidr               = var.vpc_cidr
   subnet_cidr            = var.subnet_cidr
   moodle_domain          = var.moodle_domain
+  nip_name               = var.nip_name
   acme_email             = var.acme_email
   acme_staging           = var.acme_staging
   moodle_admin_user      = var.moodle_admin_user

@@ -21,7 +21,9 @@ ssh_allowed_cidrs = ["0.0.0.0/0"]
 
 # --- site ---
 acme_email = "admin@example.com"
-# Empty = moodle.<static-ip>.nip.io. Do not set this to move a live site.
+# First boot: https://<nip_name>.<static-ip>.nip.io  (change or keep moodle)
+nip_name = "moodle"
+# Set only for a real hostname. Do not use this to move a live site.
 # moodle_domain = "lms.example.com"
 # acme_staging  = true
 # enable_apis   = false

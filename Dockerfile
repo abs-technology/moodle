@@ -1,8 +1,8 @@
-FROM debian:12-slim AS base
+FROM debian:13-slim AS base
 
-ARG MOODLE_VERSION=5.2.3
-ARG MOODLE_RELEASE_PREFIX=5.2.3
-ARG MOODLE_DOWNLOAD_URL=https://packaging.moodle.org/stable502/moodle-5.2.3.tgz
+ARG MOODLE_VERSION=5.3.0
+ARG MOODLE_RELEASE_PREFIX=5.3
+ARG MOODLE_DOWNLOAD_URL=https://packaging.moodle.org/stable503/moodle-5.3.tgz
 ARG PHP_VERSION=8.4
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
@@ -17,10 +17,9 @@ ENV APP_USER=$APP_USER
 ENV APP_GROUP=$APP_GROUP
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Security: Add Debian security repository and update to latest patches
-# Fix for CVE-2025-14087 and other security vulnerabilities
-RUN echo "deb http://security.debian.org/ bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list \
-    && apt-get update \
+# debian:13-slim already has trixie + trixie-security (DEB822). Do not append
+# a bookworm-security line — that would mix Debian 12 packages into this image.
+RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -71,16 +70,9 @@ RUN apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
+# trixie ships libssl3t64, not libssl3. A full upgrade picks the current names.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends --only-upgrade \
-        openssl \
-        libssl3 \
-        libnghttp2-14 \
-        modsecurity-crs \
-        locales \
-        dpkg \
-    && dpkg-query -W -f='${Package} ${Version}\n' \
-        openssl libssl3 libnghttp2-14 modsecurity-crs locales dpkg \
+    && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -104,7 +96,8 @@ ENV LC_ALL=en_US.UTF-8
 
 # Enable PHP extensions
 
-RUN phpenmod mysqli pdo pdo_mysql opcache apcu imagick
+RUN phpenmod mysqli pdo pdo_mysql opcache apcu imagick \
+    && php -r 'exit(extension_loaded("sodium") ? 0 : 1);'
 
 # Configure user and group with common UID/GID for bind volumes - Consolidated user creation
 RUN groupadd -g $APP_GID $APP_GROUP 2>/dev/null || true \

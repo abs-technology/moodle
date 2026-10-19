@@ -7,7 +7,7 @@ Do not treat `make push`, Hub push, or git tag push as done until notes exist.
 
 - `make push` / Docker Hub push of `abstechnology/moodle-standard`
 - Bump `DOCKER_TAG` or Moodle pin in `versions.lock`
-- Annotated git tag `v*` (e.g. `v5.2.2-r2`)
+- Annotated git tag `v*` (e.g. `v5.3.0`)
 - Promote release branch → `main`
 - Marketplace / Hub submission of a new tag
 
@@ -25,8 +25,8 @@ Skip only for pure docs/chore commits with **no** new `DOCKER_TAG` and **no** im
 
 | Change | `DOCKER_TAG` / git tag |
 |--------|-------------------------|
-| New Moodle upstream pin | `5.2.2` → git `v5.2.2` |
-| Same Moodle, image revision | `5.2.2-r1`, `5.2.2-r2` → git `v5.2.2-r2` |
+| New Moodle upstream pin | `5.3.0` → git `v5.3.0` |
+| Same Moodle, image revision | `5.3.0-r1`, `5.3.0-r2` → git `v5.3.0-r2` |
 
 Image: `abstechnology/moodle-standard:<DOCKER_TAG>`
 

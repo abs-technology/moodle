@@ -21,7 +21,9 @@ ssh_allowed_cidrs = ["0.0.0.0/0"]
 # --- site ---
 # Used as the Moodle admin email. TLS is Certificate Manager, not Let's Encrypt.
 acme_email = "admin@example.com"
-# Empty = moodle.<global-ip>.nip.io. Do not set this to move a live site.
+# First boot: https://<nip_name>.<global-ip>.nip.io  (change or keep moodle)
+nip_name = "moodle"
+# Set only for a real hostname. Do not use this to move a live site.
 # moodle_domain = "lms.example.com"
 # enable_apis   = false
 

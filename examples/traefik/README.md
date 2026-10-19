@@ -179,6 +179,16 @@ sudo ./change-domain.sh --nip
 Type the site name only. The host is `<name>.<public-ip>.nip.io`.
 `ACME_EMAIL=admin@example.com` is rejected. The script prompts, or use `--email`.
 
+Back to IP-direct (Traefik off, HTTP on the current public IP, wwwroot follows
+`Host`). HTTPS and the old hostname stop working:
+
+```bash
+sudo ./change-domain.sh --ip
+```
+
+Needs `docker-compose.ip.yml` (Terraform writes it on every boot) or a backup
+`backups/*/docker-compose.yml.ip` from a previous `--nip` / `--domain`.
+
 The script validates before it touches anything: the key must match the
 certificate and carry no passphrase, the new domain must be in the SAN list, the
 chain must not be leaf-only, and the name must already resolve to this host.

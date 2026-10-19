@@ -10,6 +10,7 @@ One command shape for every frontend. AWS examples below; for GCP swap `aws` →
 
 ```bash
 make create  aws-traefik school-b
+make delete  aws-traefik school-b   # xóa thư mục + bucket state; y/n khi state trống
 make plan    aws-traefik school-b
 make apply   aws-traefik school-b
 make destroy aws-traefik school-b
@@ -20,7 +21,7 @@ make tf-list
 
 | Track | Template | Marker | First boot |
 |---|---|---|---|
-| `aws-traefik` / `gcp-traefik` | `templates/aws-traefik/` or `gcp-traefik/` | `frontend.traefik` | Traefik + Let's Encrypt on `moodle.<ip>.nip.io` |
+| `aws-traefik` / `gcp-traefik` | `templates/aws-traefik/` or `gcp-traefik/` | `frontend.traefik` | Traefik + Let's Encrypt on `<nip_name>.<ip>.nip.io` (default `moodle`) |
 | `aws-ip` / `gcp-ip` | `templates/aws-ip/` or `gcp-ip/` | `frontend.ip` | Moodle on `http://<public-ip>` |
 | `aws-alb` | `templates/aws-alb/` | `frontend.alb` | Global Accelerator (anycast) + ALB → Moodle `:8080` |
 | `aws-marketplace` | `templates/aws-marketplace/` | `frontend.marketplace` | us-east-1 builder (aws-ip stack, unencrypted root) → AMI |
@@ -150,7 +151,8 @@ ssh_allowed_cidrs = ["0.0.0.0/0"]
 
 | Leave empty / commented | Why |
 |---|---|
-| `moodle_domain` | First boot uses `moodle.<ip>.nip.io`. Do not set this to “move” a live site. |
+| `nip_name` | First boot host is `<nip_name>.<ip>.nip.io`. Default `moodle`. Change before the first apply. |
+| `moodle_domain` | Leave empty for nip.io. Set only for a real hostname. Do not use this to “move” a live site. |
 | `acme_staging` | Only for repeated test applies (certs are not trusted). |
 | `availability_zone` / `instance_type` | AWS Local Zone only — see Optional. |
 | `os` | Default `debian-13`. Set before the first apply. A later change does not replace the VM. |
@@ -177,7 +179,7 @@ make output aws-traefik school-b
 
 | Output | Use |
 |---|---|
-| `site_url` | Open in the browser — Traefik: `https://moodle.<ip>.nip.io`; IP-direct: `http://<ip>`; ALB: `https://moodle.<anycast-or-global-ip>.nip.io` |
+| `site_url` | Open in the browser — Traefik: `https://<nip_name>.<ip>.nip.io`; IP-direct: `http://<ip>`; ALB: `https://<nip_name>.<anycast-or-global-ip>.nip.io` |
 | `moodle_admin_user` | Moodle web login — always `admin` (different account from the SSH user `admin`) |
 | `moodle_admin_password` | Moodle password |
 | `public_ip` | Write down — DNS in step 3 uses this. It does not change. |
@@ -234,8 +236,9 @@ sudo ./change-domain.sh --nip
 # or: sudo ./change-domain.sh --nip --name moodle --email you@school.com
 ```
 
-Type only the **site name** (e.g. `moodle`). The host is
-`<name>.<public-ip>.nip.io`. Then **one line** in
+Type only the **site name** (e.g. `moodle`). The script detects this VM’s
+public IPv4 (`checkip.amazonaws.com`) and builds
+`<name>.<that-ip>.nip.io`. Then **one line** in
 `terraform/deployments/school-b-aws/terraform.tfvars` — do not apply:
 
 ```hcl
@@ -273,7 +276,7 @@ sudo ./change-domain.sh --domain lms.example.com \
 
 `--letsencrypt` instead of `--cert` / `--key` if you want Let’s Encrypt on the
 new name (`--email` if `.env` still has `admin@example.com`). IP-direct → nip.io
-is section 3.
+is section 3. Domain → IP-direct again: `sudo ./change-domain.sh --ip`.
 
 4. **Update this one line** in
    `terraform/deployments/school-b-aws/terraform.tfvars` so `make tf-list`
@@ -293,6 +296,7 @@ Do not run `make apply` just for that line. Flags and recovery:
 | You want | Where | How |
 |---|---|---|
 | New customer / new independent site | New directory | `make create aws-traefik other` (or `aws-ip` / `aws-alb` / `gcp-alb`) and start at step 2. Do not reuse this folder. |
+| Remove unused local folder + state bucket | The directory and its GCS/S3 bucket | `make delete <track> <name>` after resources are gone (`make destroy` if applied). Confirms y/n only when `terraform state list` is empty, then deletes the bucket named in `backend.tf`. |
 | Staging + production for one school | Two directories | `make create aws-traefik school-b-prod` and `school-b-staging` |
 | Region, instance size, SSH CIDRs, ACME email | `terraform.tfvars` | Edit, then `make plan aws-traefik school-b` / `make apply aws-traefik school-b` |
 | Guest OS | `os` in tfvars | `debian-13` (default), `debian-12`, or `ubuntu-24.04`. Only before the first apply. |

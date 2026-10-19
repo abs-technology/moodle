@@ -145,7 +145,7 @@ locals {
     google_compute_address.moodle.address,
   )
   moodle_domain = var.enable_direct_ip ? local.public_ipv4 : (
-    var.moodle_domain != "" ? var.moodle_domain : "moodle.${local.public_ipv4}.nip.io"
+    var.moodle_domain != "" ? var.moodle_domain : "${var.nip_name}.${local.public_ipv4}.nip.io"
   )
 }
 
