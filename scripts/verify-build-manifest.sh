@@ -47,8 +47,9 @@ fi
 compose_tag=$(grep -E 'image:.*moodle-standard:' "$ROOT/docker-compose.yml" | head -1 | sed 's/.*://')
 check_eq "docker-compose tag" "$DOCKER_TAG" "$compose_tag"
 
-df_mdb=$(grep -E '^FROM mariadb:' "$ROOT/Dockerfile" | head -1 | awk '{print $2}')
-check_eq "Dockerfile MariaDB client" "mariadb:${MARIADB_CLIENT}" "$df_mdb"
+if ! grep -q "mariadb-client-core_${MARIADB_CLIENT}+maria~ubu2204" "$ROOT/Dockerfile"; then
+    err "Dockerfile MariaDB client: expected Ubuntu 22.04 ${MARIADB_CLIENT} binaries"
+fi
 
 if grep -qE 'public/admin/cli' "$ROOT/scripts/moodle-run.sh" "$ROOT/scripts/setup/moodle.sh" 2>/dev/null; then
     err "Scripts reference wrong CLI path public/admin/cli (Moodle 5.2 uses admin/cli at root)"

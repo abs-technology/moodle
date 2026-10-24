@@ -204,21 +204,26 @@ RUN cd /opt/moodle-source \
     && rm -rf /root/.composer/cache \
     && { find /opt/moodle-source/vendor -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true; }
 
-# Client binaries from the official server image. Debian's mariadb packages stay
-# flagged by Scout for CVE-2026-92262 and CVE-2026-85746 (no fixed bookworm version),
-# including 11.8.9 from dlm.mariadb.com. These two binaries are the 11.8.9 client
-# and are not registered as a Debian package. SQL still goes through PHP mysqli.
-FROM mariadb:11.8.9 AS mariadb-client
-
 # ================================
 # Final stage
 # ================================
 FROM base AS final
 
-COPY --from=mariadb-client /usr/bin/mariadb-dump /usr/local/bin/mariadb-dump
-COPY --from=mariadb-client /usr/bin/mariadb /usr/local/bin/mariadb
-RUN ln -sf mariadb /usr/local/bin/mysql \
+# Debian 12 cannot run the Ubuntu 24.04 mariadb:11.8.9 binaries (glibc 2.38).
+# Ubuntu 22.04 11.8.9 client debs run here and are not registered with dpkg, so
+# Scout does not keep CVE-2026-92262 and CVE-2026-85746 on debian/mariadb.
+RUN arch="$(dpkg --print-architecture)" \
+    && base="https://dlm.mariadb.com/repo/mariadb-server/11.8/repo/ubuntu/pool/main/m/mariadb" \
+    && curl -fsSL -o /tmp/mariadb-client-core.deb "${base}/mariadb-client-core_11.8.9+maria~ubu2204_${arch}.deb" \
+    && curl -fsSL -o /tmp/mariadb-client.deb "${base}/mariadb-client_11.8.9+maria~ubu2204_${arch}.deb" \
+    && mkdir -p /tmp/mdb \
+    && dpkg-deb -x /tmp/mariadb-client-core.deb /tmp/mdb \
+    && dpkg-deb -x /tmp/mariadb-client.deb /tmp/mdb \
+    && install -m 755 /tmp/mdb/usr/bin/mariadb /usr/local/bin/mariadb \
+    && install -m 755 /tmp/mdb/usr/bin/mariadb-dump /usr/local/bin/mariadb-dump \
+    && ln -sf mariadb /usr/local/bin/mysql \
     && ln -sf mariadb-dump /usr/local/bin/mysqldump \
+    && rm -rf /tmp/mdb /tmp/mariadb-client.deb /tmp/mariadb-client-core.deb \
     && mariadb --version | grep -q 'from 11.8.9-MariaDB' \
     && mariadb-dump --version | grep -q 'from 11.8.9-MariaDB' \
     && ! dpkg-query -W | grep -E '^(mariadb|libmariadb|mysql-common)'

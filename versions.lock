@@ -9,6 +9,7 @@ MOODLE_LAYOUT := 5
 PHP_VERSION := 8.4
 # Sury php8.4 slot. 8.4.27 fixes CVE-2026-109618 and CVE-2026-109619.
 PHP_RELEASE := 8.4.27
-# Client binaries are copied from mariadb:11.8.9. Do not apt-install Debian mariadb.
+# Ubuntu 22.04 client binaries (glibc 2.35). Debian 12 cannot run mariadb:11.8.9 (Ubuntu 24.04).
+# Do not apt-install Debian mariadb; Scout still flags that source package.
 MARIADB_CLIENT := 11.8.9
 DOCKER_TAG := 5.2.3-r2
