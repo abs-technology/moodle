@@ -30,7 +30,7 @@ Until that scan: `make push` still gates on **fixable** C/H only. Raw criticals 
 
 **Not in this list:** PHP (Sury), the MariaDB client, Composer app deps (Guzzle/AWS are pinned in the Dockerfile for *fixable* highs).
 
-Debian 13 still ships MariaDB **11.8.6**, which is vulnerable to CVE-2026-92262 and CVE-2026-85746 (fixed upstream in **11.8.9**). The Moodle image installs `mariadb-client` **11.8.9** from `dlm.mariadb.com`. The database container is already `mariadb:11.8.9`. Both CVEs are server bugs; the client pin is what clears them on the Moodle image scan.
+Debian 13 still ships MariaDB **11.8.6**. CVE-2026-92262 and CVE-2026-85746 are fixed upstream in **11.8.9**, but Debian's tracker has no fixed trixie version, so Scout marks every Debian `mariadb` package vulnerable (including `1:11.8.9+maria~deb13`). The Moodle image does not install that package. It copies `mariadb` and `mariadb-dump` from `mariadb:11.8.9`, the same build as the database container. Both CVEs are server bugs (`#mysql50#` table names and `ST_AsText`).
 
 ## Monitor and rebuild when Debian ships fixes
 
