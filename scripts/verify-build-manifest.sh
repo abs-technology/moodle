@@ -51,6 +51,10 @@ if ! grep -q "mariadb-client-core_${MARIADB_CLIENT}+maria~ubu2204" "$ROOT/Docker
     err "Dockerfile MariaDB client: expected Ubuntu 22.04 ${MARIADB_CLIENT} binaries"
 fi
 
+if ! grep -q 'freexian12.1+php' "$ROOT/Dockerfile"; then
+    err "Dockerfile PHP arm64: expected freexian12 PHP ${PHP_RELEASE} packages"
+fi
+
 if grep -qE 'public/admin/cli' "$ROOT/scripts/moodle-run.sh" "$ROOT/scripts/setup/moodle.sh" 2>/dev/null; then
     err "Scripts reference wrong CLI path public/admin/cli (Moodle 5.2 uses admin/cli at root)"
 fi

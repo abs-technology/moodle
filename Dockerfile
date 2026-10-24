@@ -35,29 +35,12 @@ RUN echo "deb http://security.debian.org/ bookworm-security main contrib non-fre
         > /etc/apt/preferences.d/php-release \
     && apt-get update
 
+# amd64: Sury bookworm publishes PHP 8.4.27, so the pin above selects it.
+# arm64: that index still ships php8.4-cli 8.4.26. The freexian12 packages in
+# the same pool are 8.4.27 built against Debian 12 libraries (libicu72, libgd3).
 RUN apt-get install -y --no-install-recommends \
     apache2 \
     apache2-utils \
-    php${PHP_VERSION} \
-    libapache2-mod-php${PHP_VERSION} \
-    php${PHP_VERSION}-fpm \
-    php${PHP_VERSION}-mysql \
-    php${PHP_VERSION}-mysqlnd \
-    php${PHP_VERSION}-cli \
-    php${PHP_VERSION}-common \
-    php${PHP_VERSION}-curl \
-    php${PHP_VERSION}-gd \
-    php${PHP_VERSION}-intl \
-    php${PHP_VERSION}-mbstring \
-    php${PHP_VERSION}-xml \
-    php${PHP_VERSION}-zip \
-    php${PHP_VERSION}-soap \
-    php${PHP_VERSION}-opcache \
-    php${PHP_VERSION}-mysqli \
-    php${PHP_VERSION}-pdo \
-    php${PHP_VERSION}-pdo-mysql \
-    php${PHP_VERSION}-apcu \
-    php${PHP_VERSION}-imagick \
     imagemagick \
     libapache2-mod-security2 \
     modsecurity-crs \
@@ -72,8 +55,78 @@ RUN apt-get install -y --no-install-recommends \
     git \
     unzip \
     libcap2-bin \
+    && arch="$(dpkg --print-architecture)" \
+    && if [ "$arch" = "amd64" ]; then \
+        apt-get install -y --no-install-recommends \
+            php${PHP_VERSION} \
+            libapache2-mod-php${PHP_VERSION} \
+            php${PHP_VERSION}-fpm \
+            php${PHP_VERSION}-mysql \
+            php${PHP_VERSION}-mysqlnd \
+            php${PHP_VERSION}-cli \
+            php${PHP_VERSION}-common \
+            php${PHP_VERSION}-curl \
+            php${PHP_VERSION}-gd \
+            php${PHP_VERSION}-intl \
+            php${PHP_VERSION}-mbstring \
+            php${PHP_VERSION}-xml \
+            php${PHP_VERSION}-zip \
+            php${PHP_VERSION}-soap \
+            php${PHP_VERSION}-opcache \
+            php${PHP_VERSION}-mysqli \
+            php${PHP_VERSION}-pdo \
+            php${PHP_VERSION}-pdo-mysql \
+            php${PHP_VERSION}-apcu \
+            php${PHP_VERSION}-imagick; \
+    else \
+        apt-get install -y --no-install-recommends php-common ucf \
+        && ver="${PHP_RELEASE}-1+freexian12.1+php+1" \
+        && base="https://packages.sury.org/php/pool/main/p/php${PHP_VERSION}" \
+        && mkdir -p /tmp/phpdebs \
+        && for pkg in \
+            php${PHP_VERSION}-common \
+            php${PHP_VERSION}-opcache \
+            php${PHP_VERSION}-readline \
+            php${PHP_VERSION}-cli \
+            libapache2-mod-php${PHP_VERSION} \
+            php${PHP_VERSION}-fpm \
+            php${PHP_VERSION}-mysql \
+            php${PHP_VERSION}-curl \
+            php${PHP_VERSION}-gd \
+            php${PHP_VERSION}-intl \
+            php${PHP_VERSION}-mbstring \
+            php${PHP_VERSION}-xml \
+            php${PHP_VERSION}-zip \
+            php${PHP_VERSION}-soap; do \
+            curl -fsSL -o "/tmp/phpdebs/${pkg}.deb" "${base}/${pkg}_${ver}_${arch}.deb"; \
+        done \
+        && dpkg -i /tmp/phpdebs/*.deb || apt-get install -y -f --no-install-recommends \
+        && dpkg-query -W "php${PHP_VERSION}-cli" | grep -q "${PHP_RELEASE}" \
+        && apt-mark hold \
+            php${PHP_VERSION}-common \
+            php${PHP_VERSION}-cli \
+            php${PHP_VERSION}-opcache \
+            php${PHP_VERSION}-readline \
+            libapache2-mod-php${PHP_VERSION} \
+            php${PHP_VERSION}-fpm \
+            php${PHP_VERSION}-mysql \
+            php${PHP_VERSION}-curl \
+            php${PHP_VERSION}-gd \
+            php${PHP_VERSION}-intl \
+            php${PHP_VERSION}-mbstring \
+            php${PHP_VERSION}-xml \
+            php${PHP_VERSION}-zip \
+            php${PHP_VERSION}-soap \
+        && apt-get install -y --no-install-recommends \
+            php${PHP_VERSION} \
+            php${PHP_VERSION}-apcu \
+            php${PHP_VERSION}-imagick \
+        && rm -rf /tmp/phpdebs; \
+    fi \
     && apt-get upgrade -y \
     && test "$(php -r 'echo PHP_VERSION;')" = "$PHP_RELEASE" \
+    && php -m | grep -qx imagick \
+    && php -m | grep -qx mysqli \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
