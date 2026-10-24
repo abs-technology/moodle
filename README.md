@@ -12,7 +12,7 @@
 
 <p>
   <img src="https://img.shields.io/badge/Moodle-5.3.0-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
-  <img src="https://img.shields.io/badge/Image-5.3.0--r3-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Image Tag"/>
+  <img src="https://img.shields.io/badge/Image-5.3.0--r4-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Image Tag"/>
   <img src="https://img.shields.io/badge/PHP-8.4.27-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
   <img src="https://img.shields.io/badge/MariaDB-11.8.9-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
   <img src="https://img.shields.io/badge/License-GPL_v3-blue.svg?style=for-the-badge" alt="License"/>
@@ -37,7 +37,7 @@ chown -R 1000:1000 data/moodle data/moodledata
 docker compose up -d
 ```
 
-Current stack pin: **Moodle 5.3.0** (LTS) · image **`abstechnology/moodle-standard:5.3.0-r3`** · **PHP 8.4.27** · base **`debian:13-slim`** · compose MariaDB **11.8.9**. Version source of truth: [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock). Live VMs keep the image they were created with.
+Current stack pin: **Moodle 5.3.0** (LTS) · image **`abstechnology/moodle-standard:5.3.0-r4`** · **PHP 8.4.27** · base **`debian:13-slim`** · compose MariaDB **11.8.9**. Version source of truth: [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock). Live VMs keep the image they were created with.
 
 GKE (Cloud SQL MySQL 8.4, Global ALB) is a **separate** stack: [`gke-moodle/`](gke-moodle/README.md). Terraform there is **infra only**; Moodle is Helm by hand. It does not use `terraform/` VM deployments.
 
@@ -125,7 +125,7 @@ GKE (Cloud SQL MySQL 8.4, Global ALB) is a **separate** stack: [`gke-moodle/`](g
 <img src="https://img.shields.io/badge/Production-Ready-success?style=for-the-badge" alt="Production Ready"/>
 
 **Latest Technology Stack**
-- 🚀 **Moodle 5.3.0** - Current LTS pin (`5.3.0-r3` image, Debian 13)
+- 🚀 **Moodle 5.3.0** - Current LTS pin (`5.3.0-r4` image, Debian 13)
 - 🐘 **PHP 8.4** - Performance boost
 - 🗄️ **MariaDB 11.8.9** - Compose database pin
 - 🔒 **Security Hardened** - Non-root execution · Scout gate on push
@@ -243,9 +243,9 @@ GKE (Cloud SQL MySQL 8.4, Global ALB) is a **separate** stack: [`gke-moodle/`](g
 
 ## Supported Tags and Respective `Dockerfile` Links
 
-* [`5.3.0-r3`](https://github.com/abs-technology/moodle/blob/main/Dockerfile) — current image. `5.3.0`, `5.3.0-r1` and `5.3.0-r2` stay published. `latest` was not moved.
+* [`5.3.0-r4`](https://github.com/abs-technology/moodle/blob/main/Dockerfile) — current image. `5.3.0`, `5.3.0-r1`, `5.3.0-r2` and `5.3.0-r3` stay published. `latest` was not moved.
 
-Pinned in [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock): Moodle **5.3.0** from [packaging.moodle.org stable503](https://packaging.moodle.org/stable503/moodle-5.3.tgz), PHP **8.4.27**, base **`debian:13-slim`**, Docker tag **`5.3.0-r3`**.
+Pinned in [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock): Moodle **5.3.0** from [packaging.moodle.org stable503](https://packaging.moodle.org/stable503/moodle-5.3.tgz), PHP **8.4.27**, base **`debian:13-slim`**, Docker tag **`5.3.0-r4`**.
 
 Multi-arch Hub image (`linux/amd64` + `linux/arm64`) is built locally with `make push`. Default **`ATTESTATIONS=none`** (no provenance/SBOM attach) for Marketplace-safe publishes. See [`docs/SECURITY-EXCEPTIONS.md`](docs/SECURITY-EXCEPTIONS.md) and [`docs/RELEASE-NOTES-POLICY.md`](docs/RELEASE-NOTES-POLICY.md).
 
@@ -273,7 +273,7 @@ $ docker pull abstechnology/moodle-standard:latest
 To use a specific version, you can pull a versioned tag:
 
 ```console
-$ docker pull abstechnology/moodle-standard:5.3.0-r3
+$ docker pull abstechnology/moodle-standard:5.3.0-r4
 ```
 
 ## How to Use This Image
@@ -331,7 +331,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-standard:5.3.0-r3
+  abstechnology/moodle-standard:5.3.0-r4
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -409,7 +409,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.3.0-r3
+    image: abstechnology/moodle-standard:5.3.0-r4
     container_name: abs-moodle
     restart: unless-stopped
     ports:
@@ -491,7 +491,7 @@ volumes:
 |---------|---------------|---------|
 | 🐘 **PHP Version** | 8.4 with OPcache | Current Moodle 5.3 runtime |
 | 🗄️ **Database** | MariaDB 11.8.9 (compose) | High-performance, MySQL-compatible |
-| 📦 **Image tag** | `5.3.0-r3` | Marketplace-oriented pin (see `versions.lock`) |
+| 📦 **Image tag** | `5.3.0-r4` | Marketplace-oriented pin (see `versions.lock`) |
 | 📁 **File Uploads** | Up to 2GB per file | Support large video/document uploads |
 | 🔄 **Cron Jobs** | Configurable (1-60 min) | Automated maintenance & notifications |
 
