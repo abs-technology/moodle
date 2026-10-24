@@ -36,7 +36,7 @@ RUN apt-get update \
     && wget -O /etc/apt/keyrings/mariadb-keyring-2025.gpg https://supplychain.mariadb.com/mariadb-keyring-2025.gpg \
     && printf 'Types: deb\nURIs: https://dlm.mariadb.com/repo/mariadb-server/11.8/repo/debian\nSuites: trixie\nComponents: main\nSigned-By: /etc/apt/keyrings/mariadb-keyring-2025.gpg\n' \
         > /etc/apt/sources.list.d/mariadb.sources \
-    && printf 'Package: mariadb-client mariadb-client-core mariadb-common\nPin: origin MariaDB\nPin-Priority: 1001\n' \
+    && printf 'Package: mariadb-client mariadb-client-core mariadb-common libmariadb3 mysql-common\nPin: origin MariaDB\nPin-Priority: 1001\n' \
         > /etc/apt/preferences.d/mariadb-client \
     && apt-get update
 
@@ -84,7 +84,7 @@ RUN apt-get install -y --no-install-recommends \
 RUN apt-get update \
     && apt-get upgrade -y \
     && test "$(php -r 'echo PHP_VERSION;')" = "$PHP_RELEASE" \
-    && dpkg-query -W -f '$${Version}\n' mariadb-client | grep -q '^1:11.8.9' \
+    && dpkg-query -W mariadb-client | grep -q '1:11.8.9' \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
