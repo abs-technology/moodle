@@ -12,7 +12,7 @@ SCOUT     := ./scripts/utils/docker-scout.sh
 IMG_FULL  := $(IMAGE):$(TAG)
 
 # Scout nhận BUILD_ARGS dạng "KEY=VAL KEY2=VAL2"
-BUILD_ARGS ?= MOODLE_VERSION=$(MOODLE_VERSION) MOODLE_RELEASE_PREFIX=$(MOODLE_RELEASE_PREFIX) MOODLE_DOWNLOAD_URL=$(MOODLE_DOWNLOAD_URL) PHP_VERSION=$(PHP_VERSION)
+BUILD_ARGS ?= MOODLE_VERSION=$(MOODLE_VERSION) MOODLE_RELEASE_PREFIX=$(MOODLE_RELEASE_PREFIX) MOODLE_DOWNLOAD_URL=$(MOODLE_DOWNLOAD_URL) PHP_VERSION=$(PHP_VERSION) PHP_RELEASE=$(PHP_RELEASE)
 
 # Gate arch = native host (tránh QEMU chậm khi scan)
 HOST_ARCH := $(shell uname -m)
@@ -53,6 +53,7 @@ build: ## Build local 1 arch (--no-cache, test nhanh)
 		--build-arg MOODLE_RELEASE_PREFIX=$(MOODLE_RELEASE_PREFIX) \
 		--build-arg MOODLE_DOWNLOAD_URL=$(MOODLE_DOWNLOAD_URL) \
 		--build-arg PHP_VERSION=$(PHP_VERSION) \
+		--build-arg PHP_RELEASE=$(PHP_RELEASE) \
 		-t $(IMG_FULL) .
 
 push: ## Scout gate + multi-arch push (1 image — Hub & Marketplace)

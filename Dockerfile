@@ -4,6 +4,7 @@ ARG MOODLE_VERSION=5.3.0
 ARG MOODLE_RELEASE_PREFIX=5.3
 ARG MOODLE_DOWNLOAD_URL=https://packaging.moodle.org/stable503/moodle-5.3.tgz
 ARG PHP_VERSION=8.4
+ARG PHP_RELEASE=8.4.27
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
 ARG APP_GROUP=absiuser
@@ -28,6 +29,9 @@ RUN apt-get update \
     gnupg2 \
     && wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg \
     && echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list \
+    && printf 'Package: php%s*\nPin: version %s*\nPin-Priority: 1001\n\nPackage: libapache2-mod-php%s\nPin: version %s*\nPin-Priority: 1001\n' \
+        "$PHP_VERSION" "$PHP_RELEASE" "$PHP_VERSION" "$PHP_RELEASE" \
+        > /etc/apt/preferences.d/php-release \
     && apt-get update
 
 RUN apt-get install -y --no-install-recommends \
@@ -73,6 +77,7 @@ RUN apt-get install -y --no-install-recommends \
 # trixie ships libssl3t64, not libssl3. A full upgrade picks the current names.
 RUN apt-get update \
     && apt-get upgrade -y \
+    && test "$(php -r 'echo PHP_VERSION;')" = "$PHP_RELEASE" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
