@@ -4,6 +4,7 @@ ARG MOODLE_VERSION=5.2.3
 ARG MOODLE_RELEASE_PREFIX=5.2.3
 ARG MOODLE_DOWNLOAD_URL=https://packaging.moodle.org/stable502/moodle-5.2.3.tgz
 ARG PHP_VERSION=8.4
+ARG PHP_RELEASE=8.4.27
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
 ARG APP_GROUP=absiuser
@@ -29,6 +30,9 @@ RUN echo "deb http://security.debian.org/ bookworm-security main contrib non-fre
     gnupg2 \
     && wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg \
     && echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list \
+    && printf 'Package: php%s*\nPin: version %s*\nPin-Priority: 1001\n\nPackage: libapache2-mod-php%s\nPin: version %s*\nPin-Priority: 1001\n' \
+        "$PHP_VERSION" "$PHP_RELEASE" "$PHP_VERSION" "$PHP_RELEASE" \
+        > /etc/apt/preferences.d/php-release \
     && apt-get update
 
 RUN apt-get install -y --no-install-recommends \
@@ -59,7 +63,8 @@ RUN apt-get install -y --no-install-recommends \
     modsecurity-crs \
     cron \
     locales \
-    mariadb-client \
+    libedit2 \
+    libncurses6 \
     curl \
     acl \
     ssl-cert \
@@ -68,6 +73,7 @@ RUN apt-get install -y --no-install-recommends \
     unzip \
     libcap2-bin \
     && apt-get upgrade -y \
+    && test "$(php -r 'echo PHP_VERSION;')" = "$PHP_RELEASE" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -81,6 +87,7 @@ RUN apt-get update \
         dpkg \
     && dpkg-query -W -f='${Package} ${Version}\n' \
         openssl libssl3 libnghttp2-14 modsecurity-crs locales dpkg \
+    && test "$(php -r 'echo PHP_VERSION;')" = "$PHP_RELEASE" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -197,10 +204,24 @@ RUN cd /opt/moodle-source \
     && rm -rf /root/.composer/cache \
     && { find /opt/moodle-source/vendor -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true; }
 
+# Client binaries from the official server image. Debian's mariadb packages stay
+# flagged by Scout for CVE-2026-92262 and CVE-2026-85746 (no fixed bookworm version),
+# including 11.8.9 from dlm.mariadb.com. These two binaries are the 11.8.9 client
+# and are not registered as a Debian package. SQL still goes through PHP mysqli.
+FROM mariadb:11.8.9 AS mariadb-client
+
 # ================================
 # Final stage
 # ================================
 FROM base AS final
+
+COPY --from=mariadb-client /usr/bin/mariadb-dump /usr/local/bin/mariadb-dump
+COPY --from=mariadb-client /usr/bin/mariadb /usr/local/bin/mariadb
+RUN ln -sf mariadb /usr/local/bin/mysql \
+    && ln -sf mariadb-dump /usr/local/bin/mysqldump \
+    && mariadb --version | grep -q 'from 11.8.9-MariaDB' \
+    && mariadb-dump --version | grep -q 'from 11.8.9-MariaDB' \
+    && ! dpkg-query -W | grep -E '^(mariadb|libmariadb|mysql-common)'
 
 ARG MOODLE_VERSION
 ARG MOODLE_RELEASE_PREFIX

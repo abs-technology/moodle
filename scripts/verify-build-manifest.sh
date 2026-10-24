@@ -30,11 +30,13 @@ check_eq() {
 df_moodle=$(grep -E '^ARG MOODLE_VERSION=' "$ROOT/Dockerfile" | head -1 | cut -d= -f2)
 df_prefix=$(grep -E '^ARG MOODLE_RELEASE_PREFIX=' "$ROOT/Dockerfile" | head -1 | cut -d= -f2)
 df_php=$(grep -E '^ARG PHP_VERSION=' "$ROOT/Dockerfile" | head -1 | cut -d= -f2)
+df_php_release=$(grep -E '^ARG PHP_RELEASE=' "$ROOT/Dockerfile" | head -1 | cut -d= -f2)
 df_url=$(grep -E '^ARG MOODLE_DOWNLOAD_URL=' "$ROOT/Dockerfile" | head -1 | cut -d= -f2-)
 
 check_eq "Dockerfile MOODLE_VERSION" "$MOODLE_VERSION" "$df_moodle"
 check_eq "Dockerfile MOODLE_RELEASE_PREFIX" "$MOODLE_RELEASE_PREFIX" "$df_prefix"
 check_eq "Dockerfile PHP_VERSION" "$PHP_VERSION" "$df_php"
+check_eq "Dockerfile PHP_RELEASE" "${PHP_RELEASE:-}" "$df_php_release"
 check_eq "Dockerfile MOODLE_DOWNLOAD_URL" "$MOODLE_DOWNLOAD_URL" "$df_url"
 
 mk_tag=$(grep -E '^TAG\s+\?=' "$ROOT/Makefile" | head -1 | awk '{print $3}')
@@ -45,12 +47,15 @@ fi
 compose_tag=$(grep -E 'image:.*moodle-standard:' "$ROOT/docker-compose.yml" | head -1 | sed 's/.*://')
 check_eq "docker-compose tag" "$DOCKER_TAG" "$compose_tag"
 
+df_mdb=$(grep -E '^FROM mariadb:' "$ROOT/Dockerfile" | head -1 | awk '{print $2}')
+check_eq "Dockerfile MariaDB client" "mariadb:${MARIADB_CLIENT}" "$df_mdb"
+
 if grep -qE 'public/admin/cli' "$ROOT/scripts/moodle-run.sh" "$ROOT/scripts/setup/moodle.sh" 2>/dev/null; then
     err "Scripts reference wrong CLI path public/admin/cli (Moodle 5.2 uses admin/cli at root)"
 fi
 
 if (( errors == 0 )); then
-    echo "OK: build manifest consistent (Moodle ${MOODLE_VERSION}, PHP ${PHP_VERSION}, tag ${DOCKER_TAG})"
+    echo "OK: build manifest consistent (Moodle ${MOODLE_VERSION}, PHP ${PHP_RELEASE:-$PHP_VERSION}, tag ${DOCKER_TAG})"
     exit 0
 fi
 
