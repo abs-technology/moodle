@@ -1,0 +1,90 @@
+#!/bin/bash
+#
+# Copyright 2024 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Common utilities for GCP Marketplace deployments
+
+function get_metadata_value() {
+  curl --retry 2 \
+    --connect-timeout 2 \
+    --max-time 5 \
+    -s \
+    -f \
+    -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/$1"
+}
+
+function get_attribute_value() {
+  get_metadata_value "instance/attributes/$1"
+}
+
+function get_project_id() {
+  get_metadata_value "project/project-id"
+}
+
+function get_zone() {
+  get_metadata_value "instance/zone" | cut -d/ -f4
+}
+
+function get_instance_name() {
+  get_metadata_value "instance/name"
+}
+
+function get_internal_ip() {
+  get_metadata_value "instance/network-interfaces/0/ip"
+}
+
+function get_external_ip() {
+  get_metadata_value "instance/network-interfaces/0/access-configs/0/external-ip"
+}
+
+function has_external_ip() {
+  if [[ -z "$(get_external_ip)" ]]; then
+    false
+  else
+    true
+  fi
+}
+
+function log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+function log_error() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+}
+
+function log_success() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $*"
+}
+
+function wait_for_metadata() {
+  local max_attempts=30
+  local attempt=0
+
+  while [ $attempt -lt $max_attempts ]; do
+    if get_project_id &>/dev/null; then
+      log_success "Metadata server is available"
+      return 0
+    fi
+
+    log "Waiting for metadata server... (attempt $((attempt + 1))/$max_attempts)"
+    sleep 2
+    attempt=$((attempt + 1))
+  done
+
+  log_error "Metadata server not available after $max_attempts attempts"
+  return 1
+}

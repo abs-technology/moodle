@@ -82,3 +82,9 @@ variable "timezone" {
   type        = string
   default     = "Asia/Ho_Chi_Minh"
 }
+
+variable "install_marketplace" {
+  description = "Install script_marketplace and enable google-marketplace-moodle.service. GCP only; the scripts read the GCP metadata server."
+  type        = bool
+  default     = false
+}

@@ -13,6 +13,13 @@ output "script" {
     extra_bootstrap  = var.extra_bootstrap
     timezone         = var.timezone
     compose_up_extra = var.compose_up_extra
-    issue_acm_cert   = var.issue_acm_cert
+    issue_acm_cert       = var.issue_acm_cert
+    install_marketplace  = var.install_marketplace
+    mp_install       = file("${path.module}/../../../script_marketplace/install.sh")
+    mp_configure     = file("${path.module}/../../../script_marketplace/01-configure-moodle.sh")
+    mp_c2d_utils     = file("${path.module}/../../../script_marketplace/lib/c2d-utils")
+    mp_admin         = file("${path.module}/../../../script_marketplace/lib/marketplace-admin.sh")
+    mp_startup       = file("${path.module}/../../../script_marketplace/lib/startup-script.sh")
+    mp_installer     = file("${path.module}/../../../script_marketplace/lib/install-marketplace.sh")
   })
 }

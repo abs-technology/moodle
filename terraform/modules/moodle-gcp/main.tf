@@ -167,6 +167,7 @@ module "bootstrap" {
   mariadb_root_password = random_password.mariadb_root.result
   mariadb_password      = random_password.mariadb_user.result
   timezone              = var.timezone
+  install_marketplace   = true
 }
 
 resource "google_compute_instance" "moodle" {

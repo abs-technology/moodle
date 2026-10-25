@@ -98,6 +98,38 @@ chmod 0755 /usr/local/sbin/issue-acm-cert.sh
 
 cd /opt/moodle
 docker compose ${compose_up_extra} up -d
+
+%{ if install_marketplace ~}
+# GCP Marketplace first-boot service. Reads the GCP metadata server, so AWS
+# user_data does not install it. Enabled for later boots; this start covers
+# the boot that installs it.
+install -d /opt/absi/script_marketplace/lib
+cat >/opt/absi/script_marketplace/install.sh <<'ABSI_EOF_MP_INSTALL'
+${mp_install}
+ABSI_EOF_MP_INSTALL
+cat >/opt/absi/script_marketplace/01-configure-moodle.sh <<'ABSI_EOF_MP_CONFIGURE'
+${mp_configure}
+ABSI_EOF_MP_CONFIGURE
+cat >/opt/absi/script_marketplace/lib/c2d-utils <<'ABSI_EOF_MP_C2D'
+${mp_c2d_utils}
+ABSI_EOF_MP_C2D
+cat >/opt/absi/script_marketplace/lib/marketplace-admin.sh <<'ABSI_EOF_MP_ADMIN'
+${mp_admin}
+ABSI_EOF_MP_ADMIN
+cat >/opt/absi/script_marketplace/lib/startup-script.sh <<'ABSI_EOF_MP_STARTUP'
+${mp_startup}
+ABSI_EOF_MP_STARTUP
+cat >/opt/absi/script_marketplace/lib/install-marketplace.sh <<'ABSI_EOF_MP_INSTALLER'
+${mp_installer}
+ABSI_EOF_MP_INSTALLER
+chmod 0755 /opt/absi/script_marketplace/install.sh \
+  /opt/absi/script_marketplace/01-configure-moodle.sh \
+  /opt/absi/script_marketplace/lib/c2d-utils \
+  /opt/absi/script_marketplace/lib/marketplace-admin.sh \
+  /opt/absi/script_marketplace/lib/startup-script.sh \
+  /opt/absi/script_marketplace/lib/install-marketplace.sh
+bash /opt/absi/script_marketplace/install.sh
+%{ endif ~}
 %{ if issue_acm_cert != "" ~}
 if [ -f /etc/systemd/system/absi-alb-acme.timer ]; then
   systemctl daemon-reload

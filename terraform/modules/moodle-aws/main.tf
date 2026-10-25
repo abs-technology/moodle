@@ -346,6 +346,7 @@ module "bootstrap" {
   compose_up_extra      = local.alb_use_import ? "--profile aws-le" : ""
   issue_acm_cert        = local.alb_use_import ? file("${path.module}/../../../examples/alb/issue-acm-cert.sh") : ""
   timezone              = var.timezone
+  install_marketplace   = false
 }
 
 resource "aws_instance" "moodle" {
