@@ -55,6 +55,14 @@ if ! grep -q 'freexian12.1+php' "$ROOT/Dockerfile"; then
     err "Dockerfile PHP arm64: expected freexian12 PHP ${PHP_RELEASE} packages"
 fi
 
+if ! grep -q 'httpd-2.4.69' "$ROOT/scripts/build-cve-overlay.sh"; then
+    err "Apache overlay: expected httpd 2.4.69"
+fi
+
+if ! grep -q 'tiff-4.7.2' "$ROOT/scripts/build-cve-overlay.sh"; then
+    err "libtiff overlay: expected tiff 4.7.2"
+fi
+
 if grep -qE 'public/admin/cli' "$ROOT/scripts/moodle-run.sh" "$ROOT/scripts/setup/moodle.sh" 2>/dev/null; then
     err "Scripts reference wrong CLI path public/admin/cli (Moodle 5.2 uses admin/cli at root)"
 fi

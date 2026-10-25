@@ -12,4 +12,6 @@ PHP_RELEASE := 8.4.27
 # Ubuntu 22.04 client binaries (glibc 2.35). Debian 12 cannot run mariadb:11.8.9 (Ubuntu 24.04).
 # Do not apt-install Debian mariadb; Scout still flags that source package.
 MARIADB_CLIENT := 11.8.9
-DOCKER_TAG := 5.2.3-r2
+# Apache 2.4.69 and libtiff 4.7.2 are built in scripts/build-cve-overlay.sh.
+# Bookworm's apache2 2.4.68 and tiff 4.5.0 have no Debian fix.
+DOCKER_TAG := 5.2.3-r3
