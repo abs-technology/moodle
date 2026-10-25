@@ -154,6 +154,10 @@ RUN curl -fsSL "$MOODLE_DOWNLOAD_URL" -o /tmp/moodle.tgz \
     && find /opt/moodle-source -type d -exec chmod 755 {} + \
     && find /opt/moodle-source -type f -exec chmod 644 {} +
 
+# Moodle 4.3.12 vendors PhpSpreadsheet 1.29.0 (fixable critical CVEs).
+COPY scripts/upgrade-phpspreadsheet.sh /tmp/upgrade-phpspreadsheet.sh
+RUN bash /tmp/upgrade-phpspreadsheet.sh && rm -f /tmp/upgrade-phpspreadsheet.sh
+
 # ================================
 # Final stage
 # ================================
