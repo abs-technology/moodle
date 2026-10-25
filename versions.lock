@@ -1,0 +1,18 @@
+# versions.lock — pinned build manifest (moodle-core-4-3-12)
+# Single source of truth. Change here, then rebuild.
+
+MOODLE_VERSION := 4.3.12
+MOODLE_RELEASE_PREFIX := 4.3.12
+MOODLE_STABLE_BRANCH := stable403
+MOODLE_DOWNLOAD_URL := https://packaging.moodle.org/stable403/moodle-4.3.12.tgz
+MOODLE_LAYOUT := 4
+PHP_VERSION := 8.2
+# Debian 12 bookworm-security php8.2. 8.2.35 fixes CVE-2026-109618 and CVE-2026-109619.
+# Moodle 4.3 does not support PHP 8.3 or 8.4.
+PHP_RELEASE := 8.2.35
+# Ubuntu 22.04 client binaries (glibc 2.35). Debian 12 cannot run mariadb:11.8.9 (Ubuntu 24.04).
+# Do not apt-install Debian mariadb; Scout still flags that source package.
+MARIADB_CLIENT := 11.8.9
+# Apache 2.4.69 and libtiff 4.7.2 are built in scripts/build-cve-overlay.sh.
+# Bookworm's apache2 2.4.68 and tiff 4.5.0 have no Debian fix.
+DOCKER_TAG := 4.3.12-r1

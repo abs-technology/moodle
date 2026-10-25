@@ -11,9 +11,9 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Moodle-5.0.1-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
-  <img src="https://img.shields.io/badge/PHP-8.2-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
-  <img src="https://img.shields.io/badge/MariaDB-11.7.2-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
+  <img src="https://img.shields.io/badge/Moodle-4.3.12-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
+  <img src="https://img.shields.io/badge/PHP-8.2.35-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
+  <img src="https://img.shields.io/badge/MariaDB-11.8.9-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
   <img src="https://img.shields.io/badge/License-GPL_v3-blue.svg?style=for-the-badge" alt="License"/>
 </p>
 
@@ -120,9 +120,9 @@ docker compose up -d
 <img src="https://img.shields.io/badge/Production-Ready-success?style=for-the-badge" alt="Production Ready"/>
 
 **Latest Technology Stack**
-- 🚀 **Moodle 5.0.1** - Latest features
-- 🐘 **PHP 8.2** - Performance boost
-- 🗄️ **MariaDB 11.7.2** - Optimized database
+- 🚀 **Moodle 4.3.12** - Current pin (`4.3.12-r1` image)
+- 🐘 **PHP 8.2.35** - Security release
+- 🗄️ **MariaDB 11.8.9** - Client in the image, server in compose
 - 🔒 **Security Hardened** - Non-root execution
 - ⚡ **OPcache Enabled** - 3x faster performance
 
@@ -238,7 +238,7 @@ docker compose up -d
 
 ## Supported Tags and Respective `Dockerfile` Links
 
-* [`5.0.1`, `5.0`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
+* [`4.3.12-r1`](https://github.com/abs-technology/moodle/blob/moodle-core-4-3-12/Dockerfile) — current image. `latest` was not moved.
 
 **Subscribe to project updates by watching the [ABS Technology Moodle GitHub repo](https://github.com/abs-technology/moodle).**
 
@@ -258,13 +258,7 @@ docker compose up -d
 The recommended way to get the ABS Technology Moodle Docker Image is to pull the prebuilt image from the Docker Hub Registry.
 
 ```console
-$ docker pull abstechnology/moodle-standard:latest
-```
-
-To use a specific version, you can pull a versioned tag:
-
-```console
-$ docker pull abstechnology/moodle-standard:5.0.1
+$ docker pull abstechnology/moodle-standard:4.3.12-r1
 ```
 
 ## How to Use This Image
@@ -321,7 +315,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-standard:5.0.1
+  abstechnology/moodle-standard:4.3.12-r1
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -369,7 +363,7 @@ version: '3.8'
 
 services:
   mariadb:
-    image: mariadb:11.7.2
+    image: mariadb:11.8.9
     environment:
       - MARIADB_ROOT_PASSWORD=YourStrongRootPassword
       - MARIADB_USER=moodle_user
@@ -379,7 +373,7 @@ services:
       - mariadb_data:/var/lib/mysql
 
   moodle:
-    image: abstechnology/moodle-standard:5.0.1
+    image: abstechnology/moodle-standard:4.3.12-r1
     ports:
       - "80:8080"
       - "443:8443"
@@ -443,7 +437,7 @@ The image includes SSL support with self-signed certificates for development. Fo
 $ docker run -d --name moodle \
   -v /path/to/your/cert.pem:/etc/ssl/certs/server.crt \
   -v /path/to/your/key.pem:/etc/ssl/private/server.key \
-  abstechnology/moodle-standard:latest
+  abstechnology/moodle-standard:4.3.12-r1
 ```
 
 ### Password Security

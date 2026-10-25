@@ -1,8 +1,17 @@
+# syntax=docker/dockerfile:1
+
+FROM debian:12-slim AS cve-overlay
+COPY scripts/build-cve-overlay.sh /tmp/build-cve-overlay.sh
+RUN bash /tmp/build-cve-overlay.sh
+
 # Multi-stage build for optimization
 FROM debian:12-slim AS base
 
 ARG MOODLE_VERSION=4.3.12
+ARG MOODLE_RELEASE_PREFIX=4.3.12
+ARG MOODLE_DOWNLOAD_URL=https://packaging.moodle.org/stable403/moodle-4.3.12.tgz
 ARG PHP_VERSION=8.2
+ARG PHP_RELEASE=8.2.35
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
 ARG APP_GROUP=absiuser
@@ -15,25 +24,20 @@ ENV PHP_VERSION=$PHP_VERSION
 ENV APP_USER=$APP_USER
 ENV APP_GROUP=$APP_GROUP
 
-# Add Sury repository for latest PHP versions
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    lsb-release \
-    wget \
-    && wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg \
-    && echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list \
-    && apt-get update
-
-# Installation packages: Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, required PHP modules
-# Ensure all necessary dependencies are installed
-RUN apt-get install -y --no-install-recommends \
+# Debian 12 bookworm-security ships PHP 8.2.35 (CVE-2026-109618, CVE-2026-109619)
+# for both amd64 and arm64. Moodle 4.3 does not run on PHP 8.3 or 8.4.
+# Do not apt-install mariadb-client: Scout flags every bookworm mariadb package.
+RUN apt-get update \
+    && printf 'Package: php%s*\nPin: version %s*\nPin-Priority: 1001\n\nPackage: libapache2-mod-php%s\nPin: version %s*\nPin-Priority: 1001\n' \
+        "$PHP_VERSION" "$PHP_RELEASE" "$PHP_VERSION" "$PHP_RELEASE" \
+        > /etc/apt/preferences.d/php-release \
+    && apt-get install -y --no-install-recommends \
     apache2 \
     apache2-utils \
     php${PHP_VERSION} \
     libapache2-mod-php${PHP_VERSION} \
     php${PHP_VERSION}-fpm \
     php${PHP_VERSION}-mysql \
-    php${PHP_VERSION}-mysqlnd \
     php${PHP_VERSION}-cli \
     php${PHP_VERSION}-common \
     php${PHP_VERSION}-curl \
@@ -44,18 +48,42 @@ RUN apt-get install -y --no-install-recommends \
     php${PHP_VERSION}-zip \
     php${PHP_VERSION}-soap \
     php${PHP_VERSION}-opcache \
-    php${PHP_VERSION}-mysqli \
-    php${PHP_VERSION}-pdo \
-    php${PHP_VERSION}-pdo-mysql \
     cron \
     locales \
-    mariadb-client \
+    ca-certificates \
     curl \
     acl \
     ssl-cert \
     openssl \
+    libedit2 \
+    libncurses6 \
+    && test "$(php -r 'echo PHP_VERSION;')" = "$PHP_RELEASE" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# Ubuntu 22.04 11.8.9 client debs run on Debian 12 and are not registered with
+# dpkg, so Scout does not keep CVE-2026-92262 and CVE-2026-85746 on debian/mariadb.
+RUN arch="$(dpkg --print-architecture)" \
+    && base="https://dlm.mariadb.com/repo/mariadb-server/11.8/repo/ubuntu/pool/main/m/mariadb" \
+    && curl -fsSL -o /tmp/mariadb-client-core.deb "${base}/mariadb-client-core_11.8.9+maria~ubu2204_${arch}.deb" \
+    && curl -fsSL -o /tmp/mariadb-client.deb "${base}/mariadb-client_11.8.9+maria~ubu2204_${arch}.deb" \
+    && mkdir -p /tmp/mdb \
+    && dpkg-deb -x /tmp/mariadb-client-core.deb /tmp/mdb \
+    && dpkg-deb -x /tmp/mariadb-client.deb /tmp/mdb \
+    && install -m 755 /tmp/mdb/usr/bin/mariadb /usr/local/bin/mariadb \
+    && install -m 755 /tmp/mdb/usr/bin/mariadb-dump /usr/local/bin/mariadb-dump \
+    && ln -sf mariadb /usr/local/bin/mysql \
+    && ln -sf mariadb-dump /usr/local/bin/mysqldump \
+    && rm -rf /tmp/mdb /tmp/mariadb-client.deb /tmp/mariadb-client-core.deb \
+    && mariadb --version | grep -q 'from 11.8.9-MariaDB' \
+    && mariadb-dump --version | grep -q 'from 11.8.9-MariaDB' \
+    && ! dpkg-query -W | grep -E '^(mariadb|libmariadb|mysql-common)'
+
+# Debian 12 has no fixed apache2 or tiff package (Scout: affected range >0).
+# Overlay the upstream fixes, then drop the bookworm package records.
+COPY --from=cve-overlay /opt/overlay/ /
+COPY scripts/drop-bookworm-cve-packages.sh /tmp/drop-bookworm-cve-packages.sh
+RUN bash /tmp/drop-bookworm-cve-packages.sh && rm -f /tmp/drop-bookworm-cve-packages.sh
 
 # Configure locale for UTF-8 support
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
@@ -115,9 +143,11 @@ COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 # ================================
 FROM base AS moodle-downloader
 
+ARG MOODLE_DOWNLOAD_URL
+
 # Download and extract Moodle
 
-RUN curl -fsSL https://packaging.moodle.org/stable403/moodle-4.3.12.tgz -o /tmp/moodle.tgz \
+RUN curl -fsSL "$MOODLE_DOWNLOAD_URL" -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
