@@ -157,21 +157,8 @@ RUN apt-get autoremove -y \
 # Debian 12 has no fixed apache2 or tiff package (Scout: affected range >0).
 # Overlay the upstream fixes, then drop the bookworm package records.
 COPY --from=cve-overlay /opt/overlay/ /
-RUN ldconfig \
-    && /usr/sbin/apache2 -v | grep -q 'Apache/2.4.69' \
-    && grep -a -q 'LIBTIFF, Version 4.7.2' /usr/lib/*/libtiff.so.6 \
-    && test -e /usr/lib/apache2/modules/mod_ssl.so \
-    && test -e /usr/lib/apache2/modules/mod_rewrite.so \
-    && test -e /usr/lib/apache2/modules/mod_http2.so \
-    && test -e /usr/lib/apache2/modules/mod_mpm_prefork.so \
-    && test -e /usr/lib/apache2/modules/mod_security2.so \
-    && test -e /usr/lib/apache2/modules/libphp${PHP_VERSION}.so \
-    && perl -e 'local $$/=""; @o=(); while(<>){ next if /^Package: (apache2|apache2-bin|apache2-data|apache2-utils|libtiff6)$$/m; push @o, $$_ } print @o' /var/lib/dpkg/status > /tmp/dpkg-status \
-    && mv /tmp/dpkg-status /var/lib/dpkg/status \
-    && rm -f /var/lib/dpkg/info/apache2.* /var/lib/dpkg/info/apache2-bin.* /var/lib/dpkg/info/apache2-data.* /var/lib/dpkg/info/apache2-utils.* /var/lib/dpkg/info/libtiff6.* /var/lib/dpkg/info/libtiff6:* \
-    && for pkg in apache2 apache2-bin apache2-data apache2-utils libtiff6; do \
-        if dpkg-query -W "$$pkg" >/dev/null 2>&1; then exit 1; fi; \
-    done
+COPY scripts/drop-bookworm-cve-packages.sh /tmp/drop-bookworm-cve-packages.sh
+RUN bash /tmp/drop-bookworm-cve-packages.sh && rm -f /tmp/drop-bookworm-cve-packages.sh
 
 # Install Composer for dependency management and security updates
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \
