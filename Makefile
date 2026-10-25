@@ -19,7 +19,7 @@
 
 # ---- Configurable variables ------------------------------------------------ #
 IMAGE        ?= abstechnology/moodle-standard
-TAG          ?= 4.5.11
+TAG          ?= 4.5.15-r1
 PLATFORMS    ?= linux/amd64,linux/arm64
 ORG          ?= abstechnology
 DOCKERFILE   ?= Dockerfile
@@ -112,11 +112,11 @@ push: ## Re-verify policy + rebuild multi-arch + push lên Docker Hub
 
 # ---- Scout commands -------------------------------------------------------- #
 .PHONY: scan
-scan: ## Quickview Scout — 7 policy + CVE summary
+scan: ## Quickview Scout — policy + CVE summary
 	@$(SCOUT) quickview
 
 .PHONY: policy
-policy: ## Chỉ chạy 7 policy gate — exit ≠ 0 nếu fail
+policy: ## Chỉ chạy policy gate (bỏ copyleft) — exit ≠ 0 nếu fail
 	@$(SCOUT) policy
 
 .PHONY: cves

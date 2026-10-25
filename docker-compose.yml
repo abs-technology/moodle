@@ -1,6 +1,6 @@
 services:
   mariadb:
-    image: mariadb:11.7.2
+    image: mariadb:11.8.9
     container_name: abs-mariadb
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
@@ -22,7 +22,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:4.5.11
+    image: abstechnology/moodle-standard:4.5.15-r1
     container_name: abs-moodle
     ports:
       - "80:8080"

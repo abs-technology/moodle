@@ -11,9 +11,9 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Moodle-4.5.7-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
-  <img src="https://img.shields.io/badge/PHP-8.2-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
-  <img src="https://img.shields.io/badge/MariaDB-11.7.2-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
+  <img src="https://img.shields.io/badge/Moodle-4.5.15-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
+  <img src="https://img.shields.io/badge/PHP-8.2.35-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
+  <img src="https://img.shields.io/badge/MariaDB-11.8.9-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
   <img src="https://img.shields.io/badge/License-GPL_v3-blue.svg?style=for-the-badge" alt="License"/>
 </p>
 
@@ -120,9 +120,9 @@ docker compose up -d
 <img src="https://img.shields.io/badge/Production-Ready-success?style=for-the-badge" alt="Production Ready"/>
 
 **Latest Technology Stack**
-- 🚀 **Moodle 4.5.7** - Latest features
-- 🐘 **PHP 8.2** - Performance boost
-- 🗄️ **MariaDB 11.7.2** - Optimized database
+- 🚀 **Moodle 4.5.15** - Latest features
+- 🐘 **PHP 8.2.35** - Performance boost
+- 🗄️ **MariaDB 11.8.9** - Optimized database
 - 🔒 **Security Hardened** - Non-root execution
 - ⚡ **OPcache Enabled** - 3x faster performance
 
@@ -238,7 +238,7 @@ docker compose up -d
 
 ## Supported Tags and Respective `Dockerfile` Links
 
-* [`4.5.7-plus`, `4.5.7`, `4.5`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
+* [`4.5.15-r1`](https://github.com/abs-technology/moodle/blob/moodle-core-4-5-15/Dockerfile)
 
 **Subscribe to project updates by watching the [ABS Technology Moodle GitHub repo](https://github.com/abs-technology/moodle).**
 
@@ -264,7 +264,7 @@ $ docker pull abstechnology/moodle-standard:latest
 To use a specific version, you can pull a versioned tag:
 
 ```console
-$ docker pull abstechnology/moodle-standard:4.5.11
+$ docker pull abstechnology/moodle-standard:4.5.15-r1
 ```
 
 ## How to Use This Image
@@ -274,8 +274,8 @@ $ docker pull abstechnology/moodle-standard:4.5.11
 The main folder of this repository contains a functional [`docker-compose.yml`](https://github.com/abs-technology/moodle/blob/main/docker-compose.yml) file. Run the application using it as shown below:
 
 ```console
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-4-5-7-plus/docker-compose.yml > docker-compose.yml
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-4-5-7-plus/env.example > .env
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-4-5-15/docker-compose.yml > docker-compose.yml
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-4-5-15/env.example > .env
 $ docker-compose up -d
 ```
 
@@ -300,7 +300,7 @@ $ docker run -d --name mariadb \
   --env MARIADB_DATABASE=moodle_db \
   --network moodle-network \
   --volume mariadb_data:/var/lib/mysql \
-  mariadb:11.7.2
+  mariadb:11.8.9
 ```
 
 #### Step 3: Create Volumes for Moodle Persistence and Launch the Container
@@ -321,7 +321,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-standard:4.5.11
+  abstechnology/moodle-standard:4.5.15-r1
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -367,7 +367,7 @@ When you start the Moodle image, you can adjust the configuration of the instanc
 ```yaml
 services:
   mariadb:
-    image: mariadb:11.7.2
+    image: mariadb:11.8.9
     container_name: abs-mariadb
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
@@ -389,7 +389,7 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:4.5.11
+    image: abstechnology/moodle-standard:4.5.15-r1
     container_name: abs-moodle
     ports:
       - "80:8080"
@@ -460,8 +460,8 @@ volumes:
 ### 🚀 **Performance & Scale**
 | Feature | Specification | Benefit |
 |---------|---------------|---------|
-| 🐘 **PHP Version** | 8.2 with OPcache | 40% faster than PHP 7.4 |
-| 🗄️ **Database** | MariaDB 11.7.2 | High-performance, MySQL-compatible |
+| 🐘 **PHP Version** | 8.2.35 with OPcache | 40% faster than PHP 7.4 |
+| 🗄️ **Database** | MariaDB 11.8.9 | High-performance, MySQL-compatible |
 | 📁 **File Uploads** | Up to 2GB per file | Support large video/document uploads |
 | 🔄 **Cron Jobs** | Configurable (1-60 min) | Automated maintenance & notifications |
 
@@ -505,15 +505,16 @@ $ openssl rand -base64 32
 ### 🛡️ Docker Scout — Image Vulnerability & Policy Gate
 
 Mỗi lần build/push image, repo cung cấp sẵn `Makefile` + script `scripts/utils/docker-scout.sh`
-để quét lỗ hổng (CVE) và đánh giá 7 policy chuẩn của [Docker Scout](https://docs.docker.com/scout/):
+để quét lỗ hổng (CVE) và chặn push theo 6 policy của [Docker Scout](https://docs.docker.com/scout/):
 
 1. No high-profile vulnerabilities
 2. No fixable critical or high vulnerabilities
 3. No unapproved base images
 4. Supply chain attestations (SBOM + Provenance)
 5. No outdated base images
-6. No AGPL v3 licenses
-7. Default non-root user
+6. Default non-root user
+
+Policy `copyleft-license` của org không nằm trong gate: image Debian/Apache/PHP luôn có hàng trăm gói GPL/LGPL (xem [LICENSE-INFORMATION.md](LICENSE-INFORMATION.md)).
 
 **Yêu cầu trước khi chạy**
 
@@ -542,7 +543,7 @@ Các lệnh phụ:
 
 ```bash
 make help                  # Xem toàn bộ target
-make scan                  # Quickview Scout — 7 policy + CVE summary
+make scan                  # Quickview Scout — policy + CVE summary
 make policy                # Chỉ chạy policy gate (exit ≠ 0 nếu fail)
 make cves                  # CVE chi tiết theo severity
 make fix                   # Gợi ý nâng cấp base image / fix CVE
@@ -565,7 +566,7 @@ make build PUSH_ON_FAIL=yes                            # Override gate (KHÔNG k
 **Workflow đầy đủ gọi thẳng script** (nếu không dùng make)
 
 ```bash
-IMAGE=abstechnology/moodle-standard TAG=4.5.11 \
+IMAGE=abstechnology/moodle-standard TAG=4.5.15-r1 \
   ./scripts/utils/docker-scout.sh release
 ```
 

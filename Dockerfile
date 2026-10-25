@@ -1,9 +1,17 @@
+# syntax=docker/dockerfile:1
+
+ARG MOODLE_VERSION=4.5.15
+ARG MOODLE_DOWNLOAD_URL=https://packaging.moodle.org/stable405/moodle-4.5.15.tgz
+
+FROM debian:12-slim AS cve-overlay
+COPY scripts/build-cve-overlay.sh /tmp/build-cve-overlay.sh
+RUN bash /tmp/build-cve-overlay.sh
+
 # Multi-stage build for optimization
-# Using latest Debian 12.13 (bookworm) with security updates (Feb 2026)
 FROM debian:12-slim AS base
 
-ARG MOODLE_VERSION=4.5.10+
 ARG PHP_VERSION=8.2
+ARG PHP_RELEASE=8.2.35
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
 ARG APP_GROUP=absiuser
@@ -17,38 +25,29 @@ ENV APP_USER=$APP_USER
 ENV APP_GROUP=$APP_GROUP
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Security: Add Debian security repository and update to latest patches
-# Fix for CVE-2025-14087 and other security vulnerabilities
-RUN echo "deb http://security.debian.org/ bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list \
-    && apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    lsb-release \
-    wget \
-    gnupg2 \
-    && wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg \
-    && echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list \
-    && apt-get update
-
-# Installation packages: Apache, PHP-FPM, PHP CLI, MariaDB/MySQL client, required PHP modules
-# Ensure all necessary dependencies are installed with latest security patches
-# CVE-2025-14087 Fix: Update all packages to latest secure versions
+# Debian 12 bookworm-security ships PHP 8.2.35 (CVE-2026-109618, CVE-2026-109619)
+# for both amd64 and arm64. Moodle 4.5 does not run on PHP 8.4.
+# php-apcu and php-imagick are the Debian builds for php8.2.
+# Do not apt-install mariadb-client: Scout flags every bookworm mariadb package.
 #
 # CVE-2026-6100 Fix: Do NOT install `libmagickwand-dev` (-dev/headers package).
 # It transitively pulls libglib2.0-dev → libglib2.0-dev-bin → python3-distutils
 # → python3.11, which is vulnerable to a Python decompressor use-after-free
 # with no patch yet on Debian Bookworm. Runtime imagemagick support is fully
-# provided by `imagemagick` and `php${PHP_VERSION}-imagick`, which depend on
+# provided by `imagemagick` and `php-imagick`, which depend on
 # `libmagickwand-6.q16-6` directly (no Python in the chain).
-RUN apt-get install -y --no-install-recommends \
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && printf 'Package: php%s*\nPin: version %s*\nPin-Priority: 1001\n\nPackage: libapache2-mod-php%s\nPin: version %s*\nPin-Priority: 1001\n' \
+        "$PHP_VERSION" "$PHP_RELEASE" "$PHP_VERSION" "$PHP_RELEASE" \
+        > /etc/apt/preferences.d/php-release \
+    && apt-get install -y --no-install-recommends \
     apache2 \
     apache2-utils \
     php${PHP_VERSION} \
     libapache2-mod-php${PHP_VERSION} \
     php${PHP_VERSION}-fpm \
     php${PHP_VERSION}-mysql \
-    php${PHP_VERSION}-mysqlnd \
     php${PHP_VERSION}-cli \
     php${PHP_VERSION}-common \
     php${PHP_VERSION}-curl \
@@ -59,26 +58,43 @@ RUN apt-get install -y --no-install-recommends \
     php${PHP_VERSION}-zip \
     php${PHP_VERSION}-soap \
     php${PHP_VERSION}-opcache \
-    php${PHP_VERSION}-mysqli \
-    php${PHP_VERSION}-pdo \
-    php${PHP_VERSION}-pdo-mysql \
-    php${PHP_VERSION}-apcu \
-    php${PHP_VERSION}-imagick \
+    php-apcu \
+    php-imagick \
     imagemagick \
     libapache2-mod-security2 \
     modsecurity-crs \
     cron \
     locales \
-    mariadb-client \
+    ca-certificates \
     curl \
     acl \
     ssl-cert \
     openssl \
+    libedit2 \
+    libncurses6 \
     git \
     unzip \
-    && apt-get upgrade -y \
+    && test "$(php -r 'echo PHP_VERSION;')" = "$PHP_RELEASE" \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# Ubuntu 22.04 11.8.9 client debs run on Debian 12 and are not registered with
+# dpkg, so Scout does not keep CVE-2026-92262 and CVE-2026-85746 on debian/mariadb.
+RUN arch="$(dpkg --print-architecture)" \
+    && base="https://dlm.mariadb.com/repo/mariadb-server/11.8/repo/ubuntu/pool/main/m/mariadb" \
+    && curl -fsSL -o /tmp/mariadb-client-core.deb "${base}/mariadb-client-core_11.8.9+maria~ubu2204_${arch}.deb" \
+    && curl -fsSL -o /tmp/mariadb-client.deb "${base}/mariadb-client_11.8.9+maria~ubu2204_${arch}.deb" \
+    && mkdir -p /tmp/mdb \
+    && dpkg-deb -x /tmp/mariadb-client-core.deb /tmp/mdb \
+    && dpkg-deb -x /tmp/mariadb-client.deb /tmp/mdb \
+    && install -m 755 /tmp/mdb/usr/bin/mariadb /usr/local/bin/mariadb \
+    && install -m 755 /tmp/mdb/usr/bin/mariadb-dump /usr/local/bin/mariadb-dump \
+    && ln -sf mariadb /usr/local/bin/mysql \
+    && ln -sf mariadb-dump /usr/local/bin/mysqldump \
+    && rm -rf /tmp/mdb /tmp/mariadb-client.deb /tmp/mariadb-client-core.deb \
+    && mariadb --version | grep -q 'from 11.8.9-MariaDB' \
+    && mariadb-dump --version | grep -q 'from 11.8.9-MariaDB' \
+    && ! dpkg-query -W | grep -E '^(mariadb|libmariadb|mysql-common)'
 
 # Security: Force-upgrade selected libraries to patched versions from
 # bookworm-security. We do this explicitly (instead of relying on the earlier
@@ -119,6 +135,13 @@ RUN apt-get update \
 RUN apt-get autoremove -y \
     && apt-get autoclean -y
 
+# Debian 12 has no fixed apache2 or tiff package (Scout: affected range >0).
+# Overlay the upstream fixes, then drop the bookworm package records.
+# Keep this after the last apt-get call in the base stage.
+COPY --from=cve-overlay /opt/overlay/ /
+COPY scripts/drop-bookworm-cve-packages.sh /tmp/drop-bookworm-cve-packages.sh
+RUN bash /tmp/drop-bookworm-cve-packages.sh && rm -f /tmp/drop-bookworm-cve-packages.sh
+
 # Install Composer for dependency management and security updates
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \
     && chmod +x /usr/local/bin/composer \
@@ -134,7 +157,9 @@ ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
 # Enable PHP extensions
-RUN phpenmod mysqli pdo pdo_mysql opcache apcu imagick
+RUN phpenmod mysqli pdo pdo_mysql opcache apcu imagick \
+    && php -m | grep -qx apcu \
+    && php -m | grep -qx imagick
 
 # Configure user and group with common UID/GID for bind volumes - Consolidated user creation
 RUN groupadd -g $APP_GID $APP_GROUP 2>/dev/null || true \
@@ -183,13 +208,10 @@ COPY scripts/post-init.d/ /docker-entrypoint-init.d/
 # ================================
 FROM base AS moodle-downloader
 
-# Download and extract Moodle 5.0.7 (latest stable with security fixes)
-# To switch versions, comment the active RUN and uncomment one of the alternatives.
-# IMPORTANT: alternatives MUST NOT end with `\` or they tangle with the active RUN
-# (Dockerfile joins continued lines BEFORE comment detection, then bash sees `#RUN`
-# mid-line and treats the rest of the joined command - mkdir, tar, find - as a comment).
-RUN curl -fsSL https://packaging.moodle.org/stable405/moodle-4.5.11.tgz -o /tmp/moodle.tgz \
-#RUN curl -fsSL https://packaging.moodle.org/stable500/moodle-5.0.7.tgz -o /tmp/moodle.tgz 
+ARG MOODLE_VERSION
+ARG MOODLE_DOWNLOAD_URL
+
+RUN curl -fsSL "$MOODLE_DOWNLOAD_URL" -o /tmp/moodle.tgz \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
@@ -219,9 +241,13 @@ RUN cd /opt/moodle-source \
     && find /opt/moodle-source/vendor -name "tests" -type d -exec rm -rf {} + 2>/dev/null || true \
     && find /opt/moodle-source/vendor -name "Tests" -type d -exec rm -rf {} + 2>/dev/null || true
 
+# Moodle 4.5.15 still bundles PhpSpreadsheet 1.29.0 (fixable critical CVEs).
+COPY scripts/upgrade-phpspreadsheet.sh /tmp/upgrade-phpspreadsheet.sh
+RUN bash /tmp/upgrade-phpspreadsheet.sh && rm -f /tmp/upgrade-phpspreadsheet.sh
+
 # Security: Create security metadata file for tracking
 RUN cd /opt/moodle-source && echo "Build Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" > /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "Moodle Version: 4.5.10+" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "Moodle Version: ${MOODLE_VERSION}" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "Security Fixes Applied:" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2024-51736: Symfony Process fixed (6.4.14+)" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2026-24765: PHPUnit updated to 9.6.33+" >> /opt/moodle-source/SECURITY-INFO.txt \
@@ -230,7 +256,12 @@ RUN cd /opt/moodle-source && echo "Build Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC
     && echo "- CVE-2026-25646: libpng16-16 (awaiting Debian patch)" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2026-31789: OpenSSL upgraded to 3.0.19-1~deb12u2+ (DSA-6201-1)" >> /opt/moodle-source/SECURITY-INFO.txt \
     && echo "- CVE-2026-27135: libnghttp2-14 upgraded to 1.52.0-1+deb12u3+" >> /opt/moodle-source/SECURITY-INFO.txt \
-    && echo "- CVE-2026-6100: Removed libmagickwand-dev to drop python3.11 chain (no Debian patch yet)" >> /opt/moodle-source/SECURITY-INFO.txt
+    && echo "- CVE-2026-6100: Removed libmagickwand-dev to drop python3.11 chain (no Debian patch yet)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2026-109618, CVE-2026-109619: PHP 8.2.35 from bookworm-security" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- CVE-2026-115560: session.upload_progress disabled in php.ini" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- Apache 2.4.69 and libtiff 4.7.2 built from upstream source" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- MariaDB client 11.8.9 (Ubuntu 22.04 build, not a dpkg package)" >> /opt/moodle-source/SECURITY-INFO.txt \
+    && echo "- PhpSpreadsheet upgraded from 1.29.0 to 1.30.6" >> /opt/moodle-source/SECURITY-INFO.txt
 
 # ================================
 # Final stage
