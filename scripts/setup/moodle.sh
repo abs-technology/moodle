@@ -18,6 +18,19 @@ load_config
 # FUNCTION DEFINITIONS
 # ============================================================================
 
+# Marker written after first install (or after a one-shot env sync) so later
+# restarts do not rewrite admin credentials / site name from the environment.
+_mark_environment_overrides_applied() {
+    local env_applied_marker="$MOODLE_DATA_DIR/.absi_env_applied"
+    local env_hash_file="$MOODLE_DATA_DIR/.absi_env_hash"
+    local current_env_hash
+    current_env_hash=$(echo "${MOODLE_REVERSEPROXY}:${MOODLE_SSLPROXY}" | md5sum | cut -d' ' -f1)
+    mkdir -p "$MOODLE_DATA_DIR" 2>/dev/null || true
+    touch "$env_applied_marker"
+    echo "$current_env_hash" > "$env_hash_file"
+    chown "$APP_USER:$APP_GROUP" "$env_applied_marker" "$env_hash_file" 2>/dev/null || true
+}
+
 # Apply environment variable overrides to the Moodle DATABASE only.
 # config.php is generated exactly once (see generate_moodle_config) and is
 # intentionally NEVER rewritten on subsequent container starts - the operator
@@ -30,15 +43,14 @@ apply_environment_overrides() {
     # Calculate current environment hash for proxy settings
     local current_env_hash=$(echo "${MOODLE_REVERSEPROXY}:${MOODLE_SSLPROXY}" | md5sum | cut -d' ' -f1)
     
-    if [[ -f "$env_applied_marker" && -f "$env_hash_file" ]]; then
-        local stored_hash=$(cat "$env_hash_file" 2>/dev/null)
-        if [[ "$current_env_hash" == "$stored_hash" ]]; then
-            info "Environment variables unchanged. Preserving system stability."
-            debug "Skipping environment overrides to maintain stable configuration"
-            return 0
-        else
-            info "Environment variables changed. Re-applying configuration..."
-        fi
+    # Marker is the only gate. Proxy flags (sslproxy / reverseproxy) live in
+    # config.php, which change-domain.sh edits itself. Re-applying DB overrides
+    # just because those flags flipped would reset the admin password after a
+    # domain move — do not do that.
+    if [[ -f "$env_applied_marker" ]]; then
+        info "Environment overrides already applied at install. Restart leaves the database as-is."
+        debug "Skipping environment overrides (marker $env_applied_marker)"
+        return 0
     fi
     
     info "Syncing environment overrides to the Moodle database (config.php is left untouched)..."
@@ -46,11 +58,7 @@ apply_environment_overrides() {
     # Only sync DB-side settings if Moodle is actually installed (config.php present).
     if [[ -f "$MOODLE_CONF_FILE" ]]; then
         apply_database_overrides
-        
-        # Mark environment variables as applied and save current hash
-        touch "$env_applied_marker"
-        echo "$current_env_hash" > "$env_hash_file"
-        chown "$APP_USER:$APP_GROUP" "$env_applied_marker" "$env_hash_file"
+        _mark_environment_overrides_applied
         info "Environment DB overrides applied successfully. Hash: $current_env_hash"
     else
         debug "No config.php found, skipping environment overrides"
@@ -72,43 +80,44 @@ apply_database_overrides() {
         return 1
     fi
     
-    # Update admin user settings
-    update_admin_user
-    
-    # Update site settings
-    update_site_settings
+    # Credential / site-name sync must never take the container down.
+    if ! update_admin_user; then
+        warn "Admin user env sync failed; Moodle will still start"
+    fi
+    if ! update_site_settings; then
+        warn "Site settings env sync failed; Moodle will still start"
+    fi
 }
 
-# Update admin user with environment variables
+# Moodle PARAM_USERNAME. Rejected here so a bad value never reaches
+# --adminuser or the one-shot SQL sync.
+require_moodle_username() {
+    if [[ ! "${MOODLE_USERNAME}" =~ ^[a-z0-9._@-]{1,100}$ ]] || [[ "${MOODLE_USERNAME}" == "guest" ]]; then
+        error "MOODLE_USERNAME='${MOODLE_USERNAME}' is not a valid Moodle username (lowercase letters, digits, . _ @ -; not guest)."
+        exit 1
+    fi
+}
+
+# Sync password/email onto the admin row created at first install.
+# MOODLE_USERNAME is applied only then; later restarts do not rename it.
 update_admin_user() {
-    info "Updating admin user with environment variables..."
-    
-    # Check if admin user exists
-    local admin_exists=$(echo "SELECT COUNT(*) FROM mdl_user WHERE username = 'admin';" | \
-        mariadb_remote_execute "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
-        "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" 2>/dev/null || echo "0")
-    
-    if [ "$admin_exists" -gt 0 ]; then
-        info "Updating existing admin user: ${MOODLE_USERNAME}"
-        
-        # Generate password hash (Moodle uses password_hash with PASSWORD_DEFAULT)
-        local password_hash=$(php -r "echo password_hash('${MOODLE_PASSWORD}', PASSWORD_DEFAULT);")
-        
-        mariadb_remote_execute "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
-            "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" <<EOF
-UPDATE mdl_user SET 
-    username = '${MOODLE_USERNAME}',
+    require_moodle_username
+    info "Updating admin user credentials (username stays '${MOODLE_USERNAME}')"
+
+    local password_hash
+    password_hash=$(php -r "echo password_hash('${MOODLE_PASSWORD}', PASSWORD_DEFAULT);")
+
+    mariadb_remote_execute "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
+        "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" <<EOF
+UPDATE mdl_user SET
     password = '${password_hash}',
     email = '${MOODLE_EMAIL}',
     firstname = 'Admin',
     lastname = 'User',
     timemodified = UNIX_TIMESTAMP()
-WHERE username = 'admin' OR (username = '${MOODLE_USERNAME}' AND auth = 'manual');
+WHERE username = '${MOODLE_USERNAME}' AND deleted = 0;
 EOF
-        debug "Admin user updated successfully"
-    else
-        warn "No admin user found in database to update"
-    fi
+    debug "Admin user credentials updated successfully"
 }
 
 # Update site settings with environment variables
@@ -1095,18 +1104,45 @@ generate_moodle_config() {
     local config_file="$1"
     info "Generating config.php from environment (first-time setup only)..."
 
-    # Reverse proxy / SSL proxy lines: active when enabled, commented otherwise.
-    local rp_line sp_line
-    if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}"; then
-        rp_line='$CFG->reverseproxy = true;'
-    else
-        rp_line='// $CFG->reverseproxy = true;   // enable when behind a load balancer / reverse proxy (MOODLE_REVERSEPROXY=yes)'
-    fi
+    # Proxy + shared-session lines: already active when the operator asked for
+    # load balancing at install, commented out (ready to enable) otherwise.
+    # "LB mode" = at least one of the two proxy flags was requested at install.
+    local rp_line sp_line sess_line1 sess_line2 cache_line lb_mode
+    local LB_DOC_URL='https://github.com/abs-technology/moodle/blob/main/docs/LOAD-BALANCING.md'
+
+    # sslproxy: the proxy terminates TLS and forwards plain http to us.
     if is_boolean_yes "${MOODLE_SSLPROXY:-no}"; then
         sp_line='$CFG->sslproxy = true;'
     else
-        sp_line='// $CFG->sslproxy = true;        // enable when TLS is terminated at the proxy (MOODLE_SSLPROXY=yes)'
+        sp_line='// $CFG->sslproxy = true;'
     fi
+
+    # reverseproxy is NOT "there is a proxy in front of me". Moodle 5.x aborts
+    # with "reverseproxyabused" (lib/setuplib.php) whenever reverseproxy is on
+    # and the request Host equals the wwwroot host, because it expects the proxy
+    # to rewrite Host to this node's internal name. Traefik, AWS ALB and GCP all
+    # forward the original Host, so they need this OFF.
+    if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}"; then
+        rp_line='$CFG->reverseproxy = true;'
+    else
+        rp_line='// $CFG->reverseproxy = true;'
+    fi
+
+    # Cluster settings, independent of how the proxy handles Host:
+    #  - sessions must be shared or users get logged out when moved to a node
+    #  - localcachedir must NOT live on shared dataroot; Moodle documents it as
+    #    "not shared by cluster nodes" yet defaults it to $CFG->dataroot/localcache
+    if is_boolean_yes "${MOODLE_CLUSTER:-no}"; then
+        sess_line1='$CFG->session_handler_class = '"'"'\core\session\database'"'"';'
+        sess_line2='$CFG->session_database_acquire_lock_timeout = 120;'
+        cache_line="\$CFG->localcachedir = '${MOODLE_LOCALCACHE_DIR}';"
+    else
+        sess_line1='// $CFG->session_handler_class = '"'"'\core\session\database'"'"';'
+        sess_line2='// $CFG->session_database_acquire_lock_timeout = 120;'
+        cache_line="// \$CFG->localcachedir = '${MOODLE_LOCALCACHE_DIR}';"
+    fi
+
+    lb_mode="sslproxy=${MOODLE_SSLPROXY:-no} reverseproxy=${MOODLE_REVERSEPROXY:-no} cluster=${MOODLE_CLUSTER:-no}"
 
     # Bootstrap path. Moodle 5.1+ keeps config.php at the project root and ships a
     # root-level lib/setup.php shim that delegates into public/, so the standard
@@ -1121,20 +1157,17 @@ generate_moodle_config() {
     cat > "$config_file" <<EOF
 <?php  // Moodle configuration file
 //
-// Generated automatically on FIRST container start from environment variables.
-// Generated at: $(date -Iseconds)
+// Generated on first container start ($(date -Iseconds)) and never rewritten
+// afterwards, not even by automated upgrades. Tune it freely.
 //
-// IMPORTANT: This file is created only once. Subsequent container restarts and
-// automated upgrades will NOT modify it (it is preserved/restored as-is).
-// Tune it freely - it is yours from here on.
+// Load balancing: uncomment the two [LB-ON] blocks, nothing has to be
+// commented out. Guide: ${LB_DOC_URL}
 
 unset(\$CFG);
 global \$CFG;
 \$CFG = new stdClass();
 
-// ====================================================================
-// Database connection
-// ====================================================================
+// ---- Database ------------------------------------------------------
 \$CFG->dbtype    = '${MOODLE_DATABASE_TYPE}';
 \$CFG->dblibrary = 'native';
 \$CFG->dbhost    = '${MOODLE_DATABASE_HOST}';
@@ -1151,85 +1184,88 @@ global \$CFG;
 
 EOF
 
-    # --- Site address: fixed (MOODLE_WWWROOT) or dynamic detection ---------
+    # --- Site address ------------------------------------------------------
+    # The fixed URL wins; the dynamic fallback below is skipped automatically
+    # whenever wwwroot is already set, so nothing ever has to be commented out.
+    local wwwroot_line sslproxy_bool='false'
+    is_boolean_yes "${MOODLE_SSLPROXY:-no}" && sslproxy_bool='true'
     if [[ -n "${MOODLE_WWWROOT:-}" ]]; then
-        cat >> "$config_file" <<EOF
-// ====================================================================
-// Site address (FIXED - from MOODLE_WWWROOT)
-// ====================================================================
-\$CFG->wwwroot   = '${MOODLE_WWWROOT}';
-
-EOF
+        wwwroot_line="\$CFG->wwwroot = '${MOODLE_WWWROOT}';"
     else
-        local sslproxy_bool='false'
-        is_boolean_yes "${MOODLE_SSLPROXY:-no}" && sslproxy_bool='true'
-        cat >> "$config_file" <<EOF
-// ====================================================================
-// Site address (DYNAMIC detection - MOODLE_WWWROOT not set)
-// Scheme + host are derived per request. For a load-balanced production site
-// it is strongly recommended to use a FIXED site URL instead: comment out the
-// dynamic block below and uncomment the line here with your real domain.
-//
-//   \$CFG->wwwroot = 'https://domain';   // <-- thay 'domain' bằng tên miền thật
-//
-// ====================================================================
-\$__absi_sslproxy = ${sslproxy_bool};
-if (!empty(\$_SERVER['HTTP_HOST'])) {
-    if (\$__absi_sslproxy) {
-        \$__absi_scheme = 'https';
+        wwwroot_line="// \$CFG->wwwroot = 'https://your-domain.com';   // <-- đổi thành tên miền thật"
+    fi
+
+    cat >> "$config_file" <<EOF
+// ---- Site address ---------------------------------------------------
+// [LB-ON] 1/2 -- every node must return the same URL.
+${wwwroot_line}
+
+// Single-node fallback, skipped once wwwroot is set above.
+if (empty(\$CFG->wwwroot)) {
+    \$__absi_sslproxy = ${sslproxy_bool};
+    if (!empty(\$_SERVER['HTTP_HOST'])) {
+        if (\$__absi_sslproxy) {
+            \$__absi_scheme = 'https';
+        } else {
+            \$__absi_scheme = (!empty(\$_SERVER['HTTPS']) && \$_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        }
+        \$CFG->wwwroot = \$__absi_scheme . '://' . \$_SERVER['HTTP_HOST'];
     } else {
-        \$__absi_scheme = (!empty(\$_SERVER['HTTPS']) && \$_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        \$CFG->wwwroot = \$__absi_sslproxy ? 'https://localhost' : 'http://localhost';
     }
-    \$CFG->wwwroot = \$__absi_scheme . '://' . \$_SERVER['HTTP_HOST'];
-} else {
-    \$CFG->wwwroot = \$__absi_sslproxy ? 'https://localhost' : 'http://localhost';
+    unset(\$__absi_sslproxy, \$__absi_scheme);
 }
-unset(\$__absi_sslproxy, \$__absi_scheme);
 
 EOF
-    fi
 
     # --- Storage, admin dir, permissions, LB + Moodle 5.x compat, tail -----
     cat >> "$config_file" <<EOF
-// ====================================================================
-// File storage
-// ====================================================================
+// ---- File storage ---------------------------------------------------
 \$CFG->dataroot  = '${MOODLE_DATA_DIR}';
 \$CFG->admin     = 'admin';
 \$CFG->directorypermissions = 02777;
 
-// ====================================================================
-// Load balancing / reverse proxy
-// Enabled automatically when MOODLE_REVERSEPROXY / MOODLE_SSLPROXY are set to
-// "yes" at first start. Otherwise left commented so you can turn them on later.
-// ====================================================================
-${rp_line}
+// ---- Proxy / load balancer (at install: ${lb_mode}) --
+// [LB-ON] 2/2 -- guide: ${LB_DOC_URL}
+//
+// sslproxy      the proxy terminates TLS and forwards plain http to this
+//               container. Traefik, Nginx, CloudFlare, GCP and AWS all do this.
+// reverseproxy  ONLY when the proxy rewrites Host to this node's internal name
+//               (Traefik passHostHeader=false, nginx proxy_set_header Host
+//               <backend>). Leave it OFF when the proxy forwards the original
+//               Host, which is the default for Traefik, AWS ALB and GCP —
+//               otherwise Moodle aborts every request with "reverseproxyabused".
+// session_*     shared sessions, required as soon as there are 2+ nodes.
+// localcachedir keeps the local cache off shared dataroot storage.
+//
+// Balancers must probe /readyz, never /login/index.php.
 ${sp_line}
+${rp_line}
+${sess_line1}
+${sess_line2}
+${cache_line}
 
-// ====================================================================
-// Moodle 5.1+ compatibility (router + internal cURL self-checks)
-// Baked in once so the "Router correctly serves..." admin check passes without
-// rewriting config.php on every boot.
-// ====================================================================
+// ---- Moodle 5.1+ router self-checks ---------------------------------
 \$CFG->routerconfigured = true;
 \$CFG->router_rewrite_applied = true;
-
-// Allow Moodle's internal self-requests (site checks) to localhost + current host.
 \$CFG->curlsecurityallowedhosts = 'localhost,127.0.0.1';
 if (!empty(\$_SERVER['HTTP_HOST'])) {
     \$CFG->curlsecurityallowedhosts .= ',' . \$_SERVER['HTTP_HOST'];
 }
 
-// When Moodle calls itself (MoodleBot), use plain HTTP internally so the router
-// self-check passes even behind a self-signed certificate.
-if (!empty(\$_SERVER['HTTP_USER_AGENT']) && strpos(\$_SERVER['HTTP_USER_AGENT'], 'MoodleBot') !== false) {
+// Lets the router self-check pass on the baked-in self-signed certificate. Only
+// applies while the site still answers on localhost: with a real domain in
+// wwwroot the proxy owns TLS, and forcing sslproxy off here would make Moodle
+// build http:// URLs and 303-redirect its own self-requests.
+if (strpos(\$CFG->wwwroot, '//localhost') !== false
+        && !empty(\$_SERVER['HTTP_USER_AGENT'])
+        && strpos(\$_SERVER['HTTP_USER_AGENT'], 'MoodleBot') !== false) {
     \$CFG->sslproxy = false;
 }
 
 ${setup_require}
 
-// There is no php closing tag in this file,
-// it is intentional because it prevents trailing whitespace problems!
+// No closing php tag on purpose: it prevents trailing whitespace problems.
 EOF
 
     chown "${APP_USER}:${APP_GROUP}" "$config_file" 2>/dev/null || true
@@ -1458,9 +1494,21 @@ if [[ -f "$MOODLE_CONF_FILE" ]]; then
         bypass_moodle_security_checks
     fi
     
-    # Set proper permissions
-    chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR" "$MOODLE_DATA_DIR"
-    chmod -R 775 "$MOODLE_DATA_DIR"
+    # Recursive chown on Filestore takes several minutes and races the
+    # GKE startup probe. init-filesystem already owns the NFS roots.
+    # VM/docker keep the historical full-tree chown unless clustered.
+    if is_boolean_yes "${MOODLE_CLUSTER:-no}"; then
+        if is_boolean_yes "${MOODLE_FIX_DATA_PERMS:-no}"; then
+            info "MOODLE_FIX_DATA_PERMS=yes — recursive chown/chmod on html and moodledata"
+            chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR" "$MOODLE_DATA_DIR"
+            chmod -R 775 "$MOODLE_DATA_DIR"
+        else
+            info "Cluster mode: skipping recursive chown of html/moodledata"
+        fi
+    else
+        chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR" "$MOODLE_DATA_DIR"
+        chmod -R 775 "$MOODLE_DATA_DIR"
+    fi
     find "${MOODLE_DATA_DIR}/sessions/" -name "sess_*" -delete || true
 else
     info "No config.php found. Running first-time Moodle setup..."
@@ -1471,33 +1519,65 @@ else
     # Chờ database sẵn sàng với database name cụ thể
     wait_for_db_connection "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"
 
+    # Multi-replica (GKE): only one pod may run install_database.php. mkdir is
+    # atomic on NFS (Filestore). Waiters poll until mdl_config exists.
+    lockdir="$MOODLE_DATA_DIR/.gke-schema.lock"
+    if ! check_database_has_data "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"; then
+        waited=0
+        while ! mkdir "$lockdir" 2>/dev/null; do
+            info "Waiting for another replica to finish first-time install..."
+            sleep 5
+            waited=$((waited + 5))
+            if check_database_has_data "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"; then
+                break
+            fi
+            if (( waited >= 1200 )); then
+                warn "Stealing stale first-time install lock after ${waited}s"
+                rm -rf "$lockdir"
+            fi
+        done
+    fi
+
     # Generate config.php ONCE from the environment (load-balancing aware).
     # This is the only time the entrypoint writes config.php; later starts leave
     # it exactly as the operator configured it.
     generate_moodle_config "$MOODLE_CONF_FILE"
 
-    # Install the database against the freshly generated config.php. We use
-    # install_database.php (NOT install.php) precisely because config.php already
-    # exists and we want full control over its contents. Detect 4.x vs 5.x layout.
-    install_db_script=$(moodle_cli_script "install_database.php" "$MOODLE_DIR" 2>/dev/null) || install_db_script=""
-
-    if [[ -n "$install_db_script" ]]; then
-        info "Installing Moodle database using $install_db_script ..."
-        php "$install_db_script" \
-            --lang=en \
-            --adminuser="${MOODLE_USERNAME}" \
-            --adminpass="${MOODLE_PASSWORD}" \
-            --adminemail="${MOODLE_EMAIL}" \
-            --fullname="${MOODLE_SITE_NAME}" \
-            --shortname="${MOODLE_SITE_SHORTNAME}" \
-            --agree-license >/dev/null
+    # GKE: each pod has emptyDir html, so config.php is missing on every new
+    # replica. The schema lives in Cloud SQL — do not run install_database again.
+    if check_database_has_data "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"; then
+        info "Database already has Moodle tables. Skipping install_database.php (new replica)."
+        touch "$MOODLE_DATA_DIR/.moodle_initialized"
     else
-        error "Could not find admin/cli/install_database.php. Installation failed."
-        exit 1
-    fi
+        # Install the database against the freshly generated config.php. We use
+        # install_database.php (NOT install.php) precisely because config.php already
+        # exists and we want full control over its contents. Detect 4.x vs 5.x layout.
+        install_db_script=$(moodle_cli_script "install_database.php" "$MOODLE_DIR" 2>/dev/null) || install_db_script=""
 
-    touch "$MOODLE_DATA_DIR/.moodle_initialized"
-    info "Moodle initialization completed."
+        if [[ -n "$install_db_script" ]]; then
+            require_moodle_username
+            info "Installing Moodle database using $install_db_script (admin user: ${MOODLE_USERNAME}) ..."
+            php "$install_db_script" \
+                --lang=en \
+                --adminuser="${MOODLE_USERNAME}" \
+                --adminpass="${MOODLE_PASSWORD}" \
+                --adminemail="${MOODLE_EMAIL}" \
+                --fullname="${MOODLE_SITE_NAME}" \
+                --shortname="${MOODLE_SITE_SHORTNAME}" \
+                --agree-license >/dev/null
+        else
+            error "Could not find admin/cli/install_database.php. Installation failed."
+            exit 1
+        fi
+
+        touch "$MOODLE_DATA_DIR/.moodle_initialized"
+        info "Moodle initialization completed."
+    fi
+    rmdir "$MOODLE_DATA_DIR/.gke-schema.lock" 2>/dev/null || true
+
+    # Install created MOODLE_USERNAME and applied password / email / site name.
+    # Mark env as consumed so the next restart does not touch the admin row.
+    _mark_environment_overrides_applied
 
     # Bypass publicpaths security check after fresh installation
     bypass_moodle_security_checks

@@ -1,0 +1,79 @@
+{{- if .Values.cronjob.enabled }}
+# Long-lived cron worker. Same proxy/SQL inits as web; install gate is wait-only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "moodle.fullname" . }}-cron
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cron
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "moodle.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cron
+  template:
+    metadata:
+      labels:
+        {{- include "moodle.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cron
+    spec:
+      serviceAccountName: {{ include "moodle.serviceAccountName" . }}
+      {{- include "moodle.dns" . | nindent 6 }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- include "moodle.scheduling" . | nindent 6 }}
+      initContainers:
+        {{- include "moodle.initContainers" (dict "root" . "waitOnly" true) | nindent 8 }}
+      containers:
+        - name: cron
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+              . /scripts/lib/moodle_paths.sh
+              bash /scripts/setup/moodle.sh
+              cron_script=$(moodle_cli_script cron.php /var/www/html)
+              interval=$(( {{ .Values.moodle.cronMinutes }} * 60 ))
+              while true; do
+                php "$cron_script" || true
+                sleep "$interval"
+              done
+          env:
+            {{- include "moodle.env.common" . | nindent 12 }}
+            - name: MOODLE_CRON_ENABLED
+              value: "no"
+          resources:
+            {{- toYaml .Values.cronjob.resources | nindent 12 }}
+          volumeMounts:
+            - name: nfs
+              mountPath: /var/www/html
+              subPath: html
+            - name: nfs
+              mountPath: /var/www/moodledata
+              subPath: data
+            - name: localcache
+              mountPath: /var/www/moodlelocalcache
+            {{- include "moodle.hubOverlayMounts" . | nindent 12 }}
+      volumes:
+        - name: localcache
+          emptyDir: {}
+        - name: bootstrap
+          configMap:
+            name: {{ include "moodle.fullname" . }}-bootstrap
+            defaultMode: 0755
+        {{- if .Values.persistence.enabled }}
+        - name: nfs
+          persistentVolumeClaim:
+            claimName: {{ include "moodle.pvcName" . }}
+        {{- else }}
+        - name: nfs
+          emptyDir: {}
+        {{- end }}
+{{- end }}

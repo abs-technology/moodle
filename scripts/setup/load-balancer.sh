@@ -18,6 +18,13 @@ mkdir -p "$SESSIONS_DIR"
 chown "$APP_USER:$APP_GROUP" "$SESSIONS_DIR" 2>/dev/null || true
 chmod 755 "$SESSIONS_DIR" 2>/dev/null || true
 
+# Node-local cache directory referenced by $CFG->localcachedir in a
+# load-balanced config.php. Created unconditionally so switching config.php to
+# load-balanced mode later never hits an unwritable path.
+mkdir -p "$MOODLE_LOCALCACHE_DIR"
+chown "$APP_USER:$APP_GROUP" "$MOODLE_LOCALCACHE_DIR" 2>/dev/null || true
+chmod 755 "$MOODLE_LOCALCACHE_DIR" 2>/dev/null || true
+
 # Full-tree chown/chmod on moodledata was removed: after H5P bootstrap the tree
 # is huge and cost ~10–15s on bind mounts, while entrypoint already applies ACL
 # / group perms earlier. Targeted fix only when explicitly requested.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Verify Moodle 5.2 layout inside /opt/moodle-source (run at Docker build time).
+# Verify Moodle 5.x layout inside /opt/moodle-source (run at Docker build time).
 set -euo pipefail
 
 ROOT="${1:-/opt/moodle-source}"
@@ -45,7 +45,7 @@ require_file "admin/cli/install_database.php"
 require_file "admin/cli/upgrade.php"
 require_file "config-dist.php"
 
-# CLI must live at moodle root — NOT under public/ (verified against stable502 tarball).
+# CLI must live at moodle root — NOT under public/ (verified against the 5.x tarball).
 forbid_file "public/admin/cli/cron.php"
 
 VERSION_FILE="$ROOT/public/version.php"

@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  labels:
+    app.kubernetes.io/name: grafana-gmp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana-gmp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grafana-gmp
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        fsGroup: 472
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          image: {{ .Values.image.frontend | quote }}
+          args:
+            - --web.listen-address=:9090
+            - --query.project-id={{ .Values.projectId }}
+          ports:
+            - name: prom
+              containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: prom
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: prom
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+        - name: grafana
+          image: {{ .Values.image.grafana | quote }}
+          env:
+            - name: GF_SERVER_ROOT_URL
+              value: {{ .Values.grafanaUrl | quote }}
+            - name: GF_SERVER_DOMAIN
+              value: {{ .Values.gateway.hostname | quote }}
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: {{ .Values.adminUserKey }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: {{ .Values.adminPasswordKey }}
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_PATHS_PROVISIONING
+              value: /etc/grafana/provisioning
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+          securityContext:
+            runAsUser: 472
+            runAsGroup: 472
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: provision
+              mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+              subPath: datasources.yaml
+            - name: provision
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+              subPath: dashboards.yaml
+            - name: provision
+              mountPath: /grafana-dashboards/moodle.json
+              subPath: moodle.json
+            - name: data
+              mountPath: /var/lib/grafana
+      volumes:
+        - name: provision
+          configMap:
+            name: grafana-gmp-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  labels:
+    app.kubernetes.io/name: grafana-gmp
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: grafana-gmp
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

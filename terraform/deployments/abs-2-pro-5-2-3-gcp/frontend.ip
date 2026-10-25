@@ -1,0 +1,3 @@
+# Marker: this directory is an IP-direct site (Moodle on :80, no proxy/LB).
+# Use make plan-ip / apply-ip / ssh-ip. Do not use make plan / apply / ssh
+# or make plan-alb / apply-alb.

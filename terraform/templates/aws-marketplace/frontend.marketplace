@@ -1,0 +1,2 @@
+# Marker: Marketplace AMI builder (aws-ip stack, unencrypted root, us-east-1).
+# Use make plan|apply|ssh aws-marketplace <name>. Do not mix with aws-ip / aws-traefik.

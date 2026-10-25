@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "moodle.fullname" . }}
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+spec:
+  {{- if eq .Values.autoscaling.mode "none" }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "moodle.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "moodle.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: web
+    spec:
+      serviceAccountName: {{ include "moodle.serviceAccountName" . }}
+      {{- include "moodle.dns" . | nindent 6 }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- include "moodle.scheduling" . | nindent 6 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "moodle.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: web
+      initContainers:
+        {{- include "moodle.initContainers" (dict "root" . "waitOnly" false) | nindent 8 }}
+      containers:
+        - name: moodle
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            {{- include "moodle.env.web" . | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: nfs
+              mountPath: /var/www/html
+              subPath: html
+            - name: nfs
+              mountPath: /var/www/moodledata
+              subPath: data
+            - name: localcache
+              mountPath: /var/www/moodlelocalcache
+            {{- include "moodle.hubOverlayMounts" . | nindent 12 }}
+      volumes:
+        - name: localcache
+          emptyDir: {}
+        - name: bootstrap
+          configMap:
+            name: {{ include "moodle.fullname" . }}-bootstrap
+            defaultMode: 0755
+        {{- if .Values.persistence.enabled }}
+        - name: nfs
+          persistentVolumeClaim:
+            claimName: {{ include "moodle.pvcName" . }}
+        {{- else }}
+        - name: nfs
+          emptyDir: {}
+        {{- end }}

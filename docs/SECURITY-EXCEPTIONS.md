@@ -1,7 +1,7 @@
 # Security exceptions — Docker Scout critical CVEs
 
-Image: `abstechnology/moodle-standard` (Debian 12 / bookworm base)  
-Applies to: Moodle **5.2.2** and later builds on `debian:12-slim` until Debian ships fixes.
+Image: `abstechnology/moodle-standard` (Debian 13 / trixie base, `debian:13-slim`)  
+Applies to: Moodle **5.3.0** and later builds on this base until Debian ships fixes.
 
 ## How to read Scout numbers
 
@@ -22,20 +22,15 @@ Gate policy IDs (copyleft omitted on purpose):
 - `approved-base-images`
 - `supply-chain-attestations`
 
-## Accepted unfixable criticals (bookworm)
+## Accepted unfixable criticals (trixie)
 
-As of the 5.2.2 Scout review, these four criticals have **no fixed version in Debian bookworm** (`Fixed version: not fixed`). They are **risk-accepted** until `bookworm-security` (or a deliberate base upgrade) provides packages.
+Re-list after the first Scout of `abstechnology/moodle-standard:5.3.0` (`make cves-critical`). The 5.2.x bookworm table (perl / libaprutil) does **not** apply to this base.
 
-| CVE | Package | Image version (example) | Source | Notes |
-|-----|---------|-------------------------|--------|-------|
-| CVE-2026-13221 | `perl` | 5.36.0-7+deb12u3 | `debian:12-slim` | Regex trie edge cases; not a typical Moodle HTTP attack path |
-| CVE-2026-12087 | `perl` (Socket) | same | `debian:12-slim` | Heap over-read via uncommon Socket API use; Debian severity often lower on stable |
-| CVE-2026-34191 | `libaprutil1` | 1.6.3-1 | Apache (`apache2`) | SQLi in **apr_dbd_oracle** provider — Moodle uses **MariaDB/MySQL**, Oracle DBD normally unused |
-| CVE-2026-32327 | `libaprutil1` | 1.6.3-1 | Apache (`apache2`) | Stack recursion in `apr_xml_quote_elem` on hostile XML via APR util |
+Until that scan: `make push` still gates on **fixable** C/H only. Raw criticals on `make scan` are awareness, not an automatic blocker.
 
-**Not in this list:** PHP (Sury), Composer app deps (Guzzle/AWS are pinned in the Dockerfile for *fixable* highs).
+**Not in this list:** PHP (Sury), the MariaDB client, Composer app deps (Guzzle/AWS are pinned in the Dockerfile for *fixable* highs).
 
-Moving to `debian:13-slim` alone does **not** clear the perl pair (still reported critical there). It is out of scope for this exception document.
+Debian 13 still ships MariaDB **11.8.6**. CVE-2026-92262 and CVE-2026-85746 are fixed upstream in **11.8.9**, but Debian's tracker has no fixed trixie version, so Scout marks every Debian `mariadb` package vulnerable (including `1:11.8.9+maria~deb13`). The Moodle image does not install that package. It copies `mariadb` and `mariadb-dump` from `mariadb:11.8.9`, the same build as the database container. Both CVEs are server bugs (`#mysql50#` table names and `ST_AsText`).
 
 ## Monitor and rebuild when Debian ships fixes
 
@@ -43,7 +38,7 @@ Check periodically:
 
 ```bash
 # Base image criticals
-docker scout cves debian:12-slim --only-severity critical
+docker scout cves debian:13-slim --only-severity critical
 
 # Our image: raw criticals vs already-fixed only
 make cves-critical
@@ -51,12 +46,12 @@ docker scout cves abstechnology/moodle-standard:$(grep DOCKER_TAG versions.lock 
   --only-severity critical --only-fixed
 ```
 
-When `bookworm-security` publishes updates for **`perl`** and/or **`libaprutil1` (>= 1.6.4)**:
+When `trixie-security` publishes updates for packages that still show as raw criticals:
 
-1. Bump image revision if needed (e.g. `DOCKER_TAG := 5.2.2-r1` in [`versions.lock`](../versions.lock) + compose/docs mirrors).
+1. Bump image revision if needed (e.g. `DOCKER_TAG := 5.3.0-r1` in [`versions.lock`](../versions.lock) + compose/docs mirrors).
 2. Rebuild and push with a fresh base pull:
    ```bash
-   docker pull debian:12-slim
+   docker pull debian:13-slim
    make push   # NO_CACHE=yes → --pull
    ```
 3. Confirm:
@@ -76,7 +71,7 @@ When `bookworm-security` publishes updates for **`perl`** and/or **`libaprutil1`
 
 ## Copyleft (separate from criticals)
 
-Org policy “Copyleft licensed packages found” fails on hundreds of GPL/LGPL Debian packages. That is inherent to this stack and is **not** addressed by fixing the four criticals above. The release script ignores `copyleft-license`. To silence Hub UI, adjust the org Scout policy in Docker Hub — do not change the OS base solely for license counts.
+Org policy “Copyleft licensed packages found” fails on hundreds of GPL/LGPL Debian packages. That is inherent to this stack. The release script ignores `copyleft-license`. To silence Hub UI, adjust the org Scout policy in Docker Hub — do not change the OS base solely for license counts.
 
 ## Marketplace Go CVEs (attestation false positives)
 

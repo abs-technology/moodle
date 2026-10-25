@@ -1,0 +1,33 @@
+{{- if eq .Values.autoscaling.mode "keda" }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "moodle.fullname" . }}
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "moodle.fullname" . }}
+  minReplicaCount: {{ .Values.autoscaling.minReplicas }}
+  maxReplicaCount: {{ .Values.autoscaling.maxReplicas }}
+  pollingInterval: {{ .Values.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.keda.cooldownPeriod }}
+  triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ .Values.autoscaling.cpuUtilization | quote }}
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: {{ .Values.autoscaling.memoryUtilization | quote }}
+    {{- if and .Values.autoscaling.stackdriver.enabled .Values.autoscaling.stackdriver.filter }}
+    - type: gcp-stackdriver
+      metadata:
+        projectID: {{ .Values.autoscaling.stackdriver.projectId | quote }}
+        filter: {{ .Values.autoscaling.stackdriver.filter | quote }}
+        targetValue: {{ .Values.autoscaling.stackdriver.targetValue | quote }}
+        alignmentPeriodSeconds: {{ .Values.autoscaling.stackdriver.alignmentPeriodSeconds | quote }}
+        alignmentAligner: ALIGN_RATE
+    {{- end }}
+{{- end }}

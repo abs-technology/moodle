@@ -1,0 +1,6 @@
+apiVersion: v2
+name: grafana-gmp
+description: Grafana UI on GKE querying Google Managed Prometheus
+type: application
+version: 0.1.1
+appVersion: "11.6.0"

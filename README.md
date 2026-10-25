@@ -11,9 +11,10 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Moodle-5.2.2-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
-  <img src="https://img.shields.io/badge/PHP-8.4-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
-  <img src="https://img.shields.io/badge/MariaDB-11.7.2-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
+  <img src="https://img.shields.io/badge/Moodle-5.3.0-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
+  <img src="https://img.shields.io/badge/Image-5.3.0--r5-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Image Tag"/>
+  <img src="https://img.shields.io/badge/PHP-8.4.27-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
+  <img src="https://img.shields.io/badge/MariaDB-11.8.9-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
   <img src="https://img.shields.io/badge/License-GPL_v3-blue.svg?style=for-the-badge" alt="License"/>
 </p>
 
@@ -29,12 +30,16 @@
 *Get your Moodle LMS running in under 2 minutes!*
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/docker-compose.yml > docker-compose.yml
-curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/env.example > .env
+curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/docker-compose.yml > docker-compose.yml
+curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/env.example > .env
 mkdir -p data/moodle data/moodledata
 chown -R 1000:1000 data/moodle data/moodledata
 docker compose up -d
 ```
+
+Current stack pin: **Moodle 5.3.0** (LTS) · image **`abstechnology/moodle-standard:5.3.0-r5`** · **PHP 8.4.27** · base **`debian:13-slim`** · compose MariaDB **11.8.9**. Version source of truth: [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock). Live VMs keep the image they were created with.
+
+GKE (Cloud SQL MySQL 8.4, Global ALB) is a **separate** stack: [`gke-moodle/`](gke-moodle/README.md). Terraform there is **infra only**; Moodle is Helm by hand. It does not use `terraform/` VM deployments.
 
 <div align="center">
 
@@ -120,10 +125,10 @@ docker compose up -d
 <img src="https://img.shields.io/badge/Production-Ready-success?style=for-the-badge" alt="Production Ready"/>
 
 **Latest Technology Stack**
-- 🚀 **Moodle 5.2.2** - Latest features
+- 🚀 **Moodle 5.3.0** - Current LTS pin (`5.3.0-r5` image, Debian 13)
 - 🐘 **PHP 8.4** - Performance boost
-- 🗄️ **MariaDB 11.7.2** - Optimized database
-- 🔒 **Security Hardened** - Non-root execution
+- 🗄️ **MariaDB 11.8.9** - Compose database pin
+- 🔒 **Security Hardened** - Non-root execution · Scout gate on push
 - ⚡ **OPcache Enabled** - 3x faster performance
 
 </td>
@@ -134,7 +139,7 @@ docker compose up -d
 
 **Built for High-Traffic**
 - 🌐 **Load Balancer** - Handle thousands of users
-- 🔧 **One-Command Deploy** - docker-compose up
+- 🔧 **One-Command Deploy** - `docker compose up`
 - 📱 **Mobile Optimized** - PWA support
 - 🌍 **Multi-Language** - 120+ languages
 - 📊 **Health Monitoring** - Built-in checks
@@ -238,7 +243,11 @@ docker compose up -d
 
 ## Supported Tags and Respective `Dockerfile` Links
 
-* [`5.2.2-r2`, `5.2.2`, `5.2`, `latest`](https://github.com/abs-technology/moodle/blob/main/Dockerfile)
+* [`5.3.0-r5`](https://github.com/abs-technology/moodle/blob/main/Dockerfile) — current image. `5.3.0`, `5.3.0-r1`, `5.3.0-r2`, `5.3.0-r3` and `5.3.0-r4` stay published. `latest` was not moved.
+
+Pinned in [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock): Moodle **5.3.0** from [packaging.moodle.org stable503](https://packaging.moodle.org/stable503/moodle-5.3.tgz), PHP **8.4.27**, base **`debian:13-slim`**, Docker tag **`5.3.0-r5`**.
+
+Multi-arch Hub image (`linux/amd64` + `linux/arm64`) is built locally with `make push`. Default **`ATTESTATIONS=none`** (no provenance/SBOM attach) for Marketplace-safe publishes. See [`docs/SECURITY-EXCEPTIONS.md`](docs/SECURITY-EXCEPTIONS.md) and [`docs/RELEASE-NOTES-POLICY.md`](docs/RELEASE-NOTES-POLICY.md).
 
 **Subscribe to project updates by watching the [ABS Technology Moodle GitHub repo](https://github.com/abs-technology/moodle).**
 
@@ -264,7 +273,7 @@ $ docker pull abstechnology/moodle-standard:latest
 To use a specific version, you can pull a versioned tag:
 
 ```console
-$ docker pull abstechnology/moodle-standard:5.2.2-r2
+$ docker pull abstechnology/moodle-standard:5.3.0-r5
 ```
 
 ## How to Use This Image
@@ -274,9 +283,10 @@ $ docker pull abstechnology/moodle-standard:5.2.2-r2
 The main folder of this repository contains a functional [`docker-compose.yml`](https://github.com/abs-technology/moodle/blob/main/docker-compose.yml) file. Run the application using it as shown below:
 
 ```console
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/docker-compose.yml > docker-compose.yml
-$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/moodle-core-5-2-2/env.example > .env
-$ docker-compose up -d
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/docker-compose.yml > docker-compose.yml
+$ curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/env.example > .env
+$ mkdir -p data/moodle data/moodledata
+$ docker compose up -d
 ```
 
 ### Running Moodle with Docker Run
@@ -300,7 +310,7 @@ $ docker run -d --name mariadb \
   --env MARIADB_DATABASE=moodle_db \
   --network moodle-network \
   --volume mariadb_data:/var/lib/mysql \
-  mariadb:11.7.2
+  mariadb:11.8.9
 ```
 
 #### Step 3: Create Volumes for Moodle Persistence and Launch the Container
@@ -321,7 +331,7 @@ $ docker run -d --name moodle \
   --network moodle-network \
   --volume moodle_data:/var/www/html \
   --volume moodledata_data:/var/www/moodledata \
-  abstechnology/moodle-standard:5.2.2-r2
+  abstechnology/moodle-standard:5.3.0-r5
 ```
 
 Access your application at `http://localhost:8080` or `https://localhost:8443`.
@@ -334,15 +344,24 @@ When you start the Moodle image, you can adjust the configuration of the instanc
 
 #### Moodle Configuration
 
-- `MOODLE_USERNAME`: Moodle admin username. Default: **absi_admin**
-- `MOODLE_PASSWORD`: Moodle admin password. **Required**
+- `MOODLE_USERNAME`: Moodle admin username. Read on first install only. Default: **admin**. Later restarts do not rename it.
+- `MOODLE_PASSWORD`: Moodle admin password. Read on first install only. **Required**. Later restarts do not reset it.
+
+Marketplace, GCP and AWS VMs are unchanged: their bootstrap still writes `MOODLE_USERNAME=admin` and the generated password. A custom username applies only when that `.env` sets one before the first install.
 - `MOODLE_EMAIL`: Moodle admin email. **Required**
-- `MOODLE_SITE_NAME`: Moodle site name. Default: **Absi Technology Moodle LMS®**
+- `MOODLE_SITE_NAME`: Moodle site name. Default: **ABS Technology Moodle LMS®**
 - `MOODLE_SITE_FULLNAME`: Moodle site full name. Default: **Absi Technology Learning Management System**
-- `MOODLE_SITE_SHORTNAME`: Moodle site short name. Default: **ABSI-LMS**
+- `MOODLE_SITE_SHORTNAME`: Moodle site short name. Default: **ABS-LMS**
 - `MOODLE_CRON_MINUTES`: Moodle cron job interval in minutes. Default: **1**
-- `MOODLE_REVERSEPROXY`: Enable reverse proxy support. Default: **yes**
-- `MOODLE_SSLPROXY`: Enable SSL proxy support. Default: **yes**
+- `MOODLE_WWWROOT`: Public site URL, identical on every node. Default: **empty** (guessed per request)
+- `MOODLE_SSLPROXY`: Proxy terminates TLS and forwards http. Default: **no** (set **yes** behind Traefik/Nginx/CloudFlare/GCP/AWS)
+- `MOODLE_REVERSEPROXY`: Only for proxies that rewrite the `Host` header. Default: **no** — keep it **no** for Traefik, AWS ALB and GCP
+- `MOODLE_CLUSTER`: Shared DB sessions + node-local cache for 2+ nodes. Default: **no**
+
+Behind a TLS-terminating proxy set `MOODLE_WWWROOT` and `MOODLE_SSLPROXY=yes`,
+and leave `MOODLE_REVERSEPROXY=no`: Moodle 5.x rejects `reverseproxy` when the
+proxy forwards the original `Host`. Load balancers must probe `/readyz`, never
+`/login/index.php`. Full guide: [docs/LOAD-BALANCING.md](docs/LOAD-BALANCING.md).
 
 #### Database Configuration
 
@@ -360,15 +379,16 @@ When you start the Moodle image, you can adjust the configuration of the instanc
 - `PHP_MAX_FILE_UPLOADS`: PHP max file uploads. Default: **200**
 - `PHP_POST_MAX_SIZE`: PHP POST max size. Default: **2G**
 - `PHP_UPLOAD_MAX_FILESIZE`: PHP upload max filesize. Default: **2G**
-- `PHP_MAX_EXECUTION_TIME`: PHP max execution time. Default: **256**
+- `PHP_MAX_EXECUTION_TIME`: PHP max execution time. Default: **600**
 
 ### Full Example
 
 ```yaml
 services:
   mariadb:
-    image: mariadb:11.7.2
+    image: mariadb:11.8.9
     container_name: abs-mariadb
+    restart: unless-stopped
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_USER=${MARIADB_USER}
@@ -389,8 +409,9 @@ services:
       - moodle_network
 
   moodle:
-    image: abstechnology/moodle-standard:5.2.2-r2
+    image: abstechnology/moodle-standard:5.3.0-r5
     container_name: abs-moodle
+    restart: unless-stopped
     ports:
       - "80:8080"
       - "443:8443"
@@ -428,9 +449,11 @@ services:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_PASSWORD=${MARIADB_PASSWORD}
       
-      # Proxy Configuration
-      - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
+      # Proxy Configuration (see docs/LOAD-BALANCING.md)
+      - MOODLE_WWWROOT=${MOODLE_WWWROOT:-}
       - MOODLE_SSLPROXY=${MOODLE_SSLPROXY}
+      - MOODLE_REVERSEPROXY=${MOODLE_REVERSEPROXY}
+      - MOODLE_CLUSTER=${MOODLE_CLUSTER:-no}
 
       # Upgrade behavior (see env.example for details)
       - MOODLE_AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE:-no}
@@ -445,7 +468,7 @@ services:
       mariadb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "sh", "-c", "if [ \"$$MOODLE_SSLPROXY\" = \"yes\" ]; then curl -f -k https://localhost:8443/login/index.php; else curl -f http://localhost:8080/login/index.php; fi"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -466,8 +489,9 @@ volumes:
 ### 🚀 **Performance & Scale**
 | Feature | Specification | Benefit |
 |---------|---------------|---------|
-| 🐘 **PHP Version** | 8.4 with OPcache | 40% faster than PHP 7.4 |
-| 🗄️ **Database** | MariaDB 11.7.2 | High-performance, MySQL-compatible |
+| 🐘 **PHP Version** | 8.4 with OPcache | Current Moodle 5.3 runtime |
+| 🗄️ **Database** | MariaDB 11.8.9 (compose) | High-performance, MySQL-compatible |
+| 📦 **Image tag** | `5.3.0-r5` | Marketplace-oriented pin (see `versions.lock`) |
 | 📁 **File Uploads** | Up to 2GB per file | Support large video/document uploads |
 | 🔄 **Cron Jobs** | Configurable (1-60 min) | Automated maintenance & notifications |
 
@@ -476,6 +500,8 @@ volumes:
 - ✅ **SSL/TLS ready** - HTTPS support out-of-the-box  
 - ✅ **Security headers** - OWASP recommended configurations
 - ✅ **Secure defaults** - Hardened PHP & Apache configurations
+- ✅ **Scout gate on `make push`** - Fixable Critical/High policy check
+- ✅ **Composer security pins** - AWS SDK / Guzzle / jmespath updates beyond Moodle lockfile
 
 ### 🌐 **Production Features**
 - 🔧 **Health Checks** - Built-in monitoring endpoints
@@ -508,6 +534,22 @@ Always use strong passwords for database and admin accounts. You can generate se
 $ openssl rand -base64 32
 ```
 
+Known Scout / Marketplace exceptions and attestation policy: [`docs/SECURITY-EXCEPTIONS.md`](docs/SECURITY-EXCEPTIONS.md).
+
+## Building & releasing (maintainers)
+
+Pins live in [`versions.lock`](versions.lock). Local build/push (no Cloud Build):
+
+```console
+$ ./scripts/git-hooks/install.sh   # strip banned AI attribution trailers
+$ make build                       # native arch smoke build
+$ make push                        # Scout gate + multi-arch Hub push
+$ make tag-latest                  # optional: retag latest
+$ make remove                      # wipe local compose data + volumes
+```
+
+Release notes are required for every new image tag — see [`docs/RELEASE-NOTES-POLICY.md`](docs/RELEASE-NOTES-POLICY.md) and [`AGENTS.md`](AGENTS.md).
+
 ## Maintenance
 
 ### Backing Up Your Container
@@ -538,7 +580,10 @@ We welcome contributions to improve this Docker image. Please submit issues and 
 
 - **Source Code**: [GitHub Repository](https://github.com/abs-technology/moodle)
 - **Issue Tracker**: [GitHub Issues](https://github.com/abs-technology/moodle/issues)
+- **Maintainer policies**: [`AGENTS.md`](AGENTS.md) · [`docs/RELEASE-NOTES-POLICY.md`](docs/RELEASE-NOTES-POLICY.md) · [`docs/NO-AGENT-ATTRIBUTION.md`](docs/NO-AGENT-ATTRIBUTION.md)
 - **Documentation**: [Moodle Official Documentation](https://docs.moodle.org/)
+
+Do not commit IDE folders such as `.cursor/` — they are gitignored.
 
 ## License
 

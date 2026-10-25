@@ -1,0 +1,135 @@
+# Moodle behind Traefik, TLS terminated at the proxy.
+# TLS_CERTRESOLVER in .env picks Let's Encrypt (le) or your own cert (empty).
+# See README.md.
+services:
+  traefik:
+    # v3.6.1+ required: older images talk Docker API 1.24, refused by Engine 29.
+    image: traefik:v3.7.13
+    container_name: abs-traefik
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http3=${TRAEFIK_HTTP3:-true}
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --log.level=INFO
+      - --accesslog=true
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/acme/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.le.acme.caserver=${ACME_CASERVER:-https://acme-v02.api.letsencrypt.org/directory}
+    ports:
+      - "80:80"
+      - "443:443/tcp"
+      - "443:443/udp"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
+      - ./certs:/etc/traefik/certs:ro
+      - traefik_acme:/acme
+    networks:
+      - moodle_network
+
+  mariadb:
+    image: mariadb:11.8.9
+    container_name: abs-mariadb
+    restart: unless-stopped
+    environment:
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_USER=${MARIADB_USER}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
+      - MARIADB_DATABASE=${MARIADB_DATABASE}
+    command:
+      - '--character-set-server=utf8mb4'
+      - '--collation-server=utf8mb4_unicode_ci'
+      - '--init-connect=SET NAMES utf8mb4'
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "root", "-p${MARIADB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - moodle_network
+
+  moodle:
+    image: abstechnology/moodle-standard:5.3.0-r5
+    container_name: abs-moodle
+    restart: unless-stopped
+    # No published ports: Traefik is the only way in.
+    environment:
+      - MOODLE_USERNAME=${MOODLE_USERNAME}
+      - MOODLE_PASSWORD=${MOODLE_PASSWORD}
+      - MOODLE_EMAIL=${MOODLE_EMAIL}
+      - MOODLE_SITE_NAME=${MOODLE_SITE_NAME}
+
+      - MOODLE_DATABASE_TYPE=mariadb
+      - MOODLE_DATABASE_HOST=mariadb
+      - MOODLE_DATABASE_PORT_NUMBER=3306
+      - MOODLE_DATABASE_USER=${MARIADB_USER}
+      - MOODLE_DATABASE_PASSWORD=${MARIADB_PASSWORD}
+      - MOODLE_DATABASE_NAME=${MARIADB_DATABASE}
+
+      # The entrypoint provisions the schema as root, so it needs admin creds too.
+      - MARIADB_HOST=mariadb
+      - MARIADB_PORT_NUMBER=3306
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
+
+      # reverseproxy must stay no: Traefik keeps the original Host and Moodle
+      # rejects that combination with "reverseproxyabused".
+      - MOODLE_WWWROOT=https://${MOODLE_DOMAIN}
+      - MOODLE_SSLPROXY=yes
+      - MOODLE_REVERSEPROXY=no
+      - MOODLE_CLUSTER=no
+
+      - PHP_MEMORY_LIMIT=${PHP_MEMORY_LIMIT:-512M}
+      - PHP_MAX_INPUT_VARS=${PHP_MAX_INPUT_VARS:-5000}
+      - PHP_MAX_FILE_UPLOADS=${PHP_MAX_FILE_UPLOADS:-200}
+      - PHP_POST_MAX_SIZE=${PHP_POST_MAX_SIZE:-4G}
+      - PHP_UPLOAD_MAX_FILESIZE=${PHP_UPLOAD_MAX_FILESIZE:-4G}
+      - PHP_MAX_EXECUTION_TIME=${PHP_MAX_EXECUTION_TIME:-600}
+    # data/ must be owned by uid 1000; the container cannot chown it.
+    volumes:
+      - ./data/moodle:/var/www/html
+      - ./data/moodledata:/var/www/moodledata
+      - ./data/moodle-backups:/var/www/moodle-backups
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.moodle.rule=Host(`${MOODLE_DOMAIN}`)
+      - traefik.http.routers.moodle.entrypoints=websecure
+      - traefik.http.routers.moodle.tls=true
+      # Single-dash default on purpose: an empty value must stay empty, which
+      # means "serve the default certificate from dynamic/tls.yml".
+      - traefik.http.routers.moodle.tls.certresolver=${TLS_CERTRESOLVER-le}
+      - traefik.http.services.moodle.loadbalancer.server.port=8080
+      # /login/index.php answers 303 to a probe, so health-check /readyz instead.
+      - traefik.http.services.moodle.loadbalancer.healthcheck.path=/readyz
+      - traefik.http.services.moodle.loadbalancer.healthcheck.interval=15s
+      - traefik.http.services.moodle.loadbalancer.healthcheck.timeout=5s
+    networks:
+      - moodle_network
+
+networks:
+  moodle_network:
+    driver: bridge
+
+volumes:
+  mariadb_data:
+  traefik_acme:

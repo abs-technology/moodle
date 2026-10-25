@@ -1,0 +1,1617 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+. /scripts/lib/logging.sh
+. /scripts/lib/config.sh
+. /scripts/lib/filesystem.sh
+. /scripts/lib/validations.sh
+. /scripts/lib/mariadb.sh
+. /scripts/lib/php.sh
+. /scripts/lib/moodle_paths.sh
+
+# Load centralized configuration
+load_config
+
+# ============================================================================
+# FUNCTION DEFINITIONS
+# ============================================================================
+
+# Marker written after first install (or after a one-shot env sync) so later
+# restarts do not rewrite admin credentials / site name from the environment.
+_mark_environment_overrides_applied() {
+    local env_applied_marker="$MOODLE_DATA_DIR/.absi_env_applied"
+    local env_hash_file="$MOODLE_DATA_DIR/.absi_env_hash"
+    local current_env_hash
+    current_env_hash=$(echo "${MOODLE_REVERSEPROXY}:${MOODLE_SSLPROXY}" | md5sum | cut -d' ' -f1)
+    mkdir -p "$MOODLE_DATA_DIR" 2>/dev/null || true
+    touch "$env_applied_marker"
+    echo "$current_env_hash" > "$env_hash_file"
+    chown "$APP_USER:$APP_GROUP" "$env_applied_marker" "$env_hash_file" 2>/dev/null || true
+}
+
+# Apply environment variable overrides to the Moodle DATABASE only.
+# config.php is generated exactly once (see generate_moodle_config) and is
+# intentionally NEVER rewritten on subsequent container starts - the operator
+# owns that file from first install onwards.
+apply_environment_overrides() {
+    # Check if environment overrides have already been applied (stability marker)
+    local env_applied_marker="$MOODLE_DATA_DIR/.absi_env_applied"
+    local env_hash_file="$MOODLE_DATA_DIR/.absi_env_hash"
+    
+    # Calculate current environment hash for proxy settings
+    local current_env_hash=$(echo "${MOODLE_REVERSEPROXY}:${MOODLE_SSLPROXY}" | md5sum | cut -d' ' -f1)
+    
+    # Marker is the only gate. Proxy flags (sslproxy / reverseproxy) live in
+    # config.php, which change-domain.sh edits itself. Re-applying DB overrides
+    # just because those flags flipped would reset the admin password after a
+    # domain move — do not do that.
+    if [[ -f "$env_applied_marker" ]]; then
+        info "Environment overrides already applied at install. Restart leaves the database as-is."
+        debug "Skipping environment overrides (marker $env_applied_marker)"
+        return 0
+    fi
+    
+    info "Syncing environment overrides to the Moodle database (config.php is left untouched)..."
+    
+    # Only sync DB-side settings if Moodle is actually installed (config.php present).
+    if [[ -f "$MOODLE_CONF_FILE" ]]; then
+        apply_database_overrides
+        _mark_environment_overrides_applied
+        info "Environment DB overrides applied successfully. Hash: $current_env_hash"
+    else
+        debug "No config.php found, skipping environment overrides"
+    fi
+}
+
+# NOTE: config.php is generated exactly once by generate_moodle_config() at first
+# install and is intentionally never rewritten afterwards. The legacy
+# apply_config_php_overrides() (PHP regex rewriting of config.php on every boot)
+# has been removed; its Moodle 5.x specifics (router flags, curlsecurity, dirroot)
+# are now baked directly into the generated config.php.
+# Update database settings with environment variables
+apply_database_overrides() {
+    info "Updating database with environment variables..."
+    
+    # Check database connection first
+    if ! echo "SELECT 1" | mariadb_remote_execute "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" >/dev/null 2>&1; then
+        warn "Cannot connect to database, skipping database overrides"
+        return 1
+    fi
+    
+    # Credential / site-name sync must never take the container down.
+    if ! update_admin_user; then
+        warn "Admin user env sync failed; Moodle will still start"
+    fi
+    if ! update_site_settings; then
+        warn "Site settings env sync failed; Moodle will still start"
+    fi
+}
+
+# Moodle PARAM_USERNAME. Rejected here so a bad value never reaches
+# --adminuser or the one-shot SQL sync.
+require_moodle_username() {
+    if [[ ! "${MOODLE_USERNAME}" =~ ^[a-z0-9._@-]{1,100}$ ]] || [[ "${MOODLE_USERNAME}" == "guest" ]]; then
+        error "MOODLE_USERNAME='${MOODLE_USERNAME}' is not a valid Moodle username (lowercase letters, digits, . _ @ -; not guest)."
+        exit 1
+    fi
+}
+
+# Sync password/email onto the admin row created at first install.
+# MOODLE_USERNAME is applied only then; later restarts do not rename it.
+update_admin_user() {
+    require_moodle_username
+    info "Updating admin user credentials (username stays '${MOODLE_USERNAME}')"
+
+    local password_hash
+    password_hash=$(php -r "echo password_hash('${MOODLE_PASSWORD}', PASSWORD_DEFAULT);")
+
+    mariadb_remote_execute "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
+        "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" <<EOF
+UPDATE mdl_user SET
+    password = '${password_hash}',
+    email = '${MOODLE_EMAIL}',
+    firstname = 'Admin',
+    lastname = 'User',
+    timemodified = UNIX_TIMESTAMP()
+WHERE username = '${MOODLE_USERNAME}' AND deleted = 0;
+EOF
+    debug "Admin user credentials updated successfully"
+}
+
+# Update site settings with environment variables
+update_site_settings() {
+    info "Updating site settings with environment variables..."
+    
+    # Update site configuration in mdl_config table
+    mariadb_remote_execute "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
+        "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" <<EOF
+-- Update or insert site settings
+INSERT INTO mdl_config (name, value) VALUES 
+    ('fullname', '${MOODLE_SITE_FULLNAME}'),
+    ('shortname', '${MOODLE_SITE_SHORTNAME}')
+ON DUPLICATE KEY UPDATE 
+    value = VALUES(value);
+
+-- Update existing site name if exists  
+UPDATE mdl_config SET value = '${MOODLE_SITE_NAME}' WHERE name = 'sitename';
+INSERT INTO mdl_config (name, value) SELECT 'sitename', '${MOODLE_SITE_NAME}' 
+WHERE NOT EXISTS (SELECT 1 FROM mdl_config WHERE name = 'sitename');
+EOF
+    debug "Site settings updated successfully"
+}
+
+# ============================================================================
+# MOODLE VERSION DETECTION & UPGRADE FUNCTIONS
+# ============================================================================
+#
+# High-level flow on container start (see MAIN LOGIC at the bottom of this
+# file for the call site):
+#
+#   1. detect_moodle_upgrade_needed()          # is image newer than disk?
+#   2. perform_moodle_upgrade() orchestrates:
+#        a. pre_upgrade_checks()               # disk, php, db, abort marker
+#        b. _upgrade_workspace_init()          # create snapshot dir + log
+#        c. preserve_custom_content()          # config, plugins, themes
+#        d. backup_database_for_upgrade()      # gzipped mysqldump
+#        e. backup_code_for_upgrade()          # full code tar.gz
+#        f. enable_maintenance_mode()
+#        g. replace_moodle_code()              # safe replace into MOODLE_DIR
+#        h. restore_custom_content()
+#        i. run_db_upgrade_if_enabled()        # opt-in via MOODLE_AUTO_DB_UPGRADE
+#        j. disable_maintenance_mode()         # only when DB upgrade ran
+#        k. prune_old_upgrade_snapshots()
+#
+#   On any failure inside d–i, restore_from_snapshot() is invoked which
+#   restores both the DB and the code from the snapshot taken in d/e and
+#   leaves a `.upgrade-aborted` marker so the next container start does not
+#   try the same upgrade again in a loop.
+# ============================================================================
+
+# NOTE on parsing version.php:
+# Moodle's version.php uses Moodle constants such as MATURITY_STABLE which
+# are NOT defined unless the full Moodle bootstrap has run. A naive
+# `php -r "require 'version.php';"` therefore aborts with a fatal "Undefined
+# constant" error and silently returns nothing - which previously made the
+# upgrade detection a no-op.
+#
+# We instead parse the file as text. version.php is a stable, simple format
+# with one assignment per variable. This is robust across all Moodle 3.x/4.x.
+
+_parse_version_php_var() {
+    # Usage: _parse_version_php_var <file> <var_name>
+    # Echoes the assigned value (without quotes / trailing comment), or empty.
+    local file=$1
+    local var=$2
+    [[ ! -f "$file" ]] && return 1
+
+    # Match e.g. `$version  = 2024100100.05;` or `$release = '4.5.10+ (...)';`
+    # We use sed (not awk dynamic regex) because awk's dynamic-regex
+    # backslash handling differs between gawk and mawk (Debian's default
+    # awk is mawk and silently failed to match `\$version` here, which
+    # made every upgrade detection short-circuit with an empty version).
+    #
+    # Strategy:
+    #   1. Find first line matching `^\s*$<var>\s*=`
+    #   2. Drop everything up to and including the `=`
+    #   3. Drop trailing `;` and anything after it (PHP inline comment etc.)
+    #   4. Trim surrounding whitespace and quotes
+    sed -nE "/^[[:space:]]*\\\$${var}[[:space:]]*=/{
+        s/^[^=]*=[[:space:]]*//
+        s/[[:space:]]*;.*\$//
+        s/^[[:space:]]+//
+        s/[[:space:]]+\$//
+        s/^['\"]+//
+        s/['\"]+\$//
+        p
+        q
+    }" "$file"
+}
+
+# Detect Moodle version (numeric, e.g. 2024100100) from version.php.
+get_moodle_version() {
+    local version_file=$1
+    if [[ ! -f "$version_file" ]]; then
+        echo "0"
+        return 1
+    fi
+
+    local v
+    v=$(_parse_version_php_var "$version_file" "version")
+    if [[ -z "$v" ]]; then
+        echo "0"
+        return 1
+    fi
+    echo "$v"
+}
+
+# Get human-readable release string (e.g. "4.5.10+ (Build: 20240728)").
+get_moodle_version_info() {
+    local version_file=$1
+    if [[ ! -f "$version_file" ]]; then
+        echo "Unknown"
+        return 1
+    fi
+
+    local r
+    r=$(_parse_version_php_var "$version_file" "release")
+    [[ -z "$r" ]] && { echo "Unknown"; return 1; }
+    echo "$r"
+}
+
+# Read Moodle's required PHP version (e.g. "8.1.0"). Empty when not declared.
+get_moodle_required_php() {
+    local version_file=$1
+    [[ ! -f "$version_file" ]] && { echo ""; return 1; }
+    _parse_version_php_var "$version_file" "requires"
+}
+
+# Locate version.php (Moodle 5.2: public/version.php only).
+_resolve_moodle_version_file() {
+    moodle_version_file "$1" || echo ""
+}
+
+# Detect if upgrade is needed.
+# Returns 0 when an upgrade should run, 1 otherwise.
+# Aborts on downgrade. Honors `.upgrade-aborted` markers to prevent loops
+# after a previous failed upgrade against the SAME image version.
+detect_moodle_upgrade_needed() {
+    local source_version_file
+    local running_version_file
+    source_version_file=$(_resolve_moodle_version_file "/opt/moodle-source")
+    running_version_file=$(_resolve_moodle_version_file "${MOODLE_DIR}")
+
+    if [[ -z "$running_version_file" ]]; then
+        debug "No running version.php found in either layout - fresh installation"
+        return 1
+    fi
+
+    if [[ -z "$source_version_file" ]]; then
+        warn "No version.php found in /opt/moodle-source - cannot decide on upgrade"
+        return 1
+    fi
+
+    local source_version=$(get_moodle_version "$source_version_file")
+    local running_version=$(get_moodle_version "$running_version_file")
+
+    if [[ -z "$source_version" ]] || [[ "$source_version" == "0" ]]; then
+        warn "Could not detect image Moodle version"
+        return 1
+    fi
+
+    if [[ -z "$running_version" ]] || [[ "$running_version" == "0" ]]; then
+        warn "Could not detect running Moodle version"
+        return 1
+    fi
+
+    debug "Image version:   $source_version"
+    debug "Running version: $running_version"
+
+    local comparison
+    comparison=$(awk -v sv="$source_version" -v rv="$running_version" 'BEGIN {
+        if (sv > rv) print "upgrade"
+        else if (sv < rv) print "downgrade"
+        else print "same"
+    }')
+
+    case "$comparison" in
+        upgrade)
+            # If the previous attempt to upgrade to THIS exact image version
+            # was rolled back, refuse to retry automatically. Operator must
+            # remove the marker once they have investigated the failure.
+            local abort_marker="${MOODLE_DATA_DIR}/.upgrade-aborted"
+            if [[ -f "$abort_marker" ]]; then
+                local aborted_version
+                aborted_version=$(grep '^TARGET_VERSION=' "$abort_marker" 2>/dev/null | cut -d= -f2)
+                if [[ "$aborted_version" == "$source_version" ]]; then
+                    error "Previous upgrade to version $source_version was rolled back."
+                    error "Refusing to retry. See $abort_marker for details."
+                    error "Remove the marker after investigating to retry: rm '$abort_marker'"
+                    return 1
+                fi
+            fi
+
+            export MOODLE_UPGRADE_FROM_VERSION="$running_version"
+            export MOODLE_UPGRADE_TO_VERSION="$source_version"
+            export MOODLE_UPGRADE_FROM_RELEASE=$(get_moodle_version_info "$running_version_file")
+            export MOODLE_UPGRADE_TO_RELEASE=$(get_moodle_version_info "$source_version_file")
+            return 0
+            ;;
+        downgrade)
+            # Image is OLDER than what is on disk. We deliberately do NOT
+            # downgrade (Moodle does not support it - the DB schema and
+            # plugin data have already moved forward) and we deliberately do
+            # NOT crash the container. Instead we log a loud warning and
+            # let startup continue using the existing newer code on disk,
+            # so the site stays available while the operator fixes the
+            # image tag (or restores from a snapshot).
+            local source_release running_release
+            source_release=$(get_moodle_version_info "$source_version_file")
+            running_release=$(get_moodle_version_info "$running_version_file")
+
+            warn "╔═══════════════════════════════════════════════════════════╗"
+            warn "║  ⚠  DOWNGRADE ATTEMPT DETECTED - IGNORED                  ║"
+            warn "╠═══════════════════════════════════════════════════════════╣"
+            warn "║  Image version:   $source_release ($source_version)"
+            warn "║  On-disk version: $running_release ($running_version)"
+            warn "║                                                           ║"
+            warn "║  The image you are starting is OLDER than the Moodle      ║"
+            warn "║  install on the persistent volume. Moodle does not        ║"
+            warn "║  support downgrade (DB schema has migrated forward).      ║"
+            warn "║                                                           ║"
+            warn "║  ➜ The container will START NORMALLY using the newer      ║"
+            warn "║    code already on disk. Nothing was changed.             ║"
+            warn "║                                                           ║"
+            warn "║  If this image tag was a mistake:                         ║"
+            warn "║    • Switch back to a tag >= $running_release"
+            warn "║                                                           ║"
+            warn "║  If you really need to roll back to $source_release:"
+            warn "║    1. Stop the container."
+            warn "║    2. Restore code+DB from a snapshot in:                 ║"
+            warn "║         $MOODLE_BACKUP_DIR"
+            if [[ -d "$MOODLE_BACKUP_DIR" ]]; then
+                local snaps
+                snaps=$(find "$MOODLE_BACKUP_DIR" -mindepth 1 -maxdepth 1 \
+                            -type d -name 'upgrade-*' \
+                            -printf '%T@ %f\n' 2>/dev/null \
+                          | sort -rn | awk '{print $2}' | head -3)
+                if [[ -n "$snaps" ]]; then
+                    warn "║       Available snapshots (most recent first):           ║"
+                    while IFS= read -r s; do
+                        [[ -z "$s" ]] && continue
+                        warn "║         - $s"
+                    done <<< "$snaps"
+                else
+                    warn "║       (no snapshots present yet)                          ║"
+                fi
+            fi
+            warn "║    3. Start the container again with the older image.     ║"
+            warn "╚═══════════════════════════════════════════════════════════╝"
+
+            # Drop a marker so that monitoring can detect this state.
+            # Overwrite each start so the most recent attempt is recorded.
+            mkdir -p "$MOODLE_DATA_DIR" 2>/dev/null || true
+            cat > "${MOODLE_DATA_DIR}/.downgrade-attempted" <<EOF
+IMAGE_VERSION=$source_version
+IMAGE_RELEASE=$source_release
+DISK_VERSION=$running_version
+DISK_RELEASE=$running_release
+DETECTED_AT=$(date -Iseconds)
+ACTION=ignored-container-continued-with-disk-version
+EOF
+            chown "${APP_USER}:${APP_GROUP}" "${MOODLE_DATA_DIR}/.downgrade-attempted" 2>/dev/null || true
+
+            # Return 1 so the orchestrator skips perform_moodle_upgrade and
+            # the rest of the entrypoint just brings Moodle up as-is.
+            return 1
+            ;;
+        same)
+            debug "Moodle version up to date: $source_version"
+            return 1
+            ;;
+    esac
+}
+
+# ----------------------------------------------------------------------------
+# Upgrade workspace, logging and retention
+# ----------------------------------------------------------------------------
+
+# Globals populated by _upgrade_workspace_init():
+#   _UPGRADE_WORKSPACE  - directory under MOODLE_BACKUP_DIR for this attempt
+#   _UPGRADE_DB_DUMP    - path to gzipped DB dump
+#   _UPGRADE_CODE_TGZ   - path to gzipped code tarball
+#   _UPGRADE_LOG        - path to per-attempt audit log
+
+_upgrade_log() {
+    # Append a line to both stdout (via info) and the per-attempt audit log.
+    local msg="$*"
+    info "$msg"
+    if [[ -n "${_UPGRADE_LOG:-}" ]] && [[ -e "$(dirname "$_UPGRADE_LOG")" ]]; then
+        printf '%s %s\n' "$(date -Iseconds)" "$msg" >> "$_UPGRADE_LOG" 2>/dev/null || true
+    fi
+}
+
+_upgrade_workspace_init() {
+    local from_version=$1
+    local to_version=$2
+    local timestamp
+    timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+
+    mkdir -p "$MOODLE_BACKUP_DIR" 2>/dev/null || true
+
+    if [[ ! -w "$MOODLE_BACKUP_DIR" ]]; then
+        error "Backup directory $MOODLE_BACKUP_DIR is not writable. Cannot proceed safely."
+        return 1
+    fi
+
+    _UPGRADE_WORKSPACE="${MOODLE_BACKUP_DIR}/upgrade-${timestamp}-${from_version}-to-${to_version}"
+    _UPGRADE_DB_DUMP="${_UPGRADE_WORKSPACE}/database.sql.gz"
+    _UPGRADE_CODE_TGZ="${_UPGRADE_WORKSPACE}/code.tar.gz"
+    _UPGRADE_LOG="${_UPGRADE_WORKSPACE}/upgrade.log"
+
+    mkdir -p "$_UPGRADE_WORKSPACE" || return 1
+
+    cat > "${_UPGRADE_WORKSPACE}/metadata.env" <<EOF
+FROM_VERSION=$from_version
+TO_VERSION=$to_version
+FROM_RELEASE=${MOODLE_UPGRADE_FROM_RELEASE:-Unknown}
+TO_RELEASE=${MOODLE_UPGRADE_TO_RELEASE:-Unknown}
+STARTED_AT=$(date -Iseconds)
+HOSTNAME=$(hostname)
+AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE:-no}
+EOF
+
+    : > "$_UPGRADE_LOG"
+    export _UPGRADE_WORKSPACE _UPGRADE_DB_DUMP _UPGRADE_CODE_TGZ _UPGRADE_LOG
+    return 0
+}
+
+# Keep the most recent N upgrade snapshots; delete older ones.
+prune_old_upgrade_snapshots() {
+    local keep=${MOODLE_UPGRADE_RETENTION:-5}
+    [[ ! -d "$MOODLE_BACKUP_DIR" ]] && return 0
+
+    local snapshots
+    snapshots=$(find "$MOODLE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name 'upgrade-*' \
+                  -printf '%T@ %p\n' 2>/dev/null | sort -rn | awk '{print $2}')
+
+    local count=0
+    while IFS= read -r snap; do
+        [[ -z "$snap" ]] && continue
+        count=$((count + 1))
+        if [[ $count -gt $keep ]]; then
+            debug "Pruning old upgrade snapshot: $snap"
+            rm -rf "$snap" 2>/dev/null || true
+        fi
+    done <<< "$snapshots"
+}
+
+# ----------------------------------------------------------------------------
+# Pre-flight checks
+# ----------------------------------------------------------------------------
+
+pre_upgrade_checks() {
+    local source_version_file="/opt/moodle-source/version.php"
+    info "Running pre-upgrade checks..."
+
+    # 1. Disk space: backup_dir + moodle_dir need at least 2x current code size.
+    local code_size_kb
+    code_size_kb=$(du -sk "$MOODLE_DIR" 2>/dev/null | awk '{print $1}')
+    code_size_kb=${code_size_kb:-0}
+    local needed_kb=$((code_size_kb * 2))
+
+    local backup_avail_kb
+    backup_avail_kb=$(df -Pk "$MOODLE_BACKUP_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
+    backup_avail_kb=${backup_avail_kb:-0}
+    if [[ "$backup_avail_kb" -lt "$needed_kb" ]]; then
+        error "Insufficient disk space at $MOODLE_BACKUP_DIR: have ${backup_avail_kb}KB, need ${needed_kb}KB"
+        return 1
+    fi
+
+    local code_avail_kb
+    code_avail_kb=$(df -Pk "$MOODLE_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
+    code_avail_kb=${code_avail_kb:-0}
+    if [[ "$code_avail_kb" -lt "$code_size_kb" ]]; then
+        error "Insufficient disk space at $MOODLE_DIR: have ${code_avail_kb}KB, need ${code_size_kb}KB free"
+        return 1
+    fi
+
+    # 2. PHP version requirement of the new Moodle.
+    local required_php
+    required_php=$(get_moodle_required_php "$source_version_file")
+    if [[ -n "$required_php" ]]; then
+        local current_php
+        current_php=$(php -r 'echo PHP_VERSION;' 2>/dev/null)
+        if ! awk -v c="$current_php" -v r="$required_php" 'BEGIN {
+            split(c, ca, "."); split(r, ra, ".")
+            for (i = 1; i <= 3; i++) {
+                ca[i] = ca[i] + 0; ra[i] = ra[i] + 0
+                if (ca[i] > ra[i]) exit 0
+                if (ca[i] < ra[i]) exit 1
+            }
+            exit 0
+        }'; then
+            error "PHP $current_php is older than Moodle's requirement of $required_php"
+            return 1
+        fi
+        debug "PHP version OK: $current_php >= required $required_php"
+    fi
+
+    # 3. Database connectivity. Retry because the upgrade flow runs BEFORE
+    # the standard `wait_for_db_connection` that's defined later in this file
+    # (the DB container may still be starting when the entrypoint races ahead).
+    info "Waiting for database to become reachable (up to ~60s)..."
+    _check_db_for_upgrade() {
+        echo "SELECT 1" | mariadb_remote_execute \
+            "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
+            "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" \
+            "$MOODLE_DATABASE_PASSWORD" >/dev/null 2>&1
+    }
+    if ! retry_while "_check_db_for_upgrade" 12 5; then
+        error "Database not reachable at ${MOODLE_DATABASE_HOST}:${MOODLE_DATABASE_PORT_NUMBER}"
+        return 1
+    fi
+
+    info "Pre-upgrade checks passed (disk OK, PHP OK, DB reachable)"
+    return 0
+}
+
+# Preserve custom content before upgrade
+preserve_custom_content() {
+    local preserve_dir="/tmp/moodle-preserve-$$"
+    mkdir -p "$preserve_dir"
+    
+    info "Preserving custom content..."
+    
+    # 1. ALWAYS preserve config.php (critical)
+    if [[ -f "${MOODLE_DIR}/config.php" ]]; then
+        cp "${MOODLE_DIR}/config.php" "$preserve_dir/config.php"
+        info "  ✓ config.php preserved"
+    else
+        warn "No config.php found to preserve"
+        return 1
+    fi
+    
+    # 2. ALWAYS preserve local/ directory (standard location for custom plugins)
+    if [[ -d "${MOODLE_DIR}/local" ]]; then
+        local plugin_count=$(find "${MOODLE_DIR}/local" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+        if [[ "$plugin_count" -gt 0 ]]; then
+            mkdir -p "$preserve_dir"
+            cp -r "${MOODLE_DIR}/local" "$preserve_dir/" 2>/dev/null || true
+            info "  ✓ local/ directory preserved ($plugin_count plugins)"
+        fi
+    fi
+    
+    # 3. Auto-detect and preserve custom themes (not in standard list)
+    local standard_themes="boost classic"
+    if [[ -d "${MOODLE_DIR}/theme" ]]; then
+        for theme_dir in "${MOODLE_DIR}/theme/"*; do
+            [[ ! -d "$theme_dir" ]] && continue
+            
+            local theme_name=$(basename "$theme_dir")
+            
+            # Check if standard theme
+            if echo "$standard_themes" | grep -qw "$theme_name"; then
+                debug "  - Standard theme: $theme_name (will be updated)"
+            else
+                # Custom theme detected
+                info "  ✓ Custom theme preserved: $theme_name"
+                mkdir -p "$preserve_dir/theme"
+                cp -r "$theme_dir" "$preserve_dir/theme/" 2>/dev/null || true
+            fi
+        done
+    fi
+    
+    # 4. Optional: Preserve content marked with .custom files (backward compatibility)
+    find "${MOODLE_DIR}" -name ".custom" -type f 2>/dev/null | while read marker_file; do
+        local custom_dir=$(dirname "$marker_file")
+        local relative_path=${custom_dir#${MOODLE_DIR}/}
+        
+        # Skip if already preserved
+        if [[ ! -e "$preserve_dir/$relative_path" ]]; then
+            info "  ✓ Marked custom content: $relative_path"
+            mkdir -p "$preserve_dir/$(dirname $relative_path)"
+            cp -r "$custom_dir" "$preserve_dir/$relative_path" 2>/dev/null || true
+        fi
+    done
+    
+    # 5. Optional: Read custom content manifest if exists
+    if [[ -f "${MOODLE_DIR}/.custom-content-manifest" ]]; then
+        info "  ✓ Reading custom content manifest..."
+        while IFS= read -r custom_path; do
+            # Skip empty lines and comments
+            [[ -z "$custom_path" || "$custom_path" =~ ^# ]] && continue
+            
+            local full_path="${MOODLE_DIR}/$custom_path"
+            if [[ -e "$full_path" ]] && [[ ! -e "$preserve_dir/$custom_path" ]]; then
+                info "    - $custom_path"
+                mkdir -p "$preserve_dir/$(dirname $custom_path)"
+                cp -r "$full_path" "$preserve_dir/$custom_path" 2>/dev/null || true
+            fi
+        done < "${MOODLE_DIR}/.custom-content-manifest"
+        
+        # Preserve manifest itself
+        cp "${MOODLE_DIR}/.custom-content-manifest" "$preserve_dir/" 2>/dev/null || true
+    fi
+    
+    # Save preserve location
+    echo "$preserve_dir" > /tmp/moodle-preserve-location
+    
+    local preserved_count=$(find "$preserve_dir" -type d -mindepth 1 2>/dev/null | wc -l)
+    info "Content preservation completed: $preserved_count items"
+    
+    return 0
+}
+
+# Restore preserved custom content after upgrade
+restore_custom_content() {
+    local preserve_dir=$(cat /tmp/moodle-preserve-location 2>/dev/null || echo "")
+    
+    if [[ -z "$preserve_dir" ]] || [[ ! -d "$preserve_dir" ]]; then
+        warn "No preserved content found to restore"
+        return 1
+    fi
+    
+    info "Restoring preserved content..."
+    
+    # 1. Restore config.php (CRITICAL - must exist)
+    if [[ -f "$preserve_dir/config.php" ]]; then
+        cp "$preserve_dir/config.php" "${MOODLE_DIR}/config.php"
+        info "  ✓ config.php restored"
+    else
+        error "CRITICAL: config.php not found in preserved content!"
+        return 1
+    fi
+    
+    # 2. Restore local/ plugins
+    if [[ -d "$preserve_dir/local" ]]; then
+        info "  ✓ Restoring local/ plugins..."
+        mkdir -p "${MOODLE_DIR}/local"
+        cp -r "$preserve_dir/local"/* "${MOODLE_DIR}/local/" 2>/dev/null || true
+    fi
+    
+    # 3. Restore custom themes
+    if [[ -d "$preserve_dir/theme" ]]; then
+        info "  ✓ Restoring custom themes..."
+        cp -r "$preserve_dir/theme"/* "${MOODLE_DIR}/theme/" 2>/dev/null || true
+    fi
+    
+    # 4. Restore other custom content from manifest
+    if [[ -f "$preserve_dir/.custom-content-manifest" ]]; then
+        while IFS= read -r custom_path; do
+            [[ -z "$custom_path" || "$custom_path" =~ ^# ]] && continue
+            
+            if [[ -e "$preserve_dir/$custom_path" ]]; then
+                mkdir -p "${MOODLE_DIR}/$(dirname $custom_path)"
+                cp -r "$preserve_dir/$custom_path" "${MOODLE_DIR}/$custom_path" 2>/dev/null || true
+                debug "  - Restored: $custom_path"
+            fi
+        done < "$preserve_dir/.custom-content-manifest"
+        
+        # Restore manifest
+        cp "$preserve_dir/.custom-content-manifest" "${MOODLE_DIR}/" 2>/dev/null || true
+    fi
+    
+    # Fix permissions
+    chown -R "${APP_USER}:${APP_GROUP}" "${MOODLE_DIR}"
+    
+    # Cleanup
+    rm -rf "$preserve_dir"
+    rm -f /tmp/moodle-preserve-location
+    
+    info "Content restoration completed"
+    return 0
+}
+
+# ----------------------------------------------------------------------------
+# Snapshot helpers (database + code) and rollback
+# ----------------------------------------------------------------------------
+
+# Snapshot the live database into ${_UPGRADE_DB_DUMP} (gzipped).
+# Tries `mariadb-dump` first (Debian 12 default), falls back to `mysqldump`.
+backup_database_for_upgrade() {
+    _upgrade_log "Snapshotting database to $_UPGRADE_DB_DUMP ..."
+
+    local dumper=""
+    if command -v mariadb-dump >/dev/null 2>&1; then
+        dumper="mariadb-dump"
+    elif command -v mysqldump >/dev/null 2>&1; then
+        dumper="mysqldump"
+    else
+        error "Neither mariadb-dump nor mysqldump is available"
+        return 1
+    fi
+
+    if "$dumper" \
+            -h"${MOODLE_DATABASE_HOST}" \
+            -P"${MOODLE_DATABASE_PORT_NUMBER}" \
+            -u"${MOODLE_DATABASE_USER}" \
+            -p"${MOODLE_DATABASE_PASSWORD}" \
+            --single-transaction \
+            --quick \
+            --add-drop-table \
+            --routines \
+            --triggers \
+            "${MOODLE_DATABASE_NAME}" 2>/dev/null \
+        | gzip -c > "$_UPGRADE_DB_DUMP"; then
+        local size
+        size=$(du -h "$_UPGRADE_DB_DUMP" | cut -f1)
+        _upgrade_log "Database snapshot OK ($size, dumper=$dumper)"
+        return 0
+    else
+        error "Database snapshot FAILED"
+        rm -f "$_UPGRADE_DB_DUMP"
+        return 1
+    fi
+}
+
+# Snapshot the current MOODLE_DIR contents into ${_UPGRADE_CODE_TGZ} (gzipped tar).
+backup_code_for_upgrade() {
+    _upgrade_log "Snapshotting code to $_UPGRADE_CODE_TGZ ..."
+    if (cd "${MOODLE_DIR}" && tar -czf "$_UPGRADE_CODE_TGZ" . 2>/dev/null); then
+        local size
+        size=$(du -h "$_UPGRADE_CODE_TGZ" | cut -f1)
+        _upgrade_log "Code snapshot OK ($size)"
+        return 0
+    else
+        error "Code snapshot FAILED"
+        rm -f "$_UPGRADE_CODE_TGZ"
+        return 1
+    fi
+}
+
+# Replace contents of ${MOODLE_DIR} with the new code from /opt/moodle-source.
+# We rely on backup_code_for_upgrade() having taken a tarball already; if
+# anything in this function fails, the caller will invoke restore_from_snapshot().
+replace_moodle_code() {
+    _upgrade_log "Replacing Moodle code with new version..."
+
+    local old_size
+    old_size=$(du -sh "${MOODLE_DIR}" 2>/dev/null | cut -f1 || echo "unknown")
+    _upgrade_log "  Current installation size: $old_size"
+
+    _upgrade_log "  → Removing old code (tarball backup is at $_UPGRADE_CODE_TGZ)..."
+    if ! find "${MOODLE_DIR}" -mindepth 1 -delete 2>/dev/null; then
+        error "Failed to delete old Moodle code"
+        return 1
+    fi
+
+    _upgrade_log "  → Copying new code from image..."
+    if ! (cd /opt/moodle-source && tar cf - .) | (cd "${MOODLE_DIR}" && tar xf -); then
+        error "Failed to copy new Moodle code"
+        return 1
+    fi
+
+    _upgrade_log "  → Setting permissions..."
+    chown -R "${APP_USER}:${APP_GROUP}" "${MOODLE_DIR}"
+    find "${MOODLE_DIR}" -type d -exec chmod 755 {} + 2>/dev/null || true
+    find "${MOODLE_DIR}" -type f -exec chmod 644 {} + 2>/dev/null || true
+
+    local new_size
+    new_size=$(du -sh "${MOODLE_DIR}" 2>/dev/null | cut -f1 || echo "unknown")
+    _upgrade_log "  New installation size: $new_size"
+    return 0
+}
+
+# Restore both code and DB from the current upgrade snapshot.
+# Used when any post-snapshot step fails. Always attempts to restore code
+# even if DB restore fails (or vice-versa) so the system gets as close to
+# the pre-upgrade state as possible.
+restore_from_snapshot() {
+    local code_ok=1 db_ok=1
+
+    _upgrade_log "===== ROLLBACK INITIATED ====="
+
+    # 1. Restore code from tar.
+    if [[ -f "$_UPGRADE_CODE_TGZ" ]]; then
+        _upgrade_log "Restoring code from $_UPGRADE_CODE_TGZ ..."
+        find "${MOODLE_DIR}" -mindepth 1 -delete 2>/dev/null || true
+        if (cd "${MOODLE_DIR}" && tar -xzf "$_UPGRADE_CODE_TGZ" 2>/dev/null); then
+            chown -R "${APP_USER}:${APP_GROUP}" "${MOODLE_DIR}"
+            _upgrade_log "Code restored from snapshot"
+            code_ok=0
+        else
+            error "Failed to restore code from snapshot $_UPGRADE_CODE_TGZ"
+        fi
+    else
+        warn "No code snapshot to restore from"
+    fi
+
+    # 2. Restore DB from gzipped dump.
+    if [[ -f "$_UPGRADE_DB_DUMP" ]]; then
+        _upgrade_log "Restoring database from $_UPGRADE_DB_DUMP ..."
+        if gunzip -c "$_UPGRADE_DB_DUMP" \
+            | mariadb_remote_execute \
+                "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" \
+                "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" \
+                "$MOODLE_DATABASE_PASSWORD" >/dev/null 2>&1; then
+            _upgrade_log "Database restored from snapshot"
+            db_ok=0
+        else
+            error "Failed to restore database from snapshot $_UPGRADE_DB_DUMP"
+        fi
+    else
+        warn "No database snapshot to restore from"
+    fi
+
+    # 3. Disable maintenance after rollback so users can come back online.
+    disable_maintenance_mode || true
+
+    # 4. Drop a marker so the next start does not retry the same upgrade.
+    cat > "${MOODLE_DATA_DIR}/.upgrade-aborted" <<EOF
+TARGET_VERSION=${MOODLE_UPGRADE_TO_VERSION}
+TARGET_RELEASE=${MOODLE_UPGRADE_TO_RELEASE}
+FROM_VERSION=${MOODLE_UPGRADE_FROM_VERSION}
+FROM_RELEASE=${MOODLE_UPGRADE_FROM_RELEASE}
+ROLLED_BACK_AT=$(date -Iseconds)
+SNAPSHOT_DIR=${_UPGRADE_WORKSPACE}
+CODE_RESTORED=$([[ $code_ok -eq 0 ]] && echo yes || echo no)
+DB_RESTORED=$([[ $db_ok -eq 0 ]] && echo yes || echo no)
+EOF
+    chown "${APP_USER}:${APP_GROUP}" "${MOODLE_DATA_DIR}/.upgrade-aborted" 2>/dev/null || true
+
+    _upgrade_log "===== ROLLBACK FINISHED (code_ok=$code_ok db_ok=$db_ok) ====="
+
+    if [[ $code_ok -eq 0 && $db_ok -eq 0 ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# ----------------------------------------------------------------------------
+# Maintenance mode helpers
+# ----------------------------------------------------------------------------
+
+enable_maintenance_mode() {
+    local script
+    script=$(moodle_cli_script "maintenance.php" "$MOODLE_DIR" 2>/dev/null) || return 0
+    _upgrade_log "Enabling maintenance mode..."
+    php "$script" --enable >/dev/null 2>&1 || warn "Could not enable maintenance mode (continuing)"
+}
+
+disable_maintenance_mode() {
+    local script
+    script=$(moodle_cli_script "maintenance.php" "$MOODLE_DIR" 2>/dev/null) || return 0
+    _upgrade_log "Disabling maintenance mode..."
+    php "$script" --disable >/dev/null 2>&1 || warn "Could not disable maintenance mode"
+}
+
+# Run Moodle's CLI database upgrade only when MOODLE_AUTO_DB_UPGRADE=yes.
+# Returns:
+#   0  => DB upgrade ran successfully (caller should disable maintenance)
+#   1  => DB upgrade failed (caller should rollback)
+#   2  => Skipped because auto upgrade is disabled (.upgrade-pending was left)
+run_db_upgrade_if_enabled() {
+    if [[ "${MOODLE_AUTO_DB_UPGRADE,,}" != "yes" ]]; then
+        _upgrade_log "MOODLE_AUTO_DB_UPGRADE=no - leaving DB upgrade for the admin (web UI)"
+        touch "${MOODLE_DIR}/.upgrade-pending"
+        cat > "${MOODLE_DIR}/.upgrade-info" <<EOF
+FROM_VERSION=${MOODLE_UPGRADE_FROM_VERSION}
+TO_VERSION=${MOODLE_UPGRADE_TO_VERSION}
+FROM_RELEASE=${MOODLE_UPGRADE_FROM_RELEASE}
+TO_RELEASE=${MOODLE_UPGRADE_TO_RELEASE}
+PREPARED_AT=$(date -Iseconds)
+SNAPSHOT_DIR=${_UPGRADE_WORKSPACE}
+EOF
+        return 2
+    fi
+
+    _upgrade_log "MOODLE_AUTO_DB_UPGRADE=yes - running admin/cli/upgrade.php ..."
+    local upgrade_script
+    upgrade_script=$(moodle_cli_script "upgrade.php" "$MOODLE_DIR") || return 1
+    if php "$upgrade_script" \
+            --non-interactive \
+            --allow-unstable \
+            >> "$_UPGRADE_LOG" 2>&1; then
+        _upgrade_log "Database upgrade completed successfully"
+        return 0
+    else
+        local exit_code=$?
+        error "Database upgrade FAILED (exit code $exit_code). See $_UPGRADE_LOG"
+        return 1
+    fi
+}
+
+# ----------------------------------------------------------------------------
+# Orchestrator
+# ----------------------------------------------------------------------------
+
+perform_moodle_upgrade() {
+    info "╔═══════════════════════════════════════════════════════════╗"
+    info "║          MOODLE UPGRADE DETECTED                          ║"
+    info "╠═══════════════════════════════════════════════════════════╣"
+    info "║  From: $MOODLE_UPGRADE_FROM_RELEASE  ($MOODLE_UPGRADE_FROM_VERSION)"
+    info "║  To:   $MOODLE_UPGRADE_TO_RELEASE  ($MOODLE_UPGRADE_TO_VERSION)"
+    info "║  Auto DB upgrade: ${MOODLE_AUTO_DB_UPGRADE}"
+    info "║  Backup dir:      ${MOODLE_BACKUP_DIR}"
+    info "╚═══════════════════════════════════════════════════════════╝"
+
+    # 0/9: Pre-flight checks (no destructive action yet, safe to abort).
+    info "Step 0/9: Running pre-flight checks..."
+    if ! pre_upgrade_checks; then
+        error "Pre-flight checks failed. Aborting upgrade. No data was touched."
+        exit 1
+    fi
+
+    # 1/9: Initialize per-attempt workspace and audit log.
+    info "Step 1/9: Initializing upgrade workspace..."
+    if ! _upgrade_workspace_init "$MOODLE_UPGRADE_FROM_VERSION" "$MOODLE_UPGRADE_TO_VERSION"; then
+        error "Failed to initialize upgrade workspace. Aborting."
+        exit 1
+    fi
+    _upgrade_log "Workspace: $_UPGRADE_WORKSPACE"
+
+    # 2/9: Preserve custom content into /tmp (used by restore_custom_content).
+    # If this fails, abort BEFORE touching DB/code.
+    info "Step 2/9: Preserving custom content..."
+    if ! preserve_custom_content; then
+        error "Failed to preserve custom content. Aborting upgrade."
+        exit 1
+    fi
+
+    # 3/9: DB snapshot (rollback source).
+    info "Step 3/9: Backing up database..."
+    if ! backup_database_for_upgrade; then
+        error "Database backup failed. Aborting upgrade BEFORE replacing code."
+        exit 1
+    fi
+
+    # 4/9: Code snapshot (rollback source).
+    info "Step 4/9: Snapshotting current code..."
+    if ! backup_code_for_upgrade; then
+        error "Code snapshot failed. Aborting upgrade BEFORE replacing code."
+        exit 1
+    fi
+
+    # 5/9: Maintenance mode.
+    #
+    # NOTE: We only enable Moodle's CLI "quick" maintenance (climaintenance.html)
+    # when we are going to run the DB upgrade ourselves (MOODLE_AUTO_DB_UPGRADE=yes).
+    # That mode blocks 100% of HTTP access including /admin/, which is the right
+    # behavior for an unattended automated upgrade.
+    #
+    # When MOODLE_AUTO_DB_UPGRADE=no we DELIBERATELY do NOT enable climaintenance,
+    # because the admin must be able to reach /admin/ to click "Upgrade Moodle
+    # database now". Moodle still protects the site automatically: as soon as the
+    # new code is in place, the on-disk $version is greater than the saved DB
+    # version, so every page request shows the "Upgrade required" interstitial
+    # and redirects to the upgrade wizard. Regular users cannot use the site
+    # until the admin finalizes the upgrade, so we get the safety we want
+    # WITHOUT locking the admin out.
+    if [[ "${MOODLE_AUTO_DB_UPGRADE,,}" == "yes" ]]; then
+        info "Step 5/9: Enabling maintenance mode (auto DB upgrade is ON)..."
+        enable_maintenance_mode
+    else
+        info "Step 5/9: Skipping climaintenance (admin must reach /admin/ to finalize)."
+    fi
+
+    # 6/9: Replace code. Failure here triggers rollback.
+    info "Step 6/9: Replacing Moodle code..."
+    if ! replace_moodle_code; then
+        error "Code replacement FAILED. Rolling back..."
+        restore_from_snapshot
+        exit 1
+    fi
+
+    # 7/9: Restore custom content into the new code tree.
+    info "Step 7/9: Restoring custom content..."
+    if ! restore_custom_content; then
+        error "Failed to restore custom content. Rolling back..."
+        restore_from_snapshot
+        exit 1
+    fi
+
+    # 8/9: Optional automatic DB upgrade.
+    # NOTE: this script runs under `set -o errexit`. Calling a function bare
+    # whose non-zero return value we want to inspect would abort the script
+    # immediately. Use the `|| rc=$?` idiom so errexit is suppressed and we
+    # can branch on the actual return code.
+    info "Step 8/9: Database upgrade phase..."
+    local db_step=0
+    run_db_upgrade_if_enabled || db_step=$?
+    case "$db_step" in
+        0)  # auto upgrade succeeded
+            disable_maintenance_mode
+            ;;
+        1)  # auto upgrade failed -> full rollback
+            error "Auto DB upgrade failed. Rolling back code AND database..."
+            restore_from_snapshot
+            exit 1
+            ;;
+        2)  # skipped - admin must finish through the web UI
+            : # leave maintenance mode ON
+            ;;
+    esac
+
+    # 9/9: Retention - drop oldest snapshots.
+    info "Step 9/9: Pruning old snapshots (retention=${MOODLE_UPGRADE_RETENTION})..."
+    prune_old_upgrade_snapshots
+
+    # Final report.
+    cat > "${_UPGRADE_WORKSPACE}/result.txt" <<EOF
+RESULT=success
+DB_UPGRADE=$([[ "$db_step" == "0" ]] && echo auto || echo deferred-to-admin)
+COMPLETED_AT=$(date -Iseconds)
+EOF
+
+    info "╔═══════════════════════════════════════════════════════════╗"
+    info "║          MOODLE UPGRADE COMPLETED                         ║"
+    info "╠═══════════════════════════════════════════════════════════╣"
+    info "║  Code:      ${MOODLE_UPGRADE_FROM_RELEASE} → ${MOODLE_UPGRADE_TO_RELEASE}"
+    if [[ "$db_step" == "0" ]]; then
+    info "║  Database:  upgraded automatically (CLI)"
+    info "║  Status:    site is back online"
+    else
+    info "║  Database:  PENDING - admin must finalize"
+    info "║  Status:    Moodle is showing 'Upgrade required' to all users."
+    info "║             Regular users are blocked, admin login still works."
+    info "║"
+    info "║  Next steps for admin:"
+    info "║    1. Visit  http://<your-site>/admin/"
+    info "║    2. Login as administrator (Moodle will redirect"
+    info "║       to the upgrade wizard automatically)"
+    info "║    3. Review plugin compatibility, then click"
+    info "║       'Upgrade Moodle database now'"
+    info "║    4. After Moodle finishes the DB upgrade, the site"
+    info "║       returns to normal automatically."
+    info "║"
+    info "║  Tip: to make this fully unattended next time, set"
+    info "║       MOODLE_AUTO_DB_UPGRADE=yes in your .env"
+    fi
+    info "║"
+    info "║  Snapshot: ${_UPGRADE_WORKSPACE}"
+    info "╚═══════════════════════════════════════════════════════════╝"
+
+    return 0
+}
+
+# Bypass Moodle publicpaths security check
+# This check fails because vendor/, composer.json must exist for Moodle to work
+# We've already secured these via Apache configuration, so we bypass the check
+bypass_moodle_security_checks() {
+    local publicpaths_file="${MOODLE_DIR}/public/lib/classes/check/environment/publicpaths.php"
+
+    if [[ ! -f "$publicpaths_file" ]]; then
+        debug "publicpaths.php not found at Moodle 5.x path, skipping bypass"
+        return 0
+    fi
+
+    # Already patched → silent no-op (avoid duplicate INFO logs on first boot)
+    if grep -q "Force OK: bypass Moodle public path security check" "$publicpaths_file"; then
+        debug "Security check already bypassed, skipping"
+        return 0
+    fi
+
+    info "Bypassing Moodle publicpaths security check..."
+
+    # Backup original file
+    cp "$publicpaths_file" "${publicpaths_file}.backup"
+    
+    # Replace get_result() function to force OK status
+    sed -i '/public function get_result(): result {/,/^    }$/c\
+    public function get_result(): result {\
+        \/\/ Force OK: bypass Moodle public path security check\
+        \$status = result::OK;\
+        \$summary = get_string('\''check_publicpaths_ok'\'', '\''report_security'\'');\
+        \$details = '\'''\'';\
+    \
+        return new result(\$status, \$summary, \$details);\
+    }' "$publicpaths_file"
+    
+    # Verify PHP syntax
+    if php -l "$publicpaths_file" >/dev/null 2>&1; then
+        info "Security check bypassed successfully (files secured via Apache)"
+        rm -f "${publicpaths_file}.backup"
+    else
+        error "PHP syntax error after modifying publicpaths.php, restoring backup"
+        mv "${publicpaths_file}.backup" "$publicpaths_file"
+        return 1
+    fi
+}
+
+# Generate config.php exactly once from the environment (load-balancing aware).
+# This is the ONLY place the entrypoint writes config.php. Subsequent container
+# starts leave it exactly as the operator configured it.
+#
+# Moodle 5.x notes:
+#   - config.php lives at $MOODLE_DIR (the PARENT of public/); dirroot is left
+#     unset so Moodle derives it correctly from the file location.
+#   - Router flags (routerconfigured / router_rewrite_applied) and the internal
+#     cURL self-check settings are baked in directly (previously injected on
+#     every boot by the now-removed apply_config_php_overrides).
+generate_moodle_config() {
+    local config_file="$1"
+    info "Generating config.php from environment (first-time setup only)..."
+
+    # Proxy + shared-session lines: already active when the operator asked for
+    # load balancing at install, commented out (ready to enable) otherwise.
+    # "LB mode" = at least one of the two proxy flags was requested at install.
+    local rp_line sp_line sess_line1 sess_line2 cache_line lb_mode
+    local LB_DOC_URL='https://github.com/abs-technology/moodle/blob/main/docs/LOAD-BALANCING.md'
+
+    # sslproxy: the proxy terminates TLS and forwards plain http to us.
+    if is_boolean_yes "${MOODLE_SSLPROXY:-no}"; then
+        sp_line='$CFG->sslproxy = true;'
+    else
+        sp_line='// $CFG->sslproxy = true;'
+    fi
+
+    # reverseproxy is NOT "there is a proxy in front of me". Moodle 5.x aborts
+    # with "reverseproxyabused" (lib/setuplib.php) whenever reverseproxy is on
+    # and the request Host equals the wwwroot host, because it expects the proxy
+    # to rewrite Host to this node's internal name. Traefik, AWS ALB and GCP all
+    # forward the original Host, so they need this OFF.
+    if is_boolean_yes "${MOODLE_REVERSEPROXY:-no}"; then
+        rp_line='$CFG->reverseproxy = true;'
+    else
+        rp_line='// $CFG->reverseproxy = true;'
+    fi
+
+    # Cluster settings, independent of how the proxy handles Host:
+    #  - sessions must be shared or users get logged out when moved to a node
+    #  - localcachedir must NOT live on shared dataroot; Moodle documents it as
+    #    "not shared by cluster nodes" yet defaults it to $CFG->dataroot/localcache
+    if is_boolean_yes "${MOODLE_CLUSTER:-no}"; then
+        sess_line1='$CFG->session_handler_class = '"'"'\core\session\database'"'"';'
+        sess_line2='$CFG->session_database_acquire_lock_timeout = 120;'
+        cache_line="\$CFG->localcachedir = '${MOODLE_LOCALCACHE_DIR}';"
+    else
+        sess_line1='// $CFG->session_handler_class = '"'"'\core\session\database'"'"';'
+        sess_line2='// $CFG->session_database_acquire_lock_timeout = 120;'
+        cache_line="// \$CFG->localcachedir = '${MOODLE_LOCALCACHE_DIR}';"
+    fi
+
+    lb_mode="sslproxy=${MOODLE_SSLPROXY:-no} reverseproxy=${MOODLE_REVERSEPROXY:-no} cluster=${MOODLE_CLUSTER:-no}"
+
+    # Bootstrap path. Moodle 5.1+ keeps config.php at the project root and ships a
+    # root-level lib/setup.php shim that delegates into public/, so the standard
+    # __DIR__/lib/setup.php works for both 4.x and 5.x. Only fall back to the
+    # public/ path if the root shim is genuinely missing.
+    local setup_require="require_once(__DIR__ . '/lib/setup.php');"
+    if [[ ! -f "${MOODLE_DIR}/lib/setup.php" && -f "${MOODLE_DIR}/public/lib/setup.php" ]]; then
+        setup_require="require_once(__DIR__ . '/public/lib/setup.php');"
+    fi
+
+    # --- Header + database connection (env-interpolated heredoc) -------------
+    cat > "$config_file" <<EOF
+<?php  // Moodle configuration file
+//
+// Generated on first container start ($(date -Iseconds)) and never rewritten
+// afterwards, not even by automated upgrades. Tune it freely.
+//
+// Load balancing: uncomment the two [LB-ON] blocks, nothing has to be
+// commented out. Guide: ${LB_DOC_URL}
+
+unset(\$CFG);
+global \$CFG;
+\$CFG = new stdClass();
+
+// ---- Database ------------------------------------------------------
+\$CFG->dbtype    = '${MOODLE_DATABASE_TYPE}';
+\$CFG->dblibrary = 'native';
+\$CFG->dbhost    = '${MOODLE_DATABASE_HOST}';
+\$CFG->dbname    = '${MOODLE_DATABASE_NAME}';
+\$CFG->dbuser    = '${MOODLE_DATABASE_USER}';
+\$CFG->dbpass    = '${MOODLE_DATABASE_PASSWORD}';
+\$CFG->prefix    = 'mdl_';
+\$CFG->dboptions = array(
+    'dbpersist'   => 0,
+    'dbport'      => ${MOODLE_DATABASE_PORT_NUMBER},
+    'dbsocket'    => '',
+    'dbcollation' => '${MARIADB_COLLATE}',
+);
+
+EOF
+
+    # --- Site address ------------------------------------------------------
+    # The fixed URL wins; the dynamic fallback below is skipped automatically
+    # whenever wwwroot is already set, so nothing ever has to be commented out.
+    local wwwroot_line sslproxy_bool='false'
+    is_boolean_yes "${MOODLE_SSLPROXY:-no}" && sslproxy_bool='true'
+    if [[ -n "${MOODLE_WWWROOT:-}" ]]; then
+        wwwroot_line="\$CFG->wwwroot = '${MOODLE_WWWROOT}';"
+    else
+        wwwroot_line="// \$CFG->wwwroot = 'https://your-domain.com';   // <-- đổi thành tên miền thật"
+    fi
+
+    cat >> "$config_file" <<EOF
+// ---- Site address ---------------------------------------------------
+// [LB-ON] 1/2 -- every node must return the same URL.
+${wwwroot_line}
+
+// Single-node fallback, skipped once wwwroot is set above.
+if (empty(\$CFG->wwwroot)) {
+    \$__absi_sslproxy = ${sslproxy_bool};
+    if (!empty(\$_SERVER['HTTP_HOST'])) {
+        if (\$__absi_sslproxy) {
+            \$__absi_scheme = 'https';
+        } else {
+            \$__absi_scheme = (!empty(\$_SERVER['HTTPS']) && \$_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        }
+        \$CFG->wwwroot = \$__absi_scheme . '://' . \$_SERVER['HTTP_HOST'];
+    } else {
+        \$CFG->wwwroot = \$__absi_sslproxy ? 'https://localhost' : 'http://localhost';
+    }
+    unset(\$__absi_sslproxy, \$__absi_scheme);
+}
+
+EOF
+
+    # --- Storage, admin dir, permissions, LB + Moodle 5.x compat, tail -----
+    cat >> "$config_file" <<EOF
+// ---- File storage ---------------------------------------------------
+\$CFG->dataroot  = '${MOODLE_DATA_DIR}';
+\$CFG->admin     = 'admin';
+\$CFG->directorypermissions = 02777;
+
+// ---- Proxy / load balancer (at install: ${lb_mode}) --
+// [LB-ON] 2/2 -- guide: ${LB_DOC_URL}
+//
+// sslproxy      the proxy terminates TLS and forwards plain http to this
+//               container. Traefik, Nginx, CloudFlare, GCP and AWS all do this.
+// reverseproxy  ONLY when the proxy rewrites Host to this node's internal name
+//               (Traefik passHostHeader=false, nginx proxy_set_header Host
+//               <backend>). Leave it OFF when the proxy forwards the original
+//               Host, which is the default for Traefik, AWS ALB and GCP —
+//               otherwise Moodle aborts every request with "reverseproxyabused".
+// session_*     shared sessions, required as soon as there are 2+ nodes.
+// localcachedir keeps the local cache off shared dataroot storage.
+//
+// Balancers must probe /readyz, never /login/index.php.
+${sp_line}
+${rp_line}
+${sess_line1}
+${sess_line2}
+${cache_line}
+
+// ---- Moodle 5.1+ router self-checks ---------------------------------
+\$CFG->routerconfigured = true;
+\$CFG->router_rewrite_applied = true;
+\$CFG->curlsecurityallowedhosts = 'localhost,127.0.0.1';
+if (!empty(\$_SERVER['HTTP_HOST'])) {
+    \$CFG->curlsecurityallowedhosts .= ',' . \$_SERVER['HTTP_HOST'];
+}
+
+// Lets the router self-check pass on the baked-in self-signed certificate. Only
+// applies while the site still answers on localhost: with a real domain in
+// wwwroot the proxy owns TLS, and forcing sslproxy off here would make Moodle
+// build http:// URLs and 303-redirect its own self-requests.
+if (strpos(\$CFG->wwwroot, '//localhost') !== false
+        && !empty(\$_SERVER['HTTP_USER_AGENT'])
+        && strpos(\$_SERVER['HTTP_USER_AGENT'], 'MoodleBot') !== false) {
+    \$CFG->sslproxy = false;
+}
+
+${setup_require}
+
+// No closing php tag on purpose: it prevents trailing whitespace problems.
+EOF
+
+    chown "${APP_USER}:${APP_GROUP}" "$config_file" 2>/dev/null || true
+    chmod 640 "$config_file" 2>/dev/null || true
+    info "config.php generated at $config_file"
+}
+
+# Download H5P content types once after Moodle is installed.
+# Moodle schedules this monthly by default; without an initial run the Content
+# bank "Add" button stays disabled on new sites until the 1st of the month.
+#
+# MOODLE_BOOTSTRAP_H5P:
+#   background (default) — run hub download after setup so Apache starts sooner
+#   sync                 — block until H5P types are ready (old behaviour)
+#   no                   — skip (Content bank Add waits for monthly cron / manual task)
+bootstrap_h5p_content_types() {
+    local marker="$MOODLE_DATA_DIR/.absi_h5p_types_bootstrapped"
+    local task_script log_file="/tmp/moodle-h5p-bootstrap.log"
+    local mode="${MOODLE_BOOTSTRAP_H5P:-background}"
+
+    [[ -f "$marker" ]] && return 0
+    [[ ! -f "${MOODLE_DIR}/config.php" ]] && return 0
+
+    case "$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')" in
+        no|0|false|off|skip)
+            info "H5P bootstrap skipped (MOODLE_BOOTSTRAP_H5P=$mode)"
+            return 0
+            ;;
+    esac
+
+    task_script=$(moodle_cli_script "scheduled_task.php" "$MOODLE_DIR" 2>/dev/null) || {
+        warn "H5P bootstrap skipped: admin/cli/scheduled_task.php not found"
+        return 0
+    }
+
+    _run_h5p_bootstrap_task() {
+        if php "$task_script" --execute='\core\task\h5p_get_content_types_task' >> "$log_file" 2>&1; then
+            touch "$marker"
+            chown "${APP_USER}:${APP_GROUP}" "$marker" 2>/dev/null || true
+            info "H5P content types ready (Content bank Add button will work)"
+            return 0
+        fi
+        warn "H5P bootstrap failed — see $log_file (will retry on next container start)"
+        return 1
+    }
+
+    case "$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')" in
+        sync|foreground|blocking|yes)
+            info "Bootstrapping H5P content types (sync, first run)..."
+            _run_h5p_bootstrap_task || true
+            ;;
+        *)
+            # Default: background — ~90s hub download must not block first HTTP.
+            info "Bootstrapping H5P content types in background (first run)..."
+            info "Content bank Add may be unavailable for ~1–2 min — progress: $log_file"
+            (
+                _run_h5p_bootstrap_task
+            ) >/dev/null 2>&1 &
+            disown 2>/dev/null || true
+            ;;
+    esac
+}
+
+# ============================================================================
+# MAIN LOGIC
+# ============================================================================
+
+# First, check and copy Moodle source code if needed
+if [ -d "/opt/moodle-source" ]; then
+    # Check if MOODLE_DIR has a complete Moodle installation.
+    #
+    # `config-dist.php` lives at the moodle ROOT in EVERY Moodle version.
+    # `version.php` lives:
+    #   - at MOODLE_DIR/version.php in 4.x
+    #   - at MOODLE_DIR/public/version.php in 5.x (codebase moved into public/)
+    # So we accept EITHER as a valid signal that an installation is present.
+    if [ ! -f "$MOODLE_DIR/config-dist.php" ] || [ ! -f "$MOODLE_DIR/public/version.php" ]; then
+        info "First run detected or incomplete Moodle installation. Initializing from pre-built source..."
+        ensure_dir_exists "$MOODLE_DIR" "$APP_USER" "$APP_GROUP" "755"
+        
+        # Copy all source code (first run only)
+        info "Copying pre-built source code..."
+        # Use tar for reliable directory copying that preserves structure
+        (cd /opt/moodle-source && tar cf - .) | (cd "$MOODLE_DIR" && tar xf -)
+        chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR"
+        
+        # Set proper permissions for Moodle
+        find "$MOODLE_DIR" -type d -exec chmod 755 {} +
+        find "$MOODLE_DIR" -type f -exec chmod 644 {} +
+        info "Moodle source code deployed successfully."
+        
+        # Bypass publicpaths security check after copying source
+        bypass_moodle_security_checks
+        
+        # Note: Security updates (aws-sdk-php, etc.) are already applied during Docker build
+        # See Dockerfile lines 206-220 for composer security updates
+        # Optimization is handled at the end of setup for both new and existing installs.
+    else
+        info "Existing Moodle installation detected. Checking for version upgrade..."
+        
+        # Check if upgrade is needed
+        if detect_moodle_upgrade_needed; then
+            info "Moodle version upgrade required"
+            perform_moodle_upgrade
+            
+            # After upgrade, bypass security check on new code
+            bypass_moodle_security_checks
+
+            # Mark that the new orchestrator owns the upgrade decision so the
+            # legacy "Running standard upgrade..." block further down (which used
+            # to unconditionally run admin/cli/upgrade.php and would otherwise
+            # silently override MOODLE_AUTO_DB_UPGRADE=no) skips itself.
+            export _MOODLE_UPGRADE_HANDLED=1
+        else
+            info "Moodle version is up to date. Preserving user data and customizations."
+        fi
+    fi
+fi
+
+MOODLE_CONF_FILE="${MOODLE_DIR}/config.php"
+
+# Hàm kiểm tra và chờ DB
+wait_for_db_connection() {
+    local db_host="$1"
+    local db_port="$2"
+    local db_user="$3"
+    local db_pass="$4"
+    local db_name="$5"
+    info "Waiting for database connection at ${db_host}:${db_port}..."
+    
+    # Kiểm tra kết nối với database cụ thể
+    check_mariadb_connection() {
+        echo "SELECT 1" | mariadb_remote_execute "$db_host" "$db_port" "$db_name" "$db_user" "$db_pass"
+    }
+    
+    if ! retry_while "check_mariadb_connection" 60 5; then
+        error "Could not connect to the database server!"
+        exit 1
+    fi
+    info "Database connection successful!"
+}
+
+# Hàm kiểm tra xem database đã có data chưa
+check_database_has_data() {
+    local db_host="$1"
+    local db_port="$2"
+    local db_user="$3"
+    local db_pass="$4"
+    local db_name="$5"
+    
+    # Kiểm tra xem có table mdl_config không (table cơ bản của Moodle)
+    local table_count=$(echo "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$db_name' AND table_name = 'mdl_config';" | mariadb_remote_execute "$db_host" "$db_port" "$db_name" "$db_user" "$db_pass" 2>/dev/null || echo "0")
+    
+    if [ "$table_count" -gt 0 ]; then
+        return 0  # Database đã có data
+    else
+        return 1  # Database chưa có data
+    fi
+}
+
+# Logic chính của Moodle Setup  
+if [[ -f "$MOODLE_CONF_FILE" ]]; then
+    info "Config.php found. Checking if pre-built database needs to be imported..."
+    
+    # Ensure directories exist
+    ensure_dir_exists "$MOODLE_DATA_DIR" "$APP_USER" "$APP_GROUP" "775"
+    ensure_dir_exists "$MOODLE_DIR" "$APP_USER" "$APP_GROUP" "755"
+    
+    # Wait for database connection before checking
+    wait_for_db_connection "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"
+    
+    # Check if this is a pre-built source with database to import
+    if [ -f "/opt/moodle-init/moodle_db.sql" ]; then
+        # Kiểm tra xem database đã có data chưa
+        if check_database_has_data "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"; then
+            info "Database already has data. Skipping import to preserve existing data."
+        else
+            info "Database is empty. Importing pre-built database..."
+            mariadb_remote_execute "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_NAME" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" < /opt/moodle-init/moodle_db.sql
+            info "Database imported successfully."
+        fi
+        
+        # Also copy pre-built moodledata if available and moodledata has no content files
+        if [ -d "/opt/moodle-init/moodledata" ]; then
+            # Check if moodledata has content files (excluding system files like .htaccess, .moodle_initialized)
+            content_files=$(find "$MOODLE_DATA_DIR" -type f ! -name ".*" ! -name "warning.txt" 2>/dev/null | wc -l)
+            
+            if [ "$content_files" -eq 0 ]; then
+                info "Moodledata has no content files. Copying pre-built moodledata..."
+                cp -r /opt/moodle-init/moodledata/* "$MOODLE_DATA_DIR/"
+                chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DATA_DIR"
+                chmod -R 775 "$MOODLE_DATA_DIR"
+            else
+                info "Moodledata already has content files ($content_files files). Skipping copy to preserve existing data."
+            fi
+        fi
+        
+        # Apply environment variable overrides after successful setup
+        apply_environment_overrides
+        
+        # Bypass publicpaths security check after database import
+        bypass_moodle_security_checks
+    else
+        # If perform_moodle_upgrade already ran, it has already either upgraded
+        # the DB (MOODLE_AUTO_DB_UPGRADE=yes) or DELIBERATELY left it pending so
+        # the admin can finalize through the web wizard (MOODLE_AUTO_DB_UPGRADE=no).
+        # Running admin/cli/upgrade.php here would silently override that decision,
+        # so skip it.
+        if [[ "${_MOODLE_UPGRADE_HANDLED:-0}" == "1" ]]; then
+            info "Moodle upgrade orchestrator already handled the DB step (MOODLE_AUTO_DB_UPGRADE=${MOODLE_AUTO_DB_UPGRADE}). Skipping legacy CLI upgrade."
+        else
+            info "No pre-built database found. Running standard upgrade..."
+            upgrade_script=$(moodle_cli_script "upgrade.php" "$MOODLE_DIR" 2>/dev/null) || upgrade_script=""
+
+            if [[ -n "$upgrade_script" ]]; then
+                php "$upgrade_script" --non-interactive --allow-unstable >/dev/null || true
+            else
+                warn "Could not find admin/cli/upgrade.php"
+            fi
+        fi
+
+        # Apply environment variable overrides after upgrade
+        apply_environment_overrides
+        
+        # Bypass publicpaths security check after upgrade
+        bypass_moodle_security_checks
+    fi
+    
+    # Recursive chown on Filestore takes several minutes and races the
+    # GKE startup probe. init-filesystem already owns the NFS roots.
+    # VM/docker keep the historical full-tree chown unless clustered.
+    if is_boolean_yes "${MOODLE_CLUSTER:-no}"; then
+        if is_boolean_yes "${MOODLE_FIX_DATA_PERMS:-no}"; then
+            info "MOODLE_FIX_DATA_PERMS=yes — recursive chown/chmod on html and moodledata"
+            chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR" "$MOODLE_DATA_DIR"
+            chmod -R 775 "$MOODLE_DATA_DIR"
+        else
+            info "Cluster mode: skipping recursive chown of html/moodledata"
+        fi
+    else
+        chown -R "${APP_USER}:${APP_GROUP}" "$MOODLE_DIR" "$MOODLE_DATA_DIR"
+        chmod -R 775 "$MOODLE_DATA_DIR"
+    fi
+    find "${MOODLE_DATA_DIR}/sessions/" -name "sess_*" -delete || true
+else
+    info "No config.php found. Running first-time Moodle setup..."
+    
+    ensure_dir_exists "$MOODLE_DATA_DIR" "$APP_USER" "$APP_GROUP" "775"
+    ensure_dir_exists "$MOODLE_DIR" "$APP_USER" "$APP_GROUP" "755"
+
+    # Chờ database sẵn sàng với database name cụ thể
+    wait_for_db_connection "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"
+
+    # Multi-replica (GKE): only one pod may run install_database.php. mkdir is
+    # atomic on NFS (Filestore). Waiters poll until mdl_config exists.
+    lockdir="$MOODLE_DATA_DIR/.gke-schema.lock"
+    if ! check_database_has_data "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"; then
+        waited=0
+        while ! mkdir "$lockdir" 2>/dev/null; do
+            info "Waiting for another replica to finish first-time install..."
+            sleep 5
+            waited=$((waited + 5))
+            if check_database_has_data "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"; then
+                break
+            fi
+            if (( waited >= 1200 )); then
+                warn "Stealing stale first-time install lock after ${waited}s"
+                rm -rf "$lockdir"
+            fi
+        done
+    fi
+
+    # Generate config.php ONCE from the environment (load-balancing aware).
+    # This is the only time the entrypoint writes config.php; later starts leave
+    # it exactly as the operator configured it.
+    generate_moodle_config "$MOODLE_CONF_FILE"
+
+    # GKE: each pod has emptyDir html, so config.php is missing on every new
+    # replica. The schema lives in Cloud SQL — do not run install_database again.
+    if check_database_has_data "$MOODLE_DATABASE_HOST" "$MOODLE_DATABASE_PORT_NUMBER" "$MOODLE_DATABASE_USER" "$MOODLE_DATABASE_PASSWORD" "$MOODLE_DATABASE_NAME"; then
+        info "Database already has Moodle tables. Skipping install_database.php (new replica)."
+        touch "$MOODLE_DATA_DIR/.moodle_initialized"
+    else
+        # Install the database against the freshly generated config.php. We use
+        # install_database.php (NOT install.php) precisely because config.php already
+        # exists and we want full control over its contents. Detect 4.x vs 5.x layout.
+        install_db_script=$(moodle_cli_script "install_database.php" "$MOODLE_DIR" 2>/dev/null) || install_db_script=""
+
+        if [[ -n "$install_db_script" ]]; then
+            require_moodle_username
+            info "Installing Moodle database using $install_db_script (admin user: ${MOODLE_USERNAME}) ..."
+            php "$install_db_script" \
+                --lang=en \
+                --adminuser="${MOODLE_USERNAME}" \
+                --adminpass="${MOODLE_PASSWORD}" \
+                --adminemail="${MOODLE_EMAIL}" \
+                --fullname="${MOODLE_SITE_NAME}" \
+                --shortname="${MOODLE_SITE_SHORTNAME}" \
+                --agree-license >/dev/null
+        else
+            error "Could not find admin/cli/install_database.php. Installation failed."
+            exit 1
+        fi
+
+        touch "$MOODLE_DATA_DIR/.moodle_initialized"
+        info "Moodle initialization completed."
+    fi
+    rmdir "$MOODLE_DATA_DIR/.gke-schema.lock" 2>/dev/null || true
+
+    # Install created MOODLE_USERNAME and applied password / email / site name.
+    # Mark env as consumed so the next restart does not touch the admin row.
+    _mark_environment_overrides_applied
+
+    # Bypass publicpaths security check after fresh installation
+    bypass_moodle_security_checks
+fi
+
+# Cron job configured in entrypoint.sh for non-root user compatibility
+info "Cron job configured during container startup..."
+
+# Restart cron để nhận user crontab mới
+if pgrep cron > /dev/null; then
+    info "Restarting cron daemon to pick up user crontab..."
+    pkill -HUP cron || true
+fi
+
+# wwwroot, reverse/ssl proxy and the Moodle 5.1+ router/cURL settings are baked
+# into config.php at first install by generate_moodle_config() - either a fixed
+# MOODLE_WWWROOT or a dynamic per-request detection block. We deliberately do NOT
+# rewrite config.php on subsequent container starts anymore.
+
+# Composer classmap is already built in the image. Re-dump only when missing
+# (corrupt volume) or when MOODLE_OPTIMIZE_COMPOSER=yes forces it.
+if [[ -f "$MOODLE_DIR/composer.json" ]]; then
+    local_optimize="${MOODLE_OPTIMIZE_COMPOSER:-auto}"
+    classmap="$MOODLE_DIR/vendor/composer/autoload_classmap.php"
+    if [[ "$local_optimize" == "yes" ]] || \
+       { [[ "$local_optimize" == "auto" ]] && [[ ! -s "$classmap" ]]; }; then
+        info "Optimizing Composer autoloader for production..."
+        composer dump-autoload --no-dev --classmap-authoritative --working-dir="$MOODLE_DIR" --quiet \
+            || warn "Failed to optimize composer autoloader"
+    else
+        debug "Skipping composer dump-autoload (classmap present; set MOODLE_OPTIMIZE_COMPOSER=yes to force)"
+    fi
+fi
+
+bootstrap_h5p_content_types
+
+info "Moodle application setup finished."

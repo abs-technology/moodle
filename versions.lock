@@ -1,10 +1,17 @@
-# versions.lock — pinned build manifest (moodle-core-5-2-2)
+# versions.lock — pinned build manifest (moodle-core-5-3)
 # Single source of truth. Change here, then rebuild.
+# Future deploys only. Live VMs keep the image they were created with.
 
-MOODLE_VERSION := 5.2.2
-MOODLE_RELEASE_PREFIX := 5.2.2
-MOODLE_STABLE_BRANCH := stable502
-MOODLE_DOWNLOAD_URL := https://packaging.moodle.org/stable502/moodle-5.2.2.tgz
+MOODLE_VERSION := 5.3.0
+MOODLE_RELEASE_PREFIX := 5.3
+MOODLE_STABLE_BRANCH := stable503
+MOODLE_DOWNLOAD_URL := https://packaging.moodle.org/stable503/moodle-5.3.tgz
 MOODLE_LAYOUT := 5
 PHP_VERSION := 8.4
-DOCKER_TAG := 5.2.2-r2
+# Sury php8.4 slot. 8.4.27 fixes CVE-2026-109618 and CVE-2026-109619.
+PHP_RELEASE := 8.4.27
+# Client binaries are copied from mariadb:11.8.9. Do not apt-install Debian's mariadb.
+# Debian's tracker has no fixed trixie package for CVE-2026-92262 and CVE-2026-85746.
+MARIADB_CLIENT := 11.8.9
+BASE_IMAGE := debian:13-slim
+DOCKER_TAG := 5.3.0-r5

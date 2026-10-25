@@ -31,10 +31,26 @@ fi
 [[ -z "$_banner_release" ]] && _banner_release="unknown"
 _banner_php=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.4")
 
+# Moodle publishes x.y.0 on the series page and later point releases at
+# /x.y/x.y.z. Built from the running release so a version bump updates this
+# URL without editing the banner.
+_banner_notes_url="https://moodledev.io/general/releases"
+_banner_ver=$(printf '%s' "${_banner_release}" | awk '{print $1}')
+if [[ "${_banner_ver}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+    if [[ "${BASH_REMATCH[3]}" == "0" ]]; then
+        _banner_notes_url="https://moodledev.io/general/releases/${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+    else
+        _banner_notes_url="https://moodledev.io/general/releases/${BASH_REMATCH[1]}.${BASH_REMATCH[2]}/${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+    fi
+elif [[ "${_banner_ver}" =~ ^([0-9]+)\.([0-9]+) ]]; then
+    _banner_notes_url="https://moodledev.io/general/releases/${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+fi
+
 echo ""
 echo " ══════════════════════════════════════════════"
 echo "  🎓 ABSI TECHNOLOGY MOODLE LMS 🎓              "
 echo "     Version: ${_banner_release}"
+echo "     Release notes: ${_banner_notes_url}"
 echo "     PHP Version: ${_banner_php}"
 echo "     Apache Version: 2.4                       "
 echo " ══════════════════════════════════════════════"
@@ -72,15 +88,16 @@ if [ -d "$MOODLE_DIR" ]; then
             debug "Moodle source code copied to bind volume"
         fi
     fi
-    
-    # Sử dụng ACL để set permissions an toàn hơn thay vì chown trực tiếp
-    if command -v setfacl >/dev/null 2>&1; then
-        # Sử dụng ACL để cho phép user access mà không thay đổi ownership gốc
+
+    # GKE + Filestore: recursive ACL/chown walks the whole share and races
+    # the startup probe. init-filesystem already owns the NFS roots as 1000.
+    if is_boolean_yes "${MOODLE_CLUSTER:-no}"; then
+        debug "Cluster mode: skipping recursive ACL on $MOODLE_DIR"
+    elif command -v setfacl >/dev/null 2>&1; then
         setfacl -R -m u:$APP_USER:rwx $MOODLE_DIR 2>/dev/null || true
         setfacl -R -m d:u:$APP_USER:rwx $MOODLE_DIR 2>/dev/null || true
         debug "ACL permissions set for $MOODLE_DIR"
     else
-        # Fallback: chỉ thêm group write permission
         chgrp -R $APP_USER $MOODLE_DIR 2>/dev/null || true
         chmod -R g+w $MOODLE_DIR 2>/dev/null || true
         debug "Group permissions set for $MOODLE_DIR"
@@ -92,17 +109,16 @@ info "Moodle cron will be started and monitored by moodle-run.sh"
 
 # Fix permissions cho moodledata
 if [ -d "$MOODLE_DATA_DIR" ]; then
-    # Tạo thư mục con cần thiết
     mkdir -p "$MOODLE_DATA_DIR/sessions" "$MOODLE_DATA_DIR/temp" "$MOODLE_DATA_DIR/cache"
-    
-    # Sử dụng ACL cho moodledata
-    if command -v setfacl >/dev/null 2>&1; then
+
+    if is_boolean_yes "${MOODLE_CLUSTER:-no}"; then
+        debug "Cluster mode: skipping recursive ACL on $MOODLE_DATA_DIR"
+    elif command -v setfacl >/dev/null 2>&1; then
         setfacl -R -m u:$APP_USER:rwx "$MOODLE_DATA_DIR" 2>/dev/null || true
         setfacl -R -m d:u:$APP_USER:rwx "$MOODLE_DATA_DIR" 2>/dev/null || true
         debug "ACL permissions set for $MOODLE_DATA_DIR"
     else
-        # Fallback: group permissions
-        chgrp -R $APP_USER "$MOODLE_DATA_DIR" 2>/dev/null || true  
+        chgrp -R $APP_USER "$MOODLE_DATA_DIR" 2>/dev/null || true
         chmod -R g+w "$MOODLE_DATA_DIR" 2>/dev/null || true
         debug "Group permissions set for $MOODLE_DATA_DIR"
     fi
