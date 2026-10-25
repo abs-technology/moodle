@@ -20,6 +20,9 @@ examples/*/data/
 *.pfx
 id_rsa*
 
+# Marketplace install scripts stay on the deploy machine. Do not publish them.
+script_marketplace/
+
 # Terraform — state holds the generated Moodle/MariaDB passwords in plaintext.
 # .terraform.lock.hcl is intentionally tracked.
 **/.terraform/
