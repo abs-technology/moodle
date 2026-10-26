@@ -1,0 +1,9 @@
+# Default reviewers for image, lockfile, scripts, and docs.
+* @abs-technology/moodle-maintainers
+
+/Dockerfile @abs-technology/moodle-maintainers
+/versions.lock @abs-technology/moodle-maintainers
+/scripts/ @abs-technology/moodle-maintainers
+/.github/ @abs-technology/moodle-maintainers
+/docs/ @abs-technology/moodle-maintainers
+/SECURITY.md @abs-technology/moodle-maintainers

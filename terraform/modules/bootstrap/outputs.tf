@@ -15,11 +15,11 @@ output "script" {
     compose_up_extra = var.compose_up_extra
     issue_acm_cert       = var.issue_acm_cert
     install_marketplace  = var.install_marketplace
-    mp_install       = file("${path.module}/../../../script_marketplace/install.sh")
-    mp_configure     = file("${path.module}/../../../script_marketplace/01-configure-moodle.sh")
-    mp_c2d_utils     = file("${path.module}/../../../script_marketplace/lib/c2d-utils")
-    mp_admin         = file("${path.module}/../../../script_marketplace/lib/marketplace-admin.sh")
-    mp_startup       = file("${path.module}/../../../script_marketplace/lib/startup-script.sh")
-    mp_installer     = file("${path.module}/../../../script_marketplace/lib/install-marketplace.sh")
+    mp_install       = fileexists("${path.module}/../../../script_marketplace/install.sh") ? file("${path.module}/../../../script_marketplace/install.sh") : ""
+    mp_configure     = fileexists("${path.module}/../../../script_marketplace/01-configure-moodle.sh") ? file("${path.module}/../../../script_marketplace/01-configure-moodle.sh") : ""
+    mp_c2d_utils     = fileexists("${path.module}/../../../script_marketplace/lib/c2d-utils") ? file("${path.module}/../../../script_marketplace/lib/c2d-utils") : ""
+    mp_admin         = fileexists("${path.module}/../../../script_marketplace/lib/marketplace-admin.sh") ? file("${path.module}/../../../script_marketplace/lib/marketplace-admin.sh") : ""
+    mp_startup       = fileexists("${path.module}/../../../script_marketplace/lib/startup-script.sh") ? file("${path.module}/../../../script_marketplace/lib/startup-script.sh") : ""
+    mp_installer     = fileexists("${path.module}/../../../script_marketplace/lib/install-marketplace.sh") ? file("${path.module}/../../../script_marketplace/lib/install-marketplace.sh") : ""
   })
 }

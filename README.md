@@ -1,33 +1,22 @@
-<div align="center">
+# ABS Technology Moodle image
 
-# 🎓 ABS Technology LMS powered by Moodle™ LMS
-### *One of The Most Advanced Moodle Docker Solution*
+Docker image `abstechnology/moodle-standard` for Moodle LMS. Moodle core is downloaded at build time from packaging.moodle.org. This git tree is the container and deploy layer, licensed **GPL-3.0-or-later**.
 
-<p>
-  <img src="https://img.shields.io/docker/pulls/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Pulls"/>
-  <img src="https://img.shields.io/docker/stars/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Docker Stars"/>  
-  <img src="https://img.shields.io/github/stars/abs-technology/moodle?style=for-the-badge&logo=github&logoColor=white&color=181717" alt="GitHub Stars"/>
-  <img src="https://img.shields.io/docker/image-size/abstechnology/moodle-standard?style=for-the-badge&logo=docker&logoColor=white&color=2496ED" alt="Image Size"/>
-</p>
+| Pin | Value |
+|-----|--------|
+| Moodle | **5.3.0** |
+| Image | **`abstechnology/moodle-standard:5.3.0-r5`** |
+| PHP | **8.4.27** |
+| Base | **`debian:13-slim`** (digest in [`versions.lock`](versions.lock)) |
+| Compose database | **MariaDB 11.8.9** |
 
-<p>
-  <img src="https://img.shields.io/badge/Moodle-5.3.0-orange?style=for-the-badge&logo=moodle&logoColor=white" alt="Moodle Version"/>
-  <img src="https://img.shields.io/badge/Image-5.3.0--r5-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Image Tag"/>
-  <img src="https://img.shields.io/badge/PHP-8.4.27-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP Version"/>
-  <img src="https://img.shields.io/badge/MariaDB-11.8.9-003545?style=for-the-badge&logo=mariadb&logoColor=white" alt="MariaDB Version"/>
-  <img src="https://img.shields.io/badge/License-GPL_v3-blue.svg?style=for-the-badge" alt="License"/>
-</p>
+[`versions.lock`](versions.lock) is the source of truth. Live VMs keep the image they were created with.
 
----
+Docs: [docs/WHAT-WE-SHIP.md](docs/WHAT-WE-SHIP.md) · [docs/SUPPORT-MATRIX.md](docs/SUPPORT-MATRIX.md) · [SECURITY.md](SECURITY.md) · [docs/RUNBOOK.md](docs/RUNBOOK.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
-### 🚀 **Production-Ready • Performance-Optimized – Professional-Service**
+GKE (Cloud SQL MySQL 8.4, Global ALB) is a **separate** stack: [`gke-moodle/`](gke-moodle/README.md). It does not use `terraform/` VM deployments.
 
-</div>
-
----
-
-## 🚀 Quick Start
-*Get your Moodle LMS running in under 2 minutes!*
+## Quick start
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/abs-technology/moodle/main/docker-compose.yml > docker-compose.yml
@@ -36,10 +25,6 @@ mkdir -p data/moodle data/moodledata
 chown -R 1000:1000 data/moodle data/moodledata
 docker compose up -d
 ```
-
-Current stack pin: **Moodle 5.3.0** (LTS) · image **`abstechnology/moodle-standard:5.3.0-r5`** · **PHP 8.4.27** · base **`debian:13-slim`** · compose MariaDB **11.8.9**. Version source of truth: [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock). Live VMs keep the image they were created with.
-
-GKE (Cloud SQL MySQL 8.4, Global ALB) is a **separate** stack: [`gke-moodle/`](gke-moodle/README.md). Terraform there is **infra only**; Moodle is Helm by hand. It does not use `terraform/` VM deployments.
 
 <div align="center">
 
@@ -247,30 +232,13 @@ GKE (Cloud SQL MySQL 8.4, Global ALB) is a **separate** stack: [`gke-moodle/`](g
 
 Pinned in [`versions.lock`](https://github.com/abs-technology/moodle/blob/main/versions.lock): Moodle **5.3.0** from [packaging.moodle.org stable503](https://packaging.moodle.org/stable503/moodle-5.3.tgz), PHP **8.4.27**, base **`debian:13-slim`**, Docker tag **`5.3.0-r5`**.
 
-Multi-arch Hub image (`linux/amd64` + `linux/arm64`) is built locally with `make push`. Default **`ATTESTATIONS=none`** (no provenance/SBOM attach) for Marketplace-safe publishes. See [`docs/SECURITY-EXCEPTIONS.md`](docs/SECURITY-EXCEPTIONS.md) and [`docs/RELEASE-NOTES-POLICY.md`](docs/RELEASE-NOTES-POLICY.md).
+Multi-arch Hub image (`linux/amd64` + `linux/arm64`) is published by GitHub Actions on tag `v<DOCKER_TAG>`. Laptop `make push` is break-glass. Default **`ATTESTATIONS=none`** on the Hub image (no provenance/SBOM attach) so Marketplace does not flag BuildKit Go CVEs. A separate SBOM file is attached to the GitHub Release. See [`docs/SECURITY-EXCEPTIONS.md`](docs/SECURITY-EXCEPTIONS.md), [`docs/RUNBOOK.md`](docs/RUNBOOK.md), and [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md).
 
 **Subscribe to project updates by watching the [ABS Technology Moodle GitHub repo](https://github.com/abs-technology/moodle).**
-
-## 🎯 **Trusted by Educational Institutions Worldwide**
-
-> *"Deployed across 200+ universities and schools globally, serving 500,000+ students daily"*
-
-**Perfect for:**
-- 🏫 Universities & Colleges worldwide
-- 🎓 K-12 Schools & International Schools
-- 🏢 Corporate Training & Enterprise Learning
-- 💻 Online Course Platforms & EdTech Startups
-- 🌐 Government & NGO Training Programs
 
 ## 📦 Get this Image
 
 The recommended way to get the ABS Technology Moodle Docker Image is to pull the prebuilt image from the Docker Hub Registry.
-
-```console
-$ docker pull abstechnology/moodle-standard:latest
-```
-
-To use a specific version, you can pull a versioned tag:
 
 ```console
 $ docker pull abstechnology/moodle-standard:5.3.0-r5
@@ -500,7 +468,7 @@ volumes:
 - ✅ **SSL/TLS ready** - HTTPS support out-of-the-box  
 - ✅ **Security headers** - OWASP recommended configurations
 - ✅ **Secure defaults** - Hardened PHP & Apache configurations
-- ✅ **Scout gate on `make push`** - Fixable Critical/High policy check
+- ✅ **Scout gate on both platforms** - Fixable Critical/High before Hub push
 - ✅ **Composer security pins** - AWS SDK / Guzzle / jmespath updates beyond Moodle lockfile
 
 ### 🌐 **Production Features**
@@ -523,7 +491,7 @@ The image includes SSL support with self-signed certificates for development. Fo
 $ docker run -d --name moodle \
   -v /path/to/your/cert.pem:/etc/ssl/certs/server.crt \
   -v /path/to/your/key.pem:/etc/ssl/private/server.key \
-  abstechnology/moodle-standard:latest
+  abstechnology/moodle-standard:5.3.0-r5
 ```
 
 ### Password Security
@@ -538,14 +506,15 @@ Known Scout / Marketplace exceptions and attestation policy: [`docs/SECURITY-EXC
 
 ## Building & releasing (maintainers)
 
-Pins live in [`versions.lock`](versions.lock). Local build/push (no Cloud Build):
+Pins live in [`versions.lock`](versions.lock). Publish is GitHub Actions on tag `v<DOCKER_TAG>` ([`docs/RUNBOOK.md`](docs/RUNBOOK.md)).
 
 ```console
 $ ./scripts/git-hooks/install.sh   # strip banned AI attribution trailers
+$ ./scripts/verify-build-manifest.sh
 $ make build                       # native arch smoke build
-$ make push                        # Scout gate + multi-arch Hub push
-$ make tag-latest                  # optional: retag latest
-$ make remove                      # wipe local compose data + volumes
+$ ./scripts/smoke-image.sh
+# Tag v<DOCKER_TAG> and push. Actions Scouts both platforms, pushes Hub, signs, attaches SBOM.
+# make push is break-glass only. Do not retag latest.
 ```
 
 Release notes are required for every new image tag — see [`docs/RELEASE-NOTES-POLICY.md`](docs/RELEASE-NOTES-POLICY.md) and [`AGENTS.md`](AGENTS.md).
@@ -587,7 +556,7 @@ Do not commit IDE folders such as `.cursor/` — they are gitignored.
 
 ## License
 
-This Docker setup is licensed under the MIT License. Moodle itself is licensed under the GNU General Public License v3+.
+This repository (image and deploy layer) is licensed under **GPL-3.0-or-later**, same family as Moodle LMS. Moodle core is not in git; the build downloads the pinned tarball from packaging.moodle.org. See [`LICENSE`](LICENSE).
 
 ## 🎧 **Support & Community**
 
@@ -603,12 +572,6 @@ This Docker setup is licensed under the MIT License. Moodle itself is licensed u
 - 🎓 **Training & Consulting**: Custom Moodle implementation services
 - 🚀 **Migration Services**: Seamless migration from other LMS platforms
 - ⭐ **Lifetime Updates**: Free updates and continuous improvements guaranteed
-
-### 📈 **Success Metrics**
-- ⭐ **99.9% Uptime** across production deployments
-- 🏫 **200+ Institutions** actively using our images worldwide
-- 👥 **500,000+ Students** served daily across 50+ countries
-- 🌍 **Trusted Choice** for international educational institutions
 
 ---
 

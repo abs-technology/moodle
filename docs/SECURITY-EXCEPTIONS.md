@@ -1,17 +1,18 @@
-# Security exceptions — Docker Scout critical CVEs
+# Security exceptions — Docker Scout
 
-Image: `abstechnology/moodle-standard` (Debian 13 / trixie base, `debian:13-slim`)  
-Applies to: Moodle **5.3.0** and later builds on this base until Debian ships fixes.
+Image: `abstechnology/moodle-standard`  
+Line: Moodle **5.3.0** on `debian:13-slim` (`BASE_IMAGE_DIGEST` in [`versions.lock`](../versions.lock)).
 
-## How to read Scout numbers
+## How to read Scout
 
 | Signal | Meaning |
 |--------|---------|
-| Quickview **4C** (raw) | All critical CVEs, including **unfixed** in the distro |
-| Policy **No fixable critical or high** | Must stay **PASS** — no C/H that already have a published fix |
-| Policy **Copyleft** | Expected fail on Debian/Apache/PHP stacks; **ignored** by `make push` gate |
+| Quickview raw Critical | Every critical, including those Debian has not fixed |
+| Policy **No fixable critical or high** | Release gate. Must PASS |
+| Policy **Copyleft** | Expected on Debian/Apache/PHP. Ignored by the gate |
+| Policy **Supply chain attestations** | Required when `ATTESTATIONS=full`. Skipped when `ATTESTATIONS=none` |
 
-**Release rule:** `make push` / `scripts/utils/docker-scout.sh policy` gates on **fixable** security policies only. Raw critical counts on `make scan` are for awareness, not an automatic release blocker.
+Release rule: the gate is **fixable** C/H. Raw criticals are reviewed here, not hidden.
 
 Gate policy IDs (copyleft omitted on purpose):
 
@@ -20,93 +21,57 @@ Gate policy IDs (copyleft omitted on purpose):
 - `high-profile-vulnerabilities`
 - `no-stale-base-images`
 - `approved-base-images`
-- `supply-chain-attestations`
+- `supply-chain-attestations` (only if attestations are attached)
 
-## Accepted unfixable criticals (trixie)
+## MariaDB client (CVE-2026-92262, CVE-2026-85746)
 
-Re-list after the first Scout of `abstechnology/moodle-standard:5.3.0` (`make cves-critical`). The 5.2.x bookworm table (perl / libaprutil) does **not** apply to this base.
+Debian 13 still ships MariaDB **11.8.6**. Upstream fixed both CVEs in **11.8.9**. Debian's tracker has no fixed trixie version, so Scout marks every `pkg:deb/debian/mariadb` package vulnerable, including a rebuilt `1:11.8.9+maria~deb13`.
 
-Until that scan: `make push` still gates on **fixable** C/H only. Raw criticals on `make scan` are awareness, not an automatic blocker.
+This image does **not** apt-install Debian's mariadb. It copies `mariadb` and `mariadb-dump` from `mariadb:11.8.9` (digest in `versions.lock`). Those two CVEs are server bugs. The binaries are the 11.8.9 client. They are not registered as a Debian package, so Scout does not attribute `debian/mariadb` to the image.
 
-**Not in this list:** PHP (Sury), the MariaDB client, Composer app deps (Guzzle/AWS are pinned in the Dockerfile for *fixable* highs).
+That is an SBOM choice, not a version lie. The client version is asserted at build (`from 11.8.9-MariaDB`).
 
-Debian 13 still ships MariaDB **11.8.6**. CVE-2026-92262 and CVE-2026-85746 are fixed upstream in **11.8.9**, but Debian's tracker has no fixed trixie version, so Scout marks every Debian `mariadb` package vulnerable (including `1:11.8.9+maria~deb13`). The Moodle image does not install that package. It copies `mariadb` and `mariadb-dump` from `mariadb:11.8.9`, the same build as the database container. Both CVEs are server bugs (`#mysql50#` table names and `ST_AsText`).
+## Bookworm lines (5.2.3, 4.5, 4.3.12) — Apache and libtiff
 
-## Monitor and rebuild when Debian ships fixes
+Debian 12 has no fixed `apache2` (2.4.68) or `tiff` (4.5.0) package. Scout's affected range on bookworm is `>0`. Relabeling the package version does not clear the finding.
 
-Check periodically:
+Those lines compile Apache **2.4.69** and libtiff **4.7.2**, copy the binaries over the distro files, then drop the bookworm `apache2*` / `libtiff6` records from `/var/lib/dpkg/status` so Scout is not shown a bookworm package that Debian will never mark fixed.
+
+Say this in a review: the **binaries** are the upstream fixes; the **distro packages** are absent from the SBOM because Bookworm has no fixed package. Do not say “Scout 0C because we patched Debian.”
+
+5.3 on Debian 13 does not use that overlay. Trixie already has Apache 2.4.69 and a current libtiff.
+
+## PHP
+
+- 5.3 / 5.2: PHP **8.4.27** (CVE-2026-109618, CVE-2026-109619).
+- 4.3.12: PHP **8.2.35** (same two CVEs). Moodle 4.3 does not run 8.3 or 8.4.
+- `session.upload_progress.enabled=0` until PHP ships CVE-2026-115560.
+
+## Attestations and Marketplace Go CVEs
+
+Google Marketplace Artifact Analysis flags Go/containerd versions that live in BuildKit **attestation** manifests (`platform: unknown/unknown`), not in the Moodle runtime.
+
+Default **`ATTESTATIONS=none`**: Hub image has no attached SBOM/provenance, so Marketplace does not see those Go CVEs. A separate SBOM file is attached to the GitHub Release by CI.
+
+`ATTESTATIONS=full` is for a Scout supply-chain review. It can reintroduce the Marketplace Go flags.
+
+Current builder pins: `moby/buildkit:v0.32.2`. The SBOM file on the Release is produced by Syft in Actions, not by embedding syft inside the image.
+
+## Copyleft
+
+Org policy “Copyleft licensed packages found” fails on hundreds of GPL/LGPL Debian packages. That is this stack. The release script ignores `copyleft-license`.
+
+## Monitor
 
 ```bash
-# Base image criticals
 docker scout cves debian:13-slim --only-severity critical
-
-# Our image: raw criticals vs already-fixed only
 make cves-critical
 docker scout cves abstechnology/moodle-standard:$(grep DOCKER_TAG versions.lock | awk '{print $3}') \
   --only-severity critical --only-fixed
 ```
 
-When `trixie-security` publishes updates for packages that still show as raw criticals:
+When `trixie-security` publishes a fix for a raw critical we still list:
 
-1. Bump image revision if needed (e.g. `DOCKER_TAG := 5.3.0-r1` in [`versions.lock`](../versions.lock) + compose/docs mirrors).
-2. Rebuild and push with a fresh base pull:
-   ```bash
-   docker pull debian:13-slim
-   make push   # NO_CACHE=yes → --pull
-   ```
-3. Confirm:
-   - `make policy` still PASS
-   - `docker scout cves … --only-severity critical --only-fixed` → empty
-   - Raw critical count drops or clears for the packages above
-4. Update this file: remove rows that are fixed, or mark “cleared in tag …”
-
-## Related commands
-
-| Command | Purpose |
-|---------|---------|
-| `make scan` | Quickview (raw C/H + all Hub policies) |
-| `make policy` | Release gate (fixable C/H, etc.; ignores copyleft) |
-| `make cves-critical` | List raw critical CVEs for manual review |
-| `make fix` | Scout base-image recommendations |
-
-## Copyleft (separate from criticals)
-
-Org policy “Copyleft licensed packages found” fails on hundreds of GPL/LGPL Debian packages. That is inherent to this stack. The release script ignores `copyleft-license`. To silence Hub UI, adjust the org Scout policy in Docker Hub — do not change the OS base solely for license counts.
-
-## Marketplace Go CVEs (attestation false positives)
-
-Google Cloud Marketplace / Artifact Analysis may reject an image with messages like:
-
-| CVE | Package | Type | Typical source |
-|-----|---------|------|----------------|
-| CVE-2026-53492 / CVE-2026-50195 | `github.com/containerd/containerd/v2` @ 2.2.3 (fix ≥ 2.2.5) | GO | BuildKit / SBOM generator metadata |
-| CVE-2023-24531 | Go `toolchain` @ 1.18.2 (fix ≥ 1.21) | GO_STDLIB | Old BuildKit provenance tooling |
-
-These packages are **not** part of the Moodle/PHP runtime. They appear when the submitted OCI index includes **SBOM/provenance attestation** manifests (`platform: unknown/unknown`) produced by `docker buildx` with `--attest`.
-
-Builds are **local only** (`make push` / `make build`). Cloud Build / `cloudbuild.yaml` has been removed.
-
-### Một lần `make push` — một image
-
-Mặc định **`ATTESTATIONS=none`**: image không có SBOM/provenance → Marketplace không còn flag Go/containerd từ attestation, và vẫn dùng cùng tag trên Docker Hub.
-
-```bash
-make login
-make push          # Scout gate (bỏ supply-chain attest) → multi-arch push
-make inspect-manifest   # xác nhận không có unknown/unknown
-```
-
-Chỉ bật attestation khi cố ý (Scout supply-chain đầy đủ; Marketplace có thể cảnh báo lại):
-
-```bash
-ATTESTATIONS=full make push
-```
-
-### After changing BuildKit / SBOM pins
-
-```bash
-docker buildx rm scout-builder || true
-make push   # recreates builder with BUILDKIT_IMAGE / SBOM_SCANNER from docker-scout.sh
-```
-
-Current pins (defaults in `scripts/utils/docker-scout.sh`): `moby/buildkit:v0.32.2`, `docker/buildkit-syft-scanner:latest`.
+1. Bump `DOCKER_TAG` in `versions.lock`.
+2. Publish `rN` through Actions (or break-glass `make push`).
+3. Update this file.

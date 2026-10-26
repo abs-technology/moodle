@@ -47,10 +47,27 @@ fi
 compose_tag=$(grep -E 'image:.*moodle-standard:' "$ROOT/docker-compose.yml" | head -1 | sed 's/.*://')
 check_eq "docker-compose tag" "$DOCKER_TAG" "$compose_tag"
 
-df_from=$(awk '/^FROM /{print $2; exit}' "$ROOT/Dockerfile")
-check_eq "Dockerfile FROM" "${BASE_IMAGE:-debian:13-slim}" "$df_from"
-df_mdb=$(grep -E '^FROM mariadb:' "$ROOT/Dockerfile" | head -1 | awk '{print $2}')
-check_eq "Dockerfile MariaDB client" "mariadb:${MARIADB_CLIENT}" "$df_mdb"
+df_from=$(grep -E '^ARG BASE_IMAGE=' "$ROOT/Dockerfile" | head -1 | cut -d= -f2-)
+check_eq "Dockerfile BASE_IMAGE" "${BASE_IMAGE}@${BASE_IMAGE_DIGEST}" "$df_from"
+df_mdb=$(grep -E '^ARG MARIADB_IMAGE=' "$ROOT/Dockerfile" | head -1 | cut -d= -f2-)
+check_eq "Dockerfile MariaDB client" "${MARIADB_IMAGE}@${MARIADB_IMAGE_DIGEST}" "$df_mdb"
+
+if ! grep -q "echo \"\${MOODLE_TGZ_SHA256}" "$ROOT/Dockerfile"; then
+    err "Dockerfile Moodle tarball: expected a sha256 check"
+fi
+if ! grep -q "getcomposer.org/download/\${COMPOSER_VERSION}/composer.phar" "$ROOT/Dockerfile"; then
+    err "Dockerfile Composer: expected a pinned composer.phar download"
+fi
+if grep -q 'getcomposer.org/installer | php' "$ROOT/Dockerfile"; then
+    err "Dockerfile Composer: installer pipe is not allowed"
+fi
+
+df_sury=$(grep -E '^ARG SURY_PHP_GPG_SHA256=' "$ROOT/Dockerfile" | head -1 | cut -d= -f2)
+check_eq "Dockerfile SURY_PHP_GPG_SHA256" "${SURY_PHP_GPG_SHA256:-}" "$df_sury"
+df_composer_sha=$(grep -E '^ARG COMPOSER_SHA256=' "$ROOT/Dockerfile" | head -1 | cut -d= -f2)
+check_eq "Dockerfile COMPOSER_SHA256" "${COMPOSER_SHA256:-}" "$df_composer_sha"
+df_moodle_sha=$(grep -E '^ARG MOODLE_TGZ_SHA256=' "$ROOT/Dockerfile" | head -1 | cut -d= -f2)
+check_eq "Dockerfile MOODLE_TGZ_SHA256" "${MOODLE_TGZ_SHA256:-}" "$df_moodle_sha"
 
 if grep -qE 'public/admin/cli' "$ROOT/scripts/moodle-run.sh" "$ROOT/scripts/setup/moodle.sh" 2>/dev/null; then
     err "Scripts reference wrong CLI path public/admin/cli (Moodle 5.x uses admin/cli at root)"

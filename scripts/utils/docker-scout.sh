@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
 # docker-scout.sh — Build, scan, gate-keep, and push Moodle Docker image.
+# Normal publish is GitHub Actions on tag v<DOCKER_TAG>. This script is the
+# local/break-glass path (make push). See docs/RUNBOOK.md.
 #
 # Mục đích:
 #   - Build image với SBOM + Provenance attestations (bắt buộc cho supply-chain).
@@ -480,7 +482,7 @@ cmd_release() {
             exit "$policy_rc"
         fi
         err "RELEASE ABORT: $img không pass policy (rc=$policy_rc). Không push."
-        err "Set PUSH_ON_FAIL=yes để override (KHÔNG khuyến khích)."
+        err "PUSH_ON_FAIL=yes is break-glass only. Write the exception in docs/SECURITY-EXCEPTIONS.md."
         exit "$policy_rc"
     fi
 

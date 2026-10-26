@@ -13,5 +13,13 @@ PHP_RELEASE := 8.4.27
 # Client binaries are copied from mariadb:11.8.9. Do not apt-install Debian's mariadb.
 # Debian's tracker has no fixed trixie package for CVE-2026-92262 and CVE-2026-85746.
 MARIADB_CLIENT := 11.8.9
+MARIADB_IMAGE := mariadb:11.8.9
+MARIADB_IMAGE_DIGEST := sha256:f16d7a344413e519dff518f27bdb221388f84b0d274c97c4fb5f2cb0dc1b34fa
 BASE_IMAGE := debian:13-slim
+BASE_IMAGE_DIGEST := sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+MOODLE_TGZ_SHA256 := 7e5edf110555956571f40e42acffde0eb23681ebebd212a2fec0fe7d795dd511
+COMPOSER_VERSION := 2.8.12
+COMPOSER_SHA256 := f446ea719708bb85fcbf4ef18def5d0515f1f9b4d703f6d820c9c1656e10a2f2
+# packages.sury.org/php/apt.gpg — pin so a key swap fails the build.
+SURY_PHP_GPG_SHA256 := b486fd5488185c4c46467960fa69c53d5085fec492cf76b9eaf3db33561c9d7c
 DOCKER_TAG := 5.3.0-r5

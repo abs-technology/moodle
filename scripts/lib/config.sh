@@ -96,7 +96,7 @@ export MOODLE_DATABASE_HOST="${MOODLE_DATABASE_HOST:-mariadb}"
 export MOODLE_DATABASE_PORT_NUMBER="${MOODLE_DATABASE_PORT_NUMBER:-3306}"
 export MOODLE_DATABASE_NAME="${MOODLE_DATABASE_NAME:-absi_moodle_db}"
 export MOODLE_DATABASE_USER="${MOODLE_DATABASE_USER:-absi_moodle_user}"
-export MOODLE_DATABASE_PASSWORD="${MOODLE_DATABASE_PASSWORD:-password}"
+export MOODLE_DATABASE_PASSWORD="${MOODLE_DATABASE_PASSWORD:-}"
 
 # MariaDB Client Settings
 export MARIADB_HOST="${MARIADB_HOST:-$MOODLE_DATABASE_HOST}"
@@ -113,8 +113,36 @@ export MARIADB_COLLATE="${MARIADB_COLLATE:-utf8mb4_unicode_ci}"
 # ============================================================================
 
 export MOODLE_USERNAME="${MOODLE_USERNAME:-admin}"
-export MOODLE_PASSWORD="${MOODLE_PASSWORD:-password}"
-export MOODLE_EMAIL="${MOODLE_EMAIL:-henry@absi.edu.vn}"
+export MOODLE_PASSWORD="${MOODLE_PASSWORD:-}"
+export MOODLE_EMAIL="${MOODLE_EMAIL:-}"
+export MOODLE_ALLOW_DEFAULT_SECRETS="${MOODLE_ALLOW_DEFAULT_SECRETS:-no}"
+
+_moodle_secret_is_weak() {
+    case "${1:-}" in
+        ""|password|CHANGE_THIS*|CHANGE_THIS_TO_STRONG_*|Absi@123) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+if [[ "$MOODLE_ALLOW_DEFAULT_SECRETS" != "yes" ]]; then
+    if _moodle_secret_is_weak "$MOODLE_PASSWORD"; then
+        error "MOODLE_PASSWORD is unset or weak. Set a strong password, or MOODLE_ALLOW_DEFAULT_SECRETS=yes for a local demo."
+        exit 1
+    fi
+    if _moodle_secret_is_weak "$MOODLE_DATABASE_PASSWORD"; then
+        error "MOODLE_DATABASE_PASSWORD is unset or weak. Set a strong password, or MOODLE_ALLOW_DEFAULT_SECRETS=yes for a local demo."
+        exit 1
+    fi
+    if [[ -z "$MOODLE_EMAIL" || "$MOODLE_EMAIL" == "henry@absi.edu.vn" ]]; then
+        error "MOODLE_EMAIL must be set to an address for this site."
+        exit 1
+    fi
+else
+    export MOODLE_PASSWORD="${MOODLE_PASSWORD:-password}"
+    export MOODLE_DATABASE_PASSWORD="${MOODLE_DATABASE_PASSWORD:-password}"
+    export MOODLE_EMAIL="${MOODLE_EMAIL:-admin@localhost}"
+    warn "MOODLE_ALLOW_DEFAULT_SECRETS=yes — demo passwords are in use. Do not ship this."
+fi
 export MOODLE_SITE_NAME="${MOODLE_SITE_NAME:-Absi Technology Moodle LMS}"
 export MOODLE_SITE_FULLNAME="${MOODLE_SITE_FULLNAME:-Absi Technology Learning Management System}"
 export MOODLE_SITE_SHORTNAME="${MOODLE_SITE_SHORTNAME:-ABSI-LMS}"
