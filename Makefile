@@ -12,7 +12,7 @@ SCOUT     := ./scripts/utils/docker-scout.sh
 IMG_FULL  := $(IMAGE):$(TAG)
 
 # Scout nhận BUILD_ARGS dạng "KEY=VAL KEY2=VAL2"
-BUILD_ARGS ?= MOODLE_VERSION=$(MOODLE_VERSION) MOODLE_RELEASE_PREFIX=$(MOODLE_RELEASE_PREFIX) MOODLE_DOWNLOAD_URL=$(MOODLE_DOWNLOAD_URL) PHP_VERSION=$(PHP_VERSION) PHP_RELEASE=$(PHP_RELEASE)
+BUILD_ARGS ?= MOODLE_VERSION=$(MOODLE_VERSION) MOODLE_RELEASE_PREFIX=$(MOODLE_RELEASE_PREFIX) MOODLE_DOWNLOAD_URL=$(MOODLE_DOWNLOAD_URL) MOODLE_TGZ_SHA256=$(MOODLE_TGZ_SHA256) PHP_VERSION=$(PHP_VERSION) PHP_RELEASE=$(PHP_RELEASE) COMPOSER_VERSION=$(COMPOSER_VERSION) COMPOSER_SHA256=$(COMPOSER_SHA256) SURY_PHP_GPG_SHA256=$(SURY_PHP_GPG_SHA256) BASE_IMAGE=$(BASE_IMAGE)@$(BASE_IMAGE_DIGEST) MARIADB_IMAGE=$(MARIADB_IMAGE)@$(MARIADB_IMAGE_DIGEST)
 
 # Gate arch = native host (tránh QEMU chậm khi scan)
 HOST_ARCH := $(shell uname -m)
@@ -42,7 +42,8 @@ DATA_DIRS := data/moodle data/moodledata data/moodle-backups
 help: ## Lệnh có sẵn
 	@printf 'Image : %s\n' "$(IMG_FULL)"
 	@printf 'Push  : %s (Scout gate → multi-arch, ATTESTATIONS=%s)\n' "$(PLATFORMS)" "$(ATTESTATIONS)"
-	@printf 'Note  : 1 lần make push → 1 image dùng cho Hub + Marketplace\n'
+	@printf 'Note  : GitHub Actions on tag v<DOCKER_TAG> is the publish path.\n'
+	@printf '       make push is break-glass. See docs/RUNBOOK.md\n'
 	@printf '       raw Critical OK nếu fixable C/H PASS — docs/SECURITY-EXCEPTIONS.md\n\n'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9._-]+:.*?## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
@@ -52,11 +53,17 @@ build: ## Build local 1 arch (--no-cache, test nhanh)
 		--build-arg MOODLE_VERSION=$(MOODLE_VERSION) \
 		--build-arg MOODLE_RELEASE_PREFIX=$(MOODLE_RELEASE_PREFIX) \
 		--build-arg MOODLE_DOWNLOAD_URL=$(MOODLE_DOWNLOAD_URL) \
+		--build-arg MOODLE_TGZ_SHA256=$(MOODLE_TGZ_SHA256) \
 		--build-arg PHP_VERSION=$(PHP_VERSION) \
 		--build-arg PHP_RELEASE=$(PHP_RELEASE) \
+		--build-arg COMPOSER_VERSION=$(COMPOSER_VERSION) \
+		--build-arg COMPOSER_SHA256=$(COMPOSER_SHA256) \
+		--build-arg SURY_PHP_GPG_SHA256=$(SURY_PHP_GPG_SHA256) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE)@$(BASE_IMAGE_DIGEST) \
+		--build-arg MARIADB_IMAGE=$(MARIADB_IMAGE)@$(MARIADB_IMAGE_DIGEST) \
 		-t $(IMG_FULL) .
 
-push: ## Scout gate + multi-arch push (1 image — Hub & Marketplace)
+push: ## Break-glass: Scout gate + multi-arch Hub push. Normal path is Actions.
 	@./scripts/verify-build-manifest.sh
 	@docker buildx rm $(BUILDER) >/dev/null 2>&1 || true
 	@$(SCOUT) release
@@ -81,7 +88,11 @@ fix: ## Scout gợi ý fix CVE / base image
 login: ## docker login
 	@docker login
 
-tag-latest: ## Gắn tag latest (multi-arch manifest)
+tag-latest: ## Refused unless CONFIRM_RETAG_LATEST=yes. Revisions use rN.
+	@if [ "$(CONFIRM_RETAG_LATEST)" != "yes" ]; then \
+		printf 'Refused: do not retag latest. Ship the next rN. Break-glass: CONFIRM_RETAG_LATEST=yes\n' >&2; \
+		exit 1; \
+	fi
 	@docker buildx imagetools create $(IMG_FULL) --tag $(IMAGE):latest
 
 up: ## docker compose up -d

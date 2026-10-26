@@ -10,3 +10,10 @@ docker-compose.yml
 Makefile
 terminals/
 agent-transcripts/
+script_marketplace/
+terraform/
+gke-moodle/
+*.pem
+*.tfvars
+*.tfstate
+*.tfstate.*

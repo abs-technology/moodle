@@ -69,6 +69,23 @@ terraform/
 
 `terraform.tfvars` and `break-glass.pem` are gitignored. Do not commit them.
 
+Customer directories under `deployments/` are **not** the product. This repo tracks `modules/` and `templates/`. Do not commit live tfvars or state.
+
+### Marketplace overlay (GCP only)
+
+`script_marketplace/` is not in git. The GCP module sets `install_marketplace = true` and embeds those files in the startup script. Copy the overlay onto the machine that runs `terraform apply` **before** apply:
+
+```
+script_marketplace/install.sh
+script_marketplace/01-configure-moodle.sh
+script_marketplace/lib/c2d-utils
+script_marketplace/lib/marketplace-admin.sh
+script_marketplace/lib/startup-script.sh
+script_marketplace/lib/install-marketplace.sh
+```
+
+AWS leaves `install_marketplace = false`. Apply without the overlay does not fail on AWS. Apply on GCP without the overlay fails with a clear precondition, not a silent empty script.
+
 ---
 
 ## 1 · Authenticate

@@ -4,6 +4,19 @@ terraform {
   required_version = ">= 1.5"
 }
 
+# script_marketplace/ is a local overlay. It is not in git. GCP first-boot
+# needs those files on the machine that runs terraform apply.
+resource "terraform_data" "marketplace_overlay" {
+  count = var.install_marketplace ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = fileexists("${path.module}/../../../script_marketplace/install.sh")
+      error_message = "script_marketplace/ is a local overlay required for GCP first-boot. Copy the scripts onto this machine before apply. See terraform/README.md (Marketplace overlay)."
+    }
+  }
+}
+
 locals {
   acme_caserver = var.acme_staging ? "ACME_CASERVER=https://acme-staging-v02.api.letsencrypt.org/directory" : ""
 

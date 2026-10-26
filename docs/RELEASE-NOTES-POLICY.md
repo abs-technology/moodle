@@ -1,11 +1,11 @@
 # Release notes (required on push)
 
 For this repo, **every push that ships a new image tag or version must include Release notes**.
-Do not treat `make push`, Hub push, or git tag push as done until notes exist.
+Do not treat Actions publish, Hub push, or git tag push as done until notes exist.
 
 ## When this applies
 
-- `make push` / Docker Hub push of `abstechnology/moodle-standard`
+- GitHub Actions release on tag `v<DOCKER_TAG>` (normal path) or break-glass `make push`
 - Bump `DOCKER_TAG` or Moodle pin in `versions.lock`
 - Annotated git tag `v*` (e.g. `v5.3.0`)
 - Promote release branch → `main`
@@ -17,7 +17,7 @@ Skip only for pure docs/chore commits with **no** new `DOCKER_TAG` and **no** im
 
 1. Read `versions.lock` (`MOODLE_VERSION`, `DOCKER_TAG`, `PHP_VERSION` or `PHP_RELEASE`, download URL).
 2. One commit for the image change, in the commit shape below.
-3. `make push`. Record the index digest. Manifest is `linux/amd64` and `linux/arm64` only.
+3. Push the annotated tag. Actions builds both platforms, Scouts fixable C/H, pushes Hub, signs the digest, and attaches the SBOM. Break-glass is `make push` (see [RUNBOOK.md](RUNBOOK.md)). Record the index digest. Manifest is `linux/amd64` and `linux/arm64` only.
 4. Annotated git tag, plain text, shape below. Tag name is `v<DOCKER_TAG>`.
 5. GitHub Release. **Title is the tag name** (`v5.3.0-r3`), not a sentence. Body is the markdown shape below.
 6. Do not retag `latest` or overwrite a published tag.
@@ -108,7 +108,7 @@ Ops is those three bullets, each on its own line. List every published tag that 
 
 - [ ] `versions.lock` read; `DOCKER_TAG` matches image, compose, and docs mirrors
 - [ ] Commit subject matches the shape above
-- [ ] Image push OK; digest recorded; amd64 + arm64 only
+- [ ] Actions (or break-glass `make push`) OK; digest recorded; amd64 + arm64 only; SBOM on the GitHub Release
 - [ ] Annotated tag is plain text; GitHub title equals the tag name
 - [ ] GitHub body heading is `Moodle <version> image` or `Moodle <version> image rN`
 - [ ] No agent attribution in commit, tag, or release

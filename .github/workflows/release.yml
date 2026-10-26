@@ -1,0 +1,152 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag (DOCKER_TAG), without the v prefix
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+  packages: write
+
+env:
+  IMAGE: abstechnology/moodle-standard
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load versions.lock
+        id: lock
+        run: |
+          eval "$(awk -F ' := ' '/^[A-Z0-9_]+ := /{printf "export %s=\"%s\"\n",$1,$2}' versions.lock)"
+          TAG="${{ github.event.inputs.tag || '' }}"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_REF_NAME#v}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "docker_tag=$DOCKER_TAG" >> "$GITHUB_OUTPUT"
+          {
+            echo "MOODLE_VERSION=$MOODLE_VERSION"
+            echo "MOODLE_RELEASE_PREFIX=$MOODLE_RELEASE_PREFIX"
+            echo "MOODLE_DOWNLOAD_URL=$MOODLE_DOWNLOAD_URL"
+            echo "MOODLE_TGZ_SHA256=$MOODLE_TGZ_SHA256"
+            echo "PHP_VERSION=$PHP_VERSION"
+            echo "PHP_RELEASE=$PHP_RELEASE"
+            echo "COMPOSER_VERSION=$COMPOSER_VERSION"
+            echo "COMPOSER_SHA256=$COMPOSER_SHA256"
+            echo "SURY_PHP_GPG_SHA256=$SURY_PHP_GPG_SHA256"
+            echo "BASE_IMAGE=$BASE_IMAGE"
+            echo "BASE_IMAGE_DIGEST=$BASE_IMAGE_DIGEST"
+            echo "MARIADB_IMAGE=$MARIADB_IMAGE"
+            echo "MARIADB_IMAGE_DIGEST=$MARIADB_IMAGE_DIGEST"
+            echo "DOCKER_TAG=$DOCKER_TAG"
+          } >> "$GITHUB_ENV"
+          ./scripts/verify-build-manifest.sh
+          test "$TAG" = "$DOCKER_TAG"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Scan image lives on GHCR so a Scout fail never writes Hub.
+      - name: Build multi-arch to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          provenance: false
+          sbom: false
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/${{ github.repository }}:${{ env.DOCKER_TAG }}
+          build-args: |
+            MOODLE_VERSION=${{ env.MOODLE_VERSION }}
+            MOODLE_RELEASE_PREFIX=${{ env.MOODLE_RELEASE_PREFIX }}
+            MOODLE_DOWNLOAD_URL=${{ env.MOODLE_DOWNLOAD_URL }}
+            MOODLE_TGZ_SHA256=${{ env.MOODLE_TGZ_SHA256 }}
+            PHP_VERSION=${{ env.PHP_VERSION }}
+            PHP_RELEASE=${{ env.PHP_RELEASE }}
+            COMPOSER_VERSION=${{ env.COMPOSER_VERSION }}
+            COMPOSER_SHA256=${{ env.COMPOSER_SHA256 }}
+            SURY_PHP_GPG_SHA256=${{ env.SURY_PHP_GPG_SHA256 }}
+            BASE_IMAGE=${{ env.BASE_IMAGE }}@${{ env.BASE_IMAGE_DIGEST }}
+            MARIADB_IMAGE=${{ env.MARIADB_IMAGE }}@${{ env.MARIADB_IMAGE_DIGEST }}
+
+      - name: Scout linux/amd64
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: registry://ghcr.io/${{ github.repository }}:${{ env.DOCKER_TAG }}
+          only-severities: critical,high
+          only-fixed: true
+          exit-code: true
+          platform: linux/amd64
+
+      - name: Scout linux/arm64
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: registry://ghcr.io/${{ github.repository }}:${{ env.DOCKER_TAG }}
+          only-severities: critical,high
+          only-fixed: true
+          exit-code: true
+          platform: linux/arm64
+
+      - name: Smoke amd64
+        run: |
+          docker pull --platform linux/amd64 "ghcr.io/${{ github.repository }}:${{ env.DOCKER_TAG }}"
+          ./scripts/smoke-image.sh "ghcr.io/${{ github.repository }}:${{ env.DOCKER_TAG }}"
+
+      - name: Copy index to Docker Hub
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ env.IMAGE }}:${{ env.DOCKER_TAG }}" \
+            "ghcr.io/${{ github.repository }}:${{ env.DOCKER_TAG }}"
+
+      - name: SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}:${{ env.DOCKER_TAG }}
+          format: spdx-json
+          artifact-name: ${{ env.IMAGE }}-${{ env.DOCKER_TAG }}.spdx.json
+          upload-artifact: true
+
+      - name: Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign index digest
+        run: |
+          DIGEST="$(docker buildx imagetools inspect "${{ env.IMAGE }}:${{ env.DOCKER_TAG }}" --format '{{json .Manifest}}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')"
+          echo "digest=$DIGEST" >> "$GITHUB_ENV"
+          cosign sign --yes "${{ env.IMAGE }}@${DIGEST}"
+
+      - name: Attach SBOM to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SBOM="$(ls ./*${{ env.DOCKER_TAG }}.spdx.json | head -1 || true)"
+          if [ -n "$SBOM" ]; then
+            gh release upload "${{ github.ref_name }}" "$SBOM" --clobber || true
+          fi
+          echo "Index digest: $DIGEST"
+          echo "Follow docs/RELEASE-NOTES-POLICY.md if this tag has no GitHub Release yet."

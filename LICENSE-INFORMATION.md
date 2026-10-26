@@ -100,7 +100,7 @@ You must:
 
 1. **Source Code Availability**
    - GitHub repository: https://github.com/abs-technology/moodle
-   - All modifications documented
+   - Moodle core is the pinned tarball in `versions.lock`, not a git subtree
    - Dockerfile and scripts publicly available
 
 2. **Attribution**

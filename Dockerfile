@@ -1,10 +1,15 @@
-FROM debian:13-slim AS base
+ARG BASE_IMAGE=debian:13-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+FROM ${BASE_IMAGE} AS base
 
 ARG MOODLE_VERSION=5.3.0
 ARG MOODLE_RELEASE_PREFIX=5.3
 ARG MOODLE_DOWNLOAD_URL=https://packaging.moodle.org/stable503/moodle-5.3.tgz
+ARG MOODLE_TGZ_SHA256=7e5edf110555956571f40e42acffde0eb23681ebebd212a2fec0fe7d795dd511
 ARG PHP_VERSION=8.4
 ARG PHP_RELEASE=8.4.27
+ARG COMPOSER_VERSION=2.8.12
+ARG COMPOSER_SHA256=f446ea719708bb85fcbf4ef18def5d0515f1f9b4d703f6d820c9c1656e10a2f2
+ARG SURY_PHP_GPG_SHA256=b486fd5488185c4c46467960fa69c53d5085fec492cf76b9eaf3db33561c9d7c
 ARG APACHE_VERSION=2.4
 ARG APP_USER=absiuser
 ARG APP_GROUP=absiuser
@@ -27,7 +32,9 @@ RUN apt-get update \
     lsb-release \
     wget \
     gnupg2 \
-    && wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg \
+    && wget -O /tmp/php.gpg https://packages.sury.org/php/apt.gpg \
+    && echo "${SURY_PHP_GPG_SHA256}  /tmp/php.gpg" | sha256sum -c - \
+    && mv /tmp/php.gpg /etc/apt/trusted.gpg.d/php.gpg \
     && echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list \
     && printf 'Package: php%s*\nPin: version %s*\nPin-Priority: 1001\n\nPackage: libapache2-mod-php%s\nPin: version %s*\nPin-Priority: 1001\n' \
         "$PHP_VERSION" "$PHP_RELEASE" "$PHP_VERSION" "$PHP_RELEASE" \
@@ -86,10 +93,13 @@ RUN apt-get update \
 RUN apt-get autoremove -y \
     && apt-get autoclean -y
 
-# Install Composer for dependency management and security updates
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \
-    && chmod +x /usr/local/bin/composer \
-    && rm -rf /tmp/composer-setup.php
+# Install Composer from a pinned phar. Do not pipe the installer to php.
+ARG COMPOSER_VERSION
+ARG COMPOSER_SHA256
+RUN curl -fsSL -o /tmp/composer.phar "https://getcomposer.org/download/${COMPOSER_VERSION}/composer.phar" \
+    && echo "${COMPOSER_SHA256}  /tmp/composer.phar" | sha256sum -c - \
+    && install -m 0755 /tmp/composer.phar /usr/local/bin/composer \
+    && rm -f /tmp/composer.phar
 
 # Configure locale for UTF-8 support
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
@@ -158,8 +168,10 @@ FROM base AS moodle-downloader
 ARG MOODLE_VERSION
 ARG MOODLE_RELEASE_PREFIX
 ARG MOODLE_DOWNLOAD_URL
+ARG MOODLE_TGZ_SHA256
 
 RUN curl -fsSL "${MOODLE_DOWNLOAD_URL}" -o /tmp/moodle.tgz \
+    && echo "${MOODLE_TGZ_SHA256}  /tmp/moodle.tgz" | sha256sum -c - \
     && mkdir -p /opt/moodle-source \
     && tar -xzf /tmp/moodle.tgz -C /opt/moodle-source --strip-components=1 \
     && rm -f /tmp/moodle.tgz \
@@ -200,7 +212,8 @@ RUN cd /opt/moodle-source \
 # flagged by Scout for CVE-2026-92262 and CVE-2026-85746 (no fixed trixie version),
 # including 11.8.9 from dlm.mariadb.com. These two binaries are the 11.8.9 client
 # and are not registered as a Debian package. SQL still goes through PHP mysqli.
-FROM mariadb:11.8.9 AS mariadb-client
+ARG MARIADB_IMAGE=mariadb:11.8.9@sha256:f16d7a344413e519dff518f27bdb221388f84b0d274c97c4fb5f2cb0dc1b34fa
+FROM ${MARIADB_IMAGE} AS mariadb-client
 
 # ================================
 # Final stage
@@ -272,12 +285,14 @@ RUN openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     && chmod 644 /etc/ssl/certs/localhost.crt \
     && chmod 640 /etc/ssl/private/localhost.key
 
-# Set permissions for config directories and files so non-root user can modify at runtime
+# App user may rewrite Apache/PHP config at boot. It must not own the
+# CA store or the private-key directory — only the generated site cert.
 RUN chown -R $APP_USER:$APP_GROUP /etc/apache2 \
     && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/fpm \
     && chown -R $APP_USER:$APP_GROUP /etc/php/${PHP_VERSION}/apache2 \
-    && chown -R $APP_USER:$APP_GROUP /etc/ssl/certs \
-    && chown -R $APP_USER:$APP_GROUP /etc/ssl/private \
+    && chown root:$APP_GROUP /etc/ssl/private \
+    && chmod 750 /etc/ssl/private \
+    && chown $APP_USER:$APP_GROUP /etc/ssl/certs/localhost.crt /etc/ssl/private/localhost.key \
     && chown $APP_USER:$APP_GROUP /var/run
 RUN rm -f /etc/php/${PHP_VERSION}/cli/php.ini \
     && ln -s /etc/php/${PHP_VERSION}/fpm/php.ini /etc/php/${PHP_VERSION}/cli/php.ini
