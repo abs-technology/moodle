@@ -70,7 +70,7 @@ jobs:
 
       # Scan image lives on GHCR so a Scout fail never writes Hub.
       - name: Build multi-arch to GHCR
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
