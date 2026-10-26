@@ -52,7 +52,7 @@ jobs:
           ./scripts/verify-build-manifest.sh
           test "$TAG" = "$DOCKER_TAG"
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
